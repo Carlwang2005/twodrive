@@ -524,7 +524,8 @@ pub fn run(
     fs2::FileExt::try_lock_exclusive(&lock).context("another controller holds this queue")?;
     let key = state.identity()?;
     let session = random_secret();
-    let expires = now() + lifetime;
+    let lease_expires = now() + lifetime;
+    let expires = lease_expires + 300;
     let deadline = Instant::now() + Duration::from_secs(lifetime);
     let mut report = Report {
         version: 1,
@@ -533,7 +534,7 @@ pub fn run(
         seq: 0,
         expires,
         status: "ready".into(),
-        data: json!({"device": key.public(), "agent_sha256": digest(&std::env::current_exe()?).context("hash controller executable")?, "agent_pid": std::process::id(), "proxy_environment_present": (["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"].iter().any(|name| std::env::var_os(name).is_some()))}),
+        data: json!({"device": key.public(), "agent_sha256": digest(&std::env::current_exe()?).context("hash controller executable")?, "agent_pid": std::process::id(), "lease_expires": lease_expires, "proxy_environment_present": (["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"].iter().any(|name| std::env::var_os(name).is_some()))}),
     };
     atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)
         .context("write signed control response")?;
@@ -623,6 +624,7 @@ pub fn run(
                 report.data = json!({"error": format!("{error:#}")});
             }
         }
+        report.data["request_signature"] = serde_json::to_value(value.signature)?;
         atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)
             .context("write signed control response")?;
         if finish {

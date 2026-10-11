@@ -57,16 +57,20 @@ class Control:
     def command(self, action):
         previous = self.response()
         seq = previous['seq'] + 1
-        payload = {'version': 1, 'session': self.session, 'seq': seq, 'expires': int(time.time()) + 300, 'command': action}
+        payload = {'version': 1, 'session': self.session, 'seq': seq, 'expires': int(time.time()) + 120, 'command': action}
         with tempfile.TemporaryDirectory(prefix='td-control-request-') as directory:
             source, signed = Path(directory) / 'input.json', Path(directory) / 'signed.json'
             source.write_text(json.dumps(payload))
             subprocess.run([self.binary, '--state', str(self.state), 'test-sign', '--input', str(source), '--out', str(signed)], check=True, capture_output=True)
-            self.request('command.json', 'PUT', signed.read_bytes())
+            signed_bytes = signed.read_bytes()
+            request_signature = json.loads(signed_bytes)['signature']
+            self.request('command.json', 'PUT', signed_bytes)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             result = self.response()
             if result['seq'] == seq:
+                if result['data'].get('request_signature') != request_signature:
+                    raise ValueError('Signed response belongs to another request')
                 return result
             if result['seq'] > seq:
                 raise ValueError('Another controller advanced the command sequence')

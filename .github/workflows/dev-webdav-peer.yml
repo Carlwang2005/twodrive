@@ -49,6 +49,8 @@ jobs:
           workspaces: experiments/twodrive-dev -> target
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --locked ${{ matrix.args }} -- -D warnings
+      - name: Reject a response belonging to another signed command
+        run: python scripts/test-control-response.py
       - name: Confirm the DNS regression rejects the old selection
         run: python scripts/test-dns-old-selection.py
       - run: cargo test --locked ${{ matrix.args }}

@@ -136,6 +136,10 @@ fn paired_control_recovers_child_failure_rejects_replay_and_cleans_up() {
     );
     let ready = wait(&queue, device, 0);
     assert_eq!(ready.status, "ready");
+    assert_eq!(
+        ready.expires,
+        ready.data["lease_expires"].as_u64().unwrap() + 300
+    );
     // Exercise the actual CLI report verifier, not only the library signature.
     assert!(
         Command::new(BIN)

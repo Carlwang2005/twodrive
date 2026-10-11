@@ -26,5 +26,5 @@ try {
     . ([ScriptBlock]::Create($hashFunction.Extent.Text))
     $hash=Native-Hash $nativeFile
     if ($hash -notmatch '^[A-F0-9]{64}$') { throw 'Native state hash invalid.' }
-    Write-Host 'PASS: exact bootstrap assignment/hash supports verbatim paths; legacy Path and Join-Path fail.' 
+    Write-Host 'PASS: exact bootstrap assignment/hash supports verbatim paths; legacy Path and Join-Path fail.'
 } finally { Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue }
