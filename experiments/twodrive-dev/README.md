@@ -86,6 +86,20 @@ The default uses iroh/N0 public relays and address discovery. Ordinary outbound 
 - LAN/offline tests: use `--no-relay` on both sides, disabling public relays and discovery. New invitations refresh UDP address hints after restarts.
 - Relay diagnostics: use `--relay-only` on both sides. Direct IP transports are disabled and the connection reports `transport=relay`.
 
+`serve` and `connect` default to `--network-route auto`: select an active physical interface and constrain peer-sharing DNS, UDP, relay TCP, and signed address publication to that egress. The first direct attempt ignores HTTP proxy environment settings and TUN fake-IP DNS. A private loopback connector, authenticated with random credentials kept in memory, carries opaque relay TLS; certificate and device identity verification remain enabled. No global proxy or routing changes are required.
+
+On physical setup, DNS, TCP, publication, or initial peer transport failure, `auto` permits system/proxy fallback and prints `network: route=system/proxy fallback` with the stage. Peer transport retries happen before authorization; expired/consumed invitations or revoked grants do not trigger that retry. `connect` also prints the selected path and RTT.
+
+- `--network-route direct`: disable automatic fallback, useful for checking physical connectivity alone. Unavailable interface binding can fail the attempt.
+- `--network-route system`: deliberately use system routing and iroh-supported HTTP(S) proxy environment settings.
+- `--network-interface NAME`: select a physical adapter by OS name, Windows friendly name, or index. In `auto`, an unavailable adapter reports system/proxy fallback; in `direct`, it fails. This also permits a controlled fallback test without changing global routes.
+
+For a live Windows verification, `scripts/verify-network.ps1` accepts a disposable share, its existing private state, and a separately verified executable SHA-256. It temporarily replaces exactly the matching test server, measures physical-source TCP and unchanged routes, and tests a missing-adapter fallback. An already paired Linux verifier sends only bounded `next`/`finish`/`abort` signals through the share. The script restores the original server and deletes its own executable, script, and probe files; the verifier collects and deletes the remaining sanitized report. This is a coordinated diagnostic, not unattended remote program execution.
+
+Bypass is best effort. Linux TCP/DNS use interface and source-address constraints; Windows uses interface indices. iroh UDP currently binds physical source addresses. Forced VPN, WFP, or transparent gateway policies may remain effective; recognizing every virtual adapter and arbitrary SOCKS fallback are not guaranteed. The interface is selected at startup; restart dev after switching networks to reselect it. This policy covers experimental peer sharing; external WebDAV mounts and stable OneDrive egress are outside this change.
+
+The [2026-10-11 live record](../../doc/peer-direct-egress-2026-10-11.json) covers local FlClash TUN bypass, real Windows-peer data verification, and cleanup in `direct` and final default `auto` modes. Bypassing a local proxy can still use an encrypted relay and does not establish direct UDP hole punching. Native Windows builds and Windows TUN bypass remain unverified for this change.
+
 Complex NAT or blocked UDP can require a relay, whose underlying transport may use TCP/TLS. Direct UDP cannot be guaranteed in every network. Discovery and relays do not store files; device secret keys stay local.
 
 ## Verification and boundaries

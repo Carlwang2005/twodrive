@@ -41,6 +41,14 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --locked ${{ matrix.args }} -- -D warnings
       - run: cargo test --locked ${{ matrix.args }}
+      - name: Parse the Windows live-verification script
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/verify-network.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
       - run: cargo build --release --locked ${{ matrix.args }}
       - name: Two CLI processes without public infrastructure
         run: python scripts/smoke.py --binary ${{ matrix.binary }} --network lan

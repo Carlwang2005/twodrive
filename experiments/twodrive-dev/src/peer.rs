@@ -11,7 +11,7 @@ use http_body_util::{BodyExt, Full, Limited, combinators::UnsyncBoxBody};
 use hyper::{body::Incoming, service::service_fn};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use iroh::{
-    Endpoint, EndpointAddr, RelayMode,
+    Endpoint, EndpointAddr, RelayMode, SecretKey,
     endpoint::{Connection, RecvStream, SendStream, presets},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -41,6 +41,8 @@ pub struct Network {
     pub relays: Vec<String>,
     pub no_relay: bool,
     pub relay_only: bool,
+    pub route: crate::network::RouteMode,
+    pub interface: Option<String>,
 }
 
 pub async fn endpoint(state: &State, network: &Network) -> anyhow::Result<Endpoint> {
@@ -48,22 +50,37 @@ pub async fn endpoint(state: &State, network: &Network) -> anyhow::Result<Endpoi
         !(network.no_relay && (network.relay_only || !network.relays.is_empty())),
         "--no-relay cannot be combined with relay options"
     );
+    for value in &network.relays {
+        let url = url::Url::parse(value)?;
+        ensure!(
+            url.scheme() == "https" && url.username().is_empty() && url.password().is_none(),
+            "custom relays require HTTPS without credentials"
+        );
+    }
+    // State/configuration errors must not be mislabeled as routing failures.
+    let secret = state.identity()?;
+    match bind_endpoint(&secret, network).await {
+        Ok(endpoint) => Ok(endpoint),
+        Err(_) if network.route == crate::network::RouteMode::Auto => {
+            eprintln!(
+                "network: route=system/proxy fallback; physical setup or relay registration failed"
+            );
+            let mut fallback = network.clone();
+            fallback.route = crate::network::RouteMode::System;
+            bind_endpoint(&secret, &fallback).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn bind_endpoint(secret: &SecretKey, network: &Network) -> anyhow::Result<Endpoint> {
     let mut builder = if network.no_relay {
         Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)
     } else if !network.relays.is_empty() {
         let relays = network
             .relays
             .iter()
-            .map(|value| {
-                let url = url::Url::parse(value)?;
-                ensure!(
-                    url.scheme() == "https"
-                        && url.username().is_empty()
-                        && url.password().is_none(),
-                    "custom relays require HTTPS without credentials"
-                );
-                Ok(value.parse()?)
-            })
+            .map(|value| Ok(value.parse()?))
             .collect::<anyhow::Result<Vec<_>>>()?;
         Endpoint::builder(presets::Minimal).relay_mode(RelayMode::custom(relays))
     } else {
@@ -72,12 +89,20 @@ pub async fn endpoint(state: &State, network: &Network) -> anyhow::Result<Endpoi
     if network.relay_only {
         builder = builder.clear_ip_transports();
     }
+    builder = crate::network::configure(
+        builder,
+        network.route,
+        network.interface.as_deref(),
+        !network.no_relay && network.relays.is_empty(),
+        network.relay_only,
+    )
+    .await?;
     let transport = iroh::endpoint::QuicTransportConfig::builder()
         .max_concurrent_bidi_streams(64u32.into())
         .max_concurrent_uni_streams(0u32.into())
         .build();
     let endpoint = builder
-        .secret_key(state.identity()?)
+        .secret_key(secret.clone())
         .alpns(vec![ALPN.to_vec()])
         .transport_config(transport)
         .bind()
@@ -87,12 +112,43 @@ pub async fn endpoint(state: &State, network: &Network) -> anyhow::Result<Endpoi
             .await
             .is_err()
     {
-        endpoint.close().await;
+        crate::network::close_failed(endpoint).await;
         anyhow::bail!(
             "relay registration timed out; check outbound connectivity or use --no-relay for LAN testing"
         );
     }
     Ok(endpoint)
+}
+
+/// Retry a failed transport before sending authorization or consuming an invite.
+pub async fn connect_client(
+    state: &State,
+    network: &Network,
+    address: EndpointAddr,
+) -> anyhow::Result<(Endpoint, PeerClient)> {
+    let endpoint = endpoint(state, network).await?;
+    let client = PeerClient::new(endpoint.clone(), address.clone());
+    match client.connection().await {
+        Ok(_) => Ok((endpoint, client)),
+        Err(error) => {
+            endpoint.close().await;
+            if network.route != crate::network::RouteMode::Auto {
+                return Err(error);
+            }
+            eprintln!(
+                "network: route=system/proxy fallback; peer transport connection failed; authorization has not been sent"
+            );
+            let mut fallback = network.clone();
+            fallback.route = crate::network::RouteMode::System;
+            let endpoint = self::endpoint(state, &fallback).await?;
+            let client = PeerClient::new(endpoint.clone(), address);
+            if let Err(error) = client.connection().await {
+                endpoint.close().await;
+                return Err(error);
+            }
+            Ok((endpoint, client))
+        }
+    }
 }
 
 pub struct QuicIo {
@@ -427,6 +483,13 @@ impl PeerClient {
             self.address.id,
             transport(&connection)
         );
+        if let Some(path) = connection.paths().iter().find(|path| path.is_selected()) {
+            println!(
+                "Selected path: {} RTT: {:.1} ms",
+                path.remote_addr(),
+                path.rtt().as_secs_f64() * 1000.0
+            );
+        }
         Ok(())
     }
     pub async fn forward(&self, request: Request<Incoming>) -> anyhow::Result<Response<ProxyBody>> {

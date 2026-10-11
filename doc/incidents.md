@@ -46,6 +46,160 @@
 
 
 
+## TD-20261011-04：物理 DNS 将 NXDOMAIN 错当出口失败
+
+- 日期：2026-10-11
+- 状态：已验证回归与真实 Linux/Windows 默认模式复测。
+- 影响版本与环境：TD-20261011-03 尚未提交的自动物理出口实现，Linux 热点与 FlClash TUN。
+- 关联历史故障：TD-20261011-03；这是新 DNS 实现中的响应分类缺陷。
+
+### 症状与影响
+
+默认 auto 的真实双机 2 MiB PUT/GET/MOVE/Range/DELETE 校验全部通过，观察到公网 TCP 使用物理网卡，但设备发现多次报告 DNS TXT 的 system/proxy fallback。该轮不能报告为所有组件均绕过代理。
+
+### 触发条件与复现
+
+公共递归 DNS 对设备发现 TXT 返回 NXDOMAIN。物理源地址上的 dig 查询两个独立公共 nameserver 均得到正常 NXDOMAIN 响应，耗时约 20/329 ms；未泄露私钥或邀请。
+
+### 根因与证据
+
+network/dns.rs 的 validate_response 仅接受 RCODE::NoError，将匹配事务、问题的 NameError 当作无响应，Resolver 因此启动系统 DNS 兜底。有效的无记录结果不代表物理出口失败。对端 TXT 尚无记录的具体原因未确认；已有邀请地址提示仍可建立 relay 连接。
+
+### 解决办法与恢复操作
+
+匹配事务/问题的 NXDOMAIN 与 NODATA 返回空记录，按 [RFC 2308](https://www.rfc-editor.org/rfc/rfc2308) 取 SOA TTL/MINIMUM 较小值作负缓存，缺少 SOA 或 MINIMUM=0 不缓存。空地址结果只在某个地址查询确实失败时允许 DNS 兜底；超时、SERVFAIL、非法响应仍可失败。未调整全局代理或路由。
+
+### 验证结果与边界
+
+同一新增 valid_nxdomain_is_not_a_physical_route_failure 在修复前实际失败（DNS response unusable），修复后通过，同时验证错误事务/问题、SERVFAIL 仍失败，以及负缓存缺少 SOA/MINIMUM=0 时 TTL=0。实验默认与 features mount 的 13 项单元、9 项集成测试均通过，两种配置的严格 Clippy 通过。旧实现的真实 auto 结果保存在[出口验证记录](peer-direct-egress-2026-10-11.json)，保留该轮 TXT 兜底证据。修正后的真实默认 auto 再次完成 2 MiB PUT/GET 哈希、MOVE、256 KiB Range、DELETE，61 次网络/socket 采样未见变化，所见公网 TCP 均约束 wlo1，整轮没有 system/proxy 兜底提示；共享目录为空，两个本轮文件名均 GET 404。该验证不建立对端 TXT 发布成功或 UDP 直连的结论。
+
+### 防复发措施与后续
+
+验证有效 NXDOMAIN 返回空记录，事务/问题错误及 SERVFAIL 继续失败；必须保留失败/修复后的对照与真实复测。
+
+### 交付记录
+
+尚未提交、未发布。
+
+## TD-20261011-03：dev 在 TUN 代理下未统一选择物理出口
+
+- 日期：2026-10-11
+- 状态：已验证 Linux 物理出口、真实双机数据与自动兜底回归；Windows 原生出口未验证。
+- 影响版本与环境：dev `355287f` 的 WebDAV/QUIC 实验；Linux FlClash TUN 与真实 Windows 对端。
+- 关联历史故障：TD-20261011-02 的路由补查确认代理与美西 relay 路径；本次是用户要求修正出口选择，不是其测试脚本超时复发。
+
+### 症状与影响
+
+TwoDrive 可传输并校验数据，但本机策略路由将其 relay 流量送入 TUN，当前代理规则进一步经 VPS 转发；实际所选 relay 在 NA-west，RTT 中位数约 502 ms。用户要求在虚拟网卡存在时自动绕过代理，避免将该路径误当原生 NAT 打洞。
+
+### 触发条件与复现
+
+物理 Wi-Fi 已连接手机热点，同时 FlClash 的自动路由和 fake-IP DNS 开启。现有 dev endpoint 使用默认系统 DNS 与 socket 出口；此前只读路由检查及 15 次真实对端 OPTIONS 已确认所选 relay。
+
+### 根因与证据
+
+已确认应用缺少覆盖 DNS、UDP 和 relay TCP 的统一直连出口策略。实验的 WebDAV 客户端已使用 no_proxy，但该设置只关闭显式 HTTP 代理，不改变系统策略路由。锁定 iroh 1.3.0 支持 UDP 地址绑定，relay TCP 内部仍调用未绑定的 TcpStream::connect。采用进程内带随机认证的回环 CONNECT 连接器，将 relay TLS 透明转发到物理接口绑定的 TCP socket；定制 Resolver 通过物理 DNS socket 查询 A/AAAA/TXT，UDP 绑定物理源地址，地址发布使用相同连接器及原设备签名。物理接口判断依据 OS 与 netdev 元数据，排除 TUN、回环、down 和 fake-IP 地址。不能将源地址绑定等同于绕过所有系统透明拦截。
+
+### 解决办法与恢复操作
+
+已实现仅作用于 dev serve/connect 的 --network-route auto/direct/system，默认 auto；用户明确选择允许代理兜底并提示。DNS、TCP、签名发布和 endpoint 初始化/注册失败可报告 system/proxy fallback；首次 peer 传输失败先关闭 endpoint、以同一持久身份重建系统出口，在发送认证前重试。邀请失败或授权拒绝不触发这项重试。direct 关闭自动兜底，Linux 若接口约束被拒绝则失败；auto 可退为源地址约束并明确提示限制。TLS 证书验证、QUIC 设备认证、单次邀请协议保持。
+
+只在本机启动了隔离 dev 网关，保留既有配对身份；未调整全局代理、路由或稳定服务，也未替换 Windows exe。所有测试文件仅为本轮拥有的合成文件，操作结束删去，Windows 对外可见共享列表为空。本机 dev 进程退出，配对状态仍仅 594 字节；清理独立 experiments/twodrive-dev/target 的全部可再生构建缓存（包括既有缓存），cargo clean 实际删除 15997 项、11.7 GiB。稳定 daemon 仍 active、PID 2404、NRestarts=0；保留源码与脱敏报告。
+
+### 验证结果与边界
+
+新增 12 项网络回归覆盖：物理网卡筛选、fake-IP 拒绝、TCP/DNS 源地址、IPv6-only 的回环访问、DNS 事务/问题/CNAME/负响应及 TCP 截断重试、连接器认证/关闭、auto 与 direct 回退差异、地址发布签名/防篡改和 TLS 必需。受控同一 TCP listener 的旧未绑定连接产生 127.0.0.1，新连接产生指定的 127.0.0.2，证明旧源地址行为违反新出口约束。12 项网络与原 model 共 13 项单元测试、9 项集成（包括一次性邀请、真实本机 QUIC、撤销既有连接）通过，fmt、默认与 features mount 严格 Clippy 均通过；两种配置的同一 22 项测试均通过，不含真实 OneDrive。
+
+真实 Linux→Windows 验证：保留 FlClash TUN 与热点连接，direct 禁止兜底时完成 2 MiB PUT/GET 全量 SHA-256、MOVE、256 KiB Range、DELETE；22 次网络/socket 采样未见路由变化，所见公网 TCP 均带物理 wlo1 接口约束。auto 首轮传输也通过，但 TXT 负响应被误判为出口失败，已另记 TD-20261011-04，不将此轮称为全组件绕过代理。修正后最终默认 auto 再次完成相同校验和清理，61 次采样未见网络变化，所见公网 TCP 均约束 wlo1，无系统/代理兜底提示。初始所选 US-west relay RTT 为 760.9 ms，2 MiB 上传 48.606 秒、读回 9.150 秒，不能据此宣称绕过代理改善速度；[脱敏实测记录](peer-direct-egress-2026-10-11.json)保留全部轮次。
+
+边界：两轮配对时所选路径均为加密 relay，未持续观察 QUIC 路径或建立 UDP peer 直连证据；Windows 使用旧 exe，未验证新增 Windows 原生构建/IP_UNICAST_IF/TUN 行为。iroh UDP 只绑定物理源地址，物理接口按启动时快照选择；网络变化后的重新选择需重启 dev。SO_BINDTODEVICE/IP_UNICAST_IF 无法保证绕过强制 VPN、WFP、透明网关；未保证所有虚拟适配器识别或任意 SOCKS 兜底。策略不覆盖外部 WebDAV 挂载和稳定 OneDrive。周期采样也不能排除采样间的变化。
+
+### 防复发措施与后续
+
+保留物理出口与受控回退回归，保证所有相关 HTTP/TLS 组件接入相同出口，凭据仅留内存、Debug 脱敏、连接器随 endpoint 退出关闭。保留旧代理路径证据与每轮实际结果；后续需 Windows 原生编译和 Windows TUN 实测，不能仅凭 Linux 成功扩大平台承诺。
+
+### 交付记录
+
+Windows 原生验证准备（2026-10-11）：增加 Winsock 接口约束读取回归、Windows/Linux 共用的自动回退回归，以及指定物理网卡的诊断参数。实机脚本沿用原身份与授权，受控重启测试 serve，并在结束或超时后恢复旧程序、清理自身临时负载；脚本不接受任意远程命令。原生 CI 和 Windows 实机验证结果待补充。先在临时验证分支构建，验证完成前不推进 dev。
+
+尚未提交、未发布；[脱敏实测记录](peer-direct-egress-2026-10-11.json)。
+
+## TD-20261011-02：热点复测的 64 MiB 上传触发临时脚本超时
+
+- 日期：2026-10-11
+- 状态：已验证临时脚本的发送期限修正；未确认生产客户端传输缺陷。
+- 影响版本与环境：dev `355287f` 的 CI release 客户端与临时 Python HTTP 测试脚本；真实 Windows/Linux 双机。
+- 关联历史故障：TD-20261007-02 同为验证期限不足，但该次涉及 FUSE 60 秒恢复周期，本次是 Python 大请求体发送预算，根因不同；TD-20261011-01 是另一项临时诊断工具缺陷。
+
+### 症状与影响
+
+用户重新连接热点后，15 次认证 OPTIONS 成功且观察路径为 relay，无邀请重连成功；随后 64 MiB 临时文件上传报 URLError，未完成读回校验。网络监测采样 189 次，未发现活动 Wi-Fi 连接或路由变化。测试脚本 finally 删除本次临时文件，复查共享目录为空，未触碰服务器私有身份状态。
+
+### 触发条件与复现
+
+临时 Python 脚本以 `urllib.request.urlopen(..., timeout=40)` 发送 64 MiB 合成文件，第一次复测在发送阶段报 URLError。之前 16 MiB 上传在约 32 秒完成，该预算对大文件不足。
+
+### 根因与证据
+
+已确认是临时脚本的 40 秒请求体发送预算不足。Python 标准库 `HTTPConnection.send` 对 bytes 请求体调用一次 socket.sendall；`AbstractHTTPHandler.do_open` 仅将 request 阶段的 OSError 包装为 URLError，随后 getresponse 在该内层捕获之外。实测错误为 `URLError: <urlopen error timed out>`。将测试预算提高至 240 秒并保持 64 MiB 请求体与生产代码不变后，记录到单次请求体发送实际耗时 64.587 秒，完整上传耗时 68.943 秒，读回哈希一致。这个实际发送耗时超过原预算，解释了第一次失败；两轮网络监测均未发现本机连接/路由变化。
+
+### 解决办法与恢复操作
+
+仅提高临时验证脚本的 HTTP socket 期限至 240 秒，并记录大请求体发送耗时；没有改变校验条件或生产程序。失败与成功两轮均在 finally 删除自己创建的文件并停止本机测试网关。服务器原子上传对象的 Drop 清理未提交临时路径；WebDAV 目录列表隐藏其保留前缀，故列表为空的直接证据范围是对外可见共享项。
+
+### 验证结果与边界
+
+旧 40 秒预算的真实双机复测失败；240 秒预算的真实双机复测成功完成 64 MiB PUT/GET 全量 SHA-256 比对、MOVE、1 MiB Range 读回及 DELETE，两个临时文件名均 GET 404，共享目录 PROPFIND 返回 0 个可见子项。复测约 226.847 秒，420 次采样未发现活动 Wi-Fi 连接标识、链路状态、全部路由表或策略路由规则变化；15 次独立认证 OPTIONS 的路径观察仍为 relay。详细实际结果见[脱敏验证记录](peer-cross-network-2026-10-11.json)。
+
+这是临时工具的旧预算失败、新预算通过对照，未改动生产程序；不表示 UDP 直连通过，也不证明所有网络吞吐下 240 秒足够。此前数据校验保留，历史固定网络条件仍不确定。按用户要求追加只读路由检查：本机 FlClash TUN 策略路由接管 IPv4，当前代理配置与已保存选项将 relay 送往 Hysteria2 VPS；独立 15 次请求实际所选 relay 位于 NA-west，RTT 中位数约 502 ms。因此本轮不属于绕过代理的原生 NAT 穿透验证；没有修改网络配置。
+
+### 防复发措施与后续
+
+跨网络大文件验证要根据文件大小与已测吞吐设置有界发送预算，并区分请求体发送、响应和后台提交的期限；记录实际发送耗时及 finally 清理结果。保留本次失败/成功对照，测试完成删除临时工具和数据。没有已确认的生产缺陷，未新增生产回归用例。
+
+### 交付记录
+
+本次尚未提交、未发布；[脱敏验证记录](peer-cross-network-2026-10-11.json)包含两次真实尝试及清理范围。
+
+## TD-20261011-01：跨网络验证的临时路径探针收到空 HTTP 响应
+
+- 日期：2026-10-11
+- 状态：已验证临时诊断程序的请求生命周期修正；未确认 TwoDrive 生产代码缺陷。
+- 影响版本与环境：dev `355287f` 的协议库与独立临时 Rust 诊断辅助程序；真实 Linux/Windows 双机。用户随后报告热点曾断开并自动回落校园网，因此此前整段测试的固定网络条件无法确认。
+- 关联历史故障：TD-20261007-02 同为验证工具边界问题，但本次是手工 QUIC/HTTP 探针，不认定同源。
+
+### 症状与影响
+
+现有 release 客户端已通过 64 MiB 读取、真实 FUSE 字节比对，以及 16 MiB 临时文件上传、读回、移动和删除。随后独立路径探针的设备身份认证成功、初始路径为 relay，但第一条 OPTIONS 的 HTTP 响应为空，探针退出，未完成持续路径观察。
+
+### 触发条件与复现
+
+共享测试数据清理后，使用保留的本机设备身份新建 QUIC 连接，认证后手工写入完整 OPTIONS 请求、调用发送流 finish，再读取响应。旧辅助程序在身份认证成功后得到空响应；移除提前 finish 后，同一设备、相同 OPTIONS 请求连续 15 次成功。
+
+### 根因与证据
+
+已定位为辅助程序在等待 HTTP 响应前过早关闭 QUIC 发送流。认证帧返回 accepted 后，旧程序调用 finish，产生 EOF；实验的 `peer::serve` 使用 Hyper HTTP/1 默认的 `half_close(false)`。锁定的 Hyper 1.11.1 在 `mid_message_detect_eof` 中发现响应处理中 EOF 时关闭读端并返回 incomplete，符合空响应现象。仅移除辅助程序的提前 finish 后，15 次 OPTIONS 全部成功，观察持续约 48 秒且所选路径均为 relay。没有证据把该诊断工具问题归因于 NAT 或设备授权失效。
+
+### 解决办法与恢复操作
+
+辅助程序保持请求发送端打开直到收到响应，沿用服务端 HTTP 策略；未修改 TwoDrive 生产代码。
+
+本地恢复操作另述：原本机测试 FUSE 挂载已正常卸载，原 release 客户端已退出。Windows 经用户确认的 7 项合成测试数据已删除，共享目录当时复查为空；私有设备身份与授权状态按用户要求保留。用户重新连接热点后进行受网络监测的独立复测，后续临时数据及工具的最终清理结果见脱敏记录。
+
+### 验证结果与边界
+
+真实 Windows/Linux release 客户端此前完成 64 MiB 远程下载与真实 FUSE 哈希比对、16 MiB 上传/读回/移动/删除；这些结果保留为双机数据正确性证据。因用户报告网络回落，不把此前整段测试称为稳定的热点与校园网跨 NAT 验证。旧临时探针失败，修正后实际 15 次认证 OPTIONS 通过；属于真实双机诊断工具对照，没有新增生产代码回归测试。
+
+重新连接后的持续路径观察、64 MiB 读写复测、网络稳定监测与最终清理详见[脱敏验证记录](peer-cross-network-2026-10-11.json)。relay 可达不等于 UDP 穿透成功；没有真实 OneDrive 测试，没有修改原有用户服务或共享目录以外的 Windows 状态。
+
+### 防复发措施与后续
+
+手工 HTTP/QUIC 探针应遵循服务端的半关闭策略，先验证请求/响应生命周期再统计路径变化；本条记录保留旧程序失败与修正后通过的实际对照。固定网络测试要在操作期间监测活动 Wi-Fi 连接标识及路由，事后单次查看不能排除中途回落。测试结束清理辅助程序、下载包及挂载缓存，仅保留必要的设备配对状态与脱敏记录。
+
+### 交付记录
+
+本次尚未提交、未发布。临时诊断程序不安装到稳定 TwoDrive，也不进入 Windows 开发包；[脱敏验证记录](peer-cross-network-2026-10-11.json)保存实际范围与结果。
+
 ## TD-20261007-03：整合树 Windows 原生 peer 测试失败
 
 - 日期：2026-10-07

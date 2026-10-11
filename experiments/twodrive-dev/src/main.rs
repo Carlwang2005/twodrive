@@ -10,7 +10,7 @@ use std::{
 use tokio::net::TcpListener;
 use twodrive_dev::model::CloudBackend;
 use twodrive_dev::{
-    peer::{self, Network, PeerClient},
+    peer::{self, Network},
     state::{Credentials, Invitation, State},
     webdav::WebDavBackend,
 };
@@ -32,6 +32,12 @@ struct Cli {
 }
 #[derive(Args, Clone)]
 struct NetworkArgs {
+    /// Physical egress first; auto reports and permits system/proxy fallback.
+    #[arg(long, value_enum, default_value = "auto")]
+    network_route: twodrive_dev::network::RouteMode,
+    /// Select a physical interface by OS name, Windows friendly name or index.
+    #[arg(long)]
+    network_interface: Option<String>,
     /// Custom HTTPS iroh relay (repeatable); disables public DNS discovery.
     #[arg(long)]
     relay: Vec<String>,
@@ -48,6 +54,8 @@ impl From<NetworkArgs> for Network {
             relays: args.relay,
             no_relay: args.no_relay,
             relay_only: args.relay_only,
+            route: args.network_route,
+            interface: args.network_interface,
         }
     }
 }
@@ -319,9 +327,15 @@ fn main() -> anyhow::Result<()> {
                 .map(Ok)
                 .unwrap_or_else(|| state.read("remote.json"))?;
             let credentials = state.credentials()?;
-            let endpoint = runtime.block_on(peer::endpoint(&state, &network.into()))?;
-            let client = PeerClient::new(endpoint.clone(), address.clone());
-            runtime.block_on(client.pair(&state, invitation))?;
+            let (endpoint, client) = runtime.block_on(peer::connect_client(
+                &state,
+                &network.into(),
+                address.clone(),
+            ))?;
+            if let Err(error) = runtime.block_on(client.pair(&state, invitation)) {
+                runtime.block_on(endpoint.close());
+                return Err(error);
+            }
             let listener = runtime.block_on(TcpListener::bind(listen))?;
             let address_local = listener.local_addr()?;
             print_gateway(address_local, &state);

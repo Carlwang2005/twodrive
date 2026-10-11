@@ -360,6 +360,27 @@ fn single_use_expiry_concurrent_pairing_and_private_state() {
     assert!(!persisted.contains(&second.secret));
 }
 
+#[tokio::test]
+async fn missing_physical_interface_falls_back_without_changing_device_identity() {
+    use twodrive_dev::network::RouteMode;
+    let temp = tempfile::tempdir().unwrap();
+    let state = State::new(temp.path().join("device")).unwrap();
+    let id = state.identity().unwrap().public();
+    let mut network = Network {
+        no_relay: true,
+        interface: Some("twodrive-nonexistent-interface-for-test".into()),
+        route: RouteMode::Direct,
+        ..Network::default()
+    };
+    assert!(peer::endpoint(&state, &network).await.is_err());
+    network.route = RouteMode::Auto;
+    let endpoint = peer::endpoint(&state, &network).await.unwrap();
+    assert_eq!(endpoint.id(), id);
+    assert_eq!(state.identity().unwrap().public(), id);
+    assert!(!state.dir.join("remote.json").exists());
+    endpoint.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn real_quic_pairing_streaming_webdav_and_revocation_on_existing_connection() {
     let temp = tempfile::tempdir().unwrap();
@@ -398,8 +419,10 @@ async fn real_quic_pairing_streaming_webdav_and_revocation_on_existing_connectio
             .await
             .is_err()
     );
-    let endpoint = peer::endpoint(&client_state, &network).await.unwrap();
-    let client = PeerClient::new(endpoint.clone(), invitation.address.clone());
+    let (endpoint, client) =
+        peer::connect_client(&client_state, &network, invitation.address.clone())
+            .await
+            .unwrap();
     client.pair(&client_state, Some(invitation)).await.unwrap();
     assert!(stranger.authenticate(None).await.is_err());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

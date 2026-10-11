@@ -86,6 +86,20 @@ twodrive-dev --state ~/.local/share/twodrive-dev/local-dav dav-serve \
 - 局域网测试：双方加 `--no-relay`，关闭公共中继与发现。重启改变 UDP 地址后需新邀请更新提示。
 - 诊断中继：双方加 `--relay-only`，禁用直接 IP 传输，输出应为 `transport=relay`。
 
+`serve` 和 `connect` 默认使用 `--network-route auto`：自动选取已启用的物理网卡，为设备共享的 DNS、UDP、中继 TCP 和签名地址发布设置物理出口。系统 HTTP 代理环境变量和 TUN 的 fake-IP DNS 不参与首次直连尝试；程序使用只在内存中保存随机凭据的私有回环连接器转发中继 TLS，继续校验服务器证书和设备身份。无需关闭代理或修改全局路由。
+
+直连初始化、DNS、TCP、地址发布或首次设备传输连接失败时，`auto` 允许系统/代理出口兜底，并输出 `network: route=system/proxy fallback` 及发生阶段。设备传输连接重试发生在认证之前；过期/已使用邀请或撤销授权不会触发这项重试。`connect` 还显示当前所选路径和 RTT。
+
+- `--network-route direct`：关闭自动兜底，用于核实物理出口是否能单独连通。物理接口绑定不可用时可以失败。
+- `--network-route system`：主动使用系统路由和 iroh 支持的 HTTP(S) 代理环境变量。
+- `--network-interface NAME`：按系统名称、Windows 友好名称或接口索引指定物理网卡。指定网卡不可用时，`auto` 明确提示系统/代理兜底，`direct` 失败；可据此测试兜底，无需修改全局路由。
+
+Windows 实机验证脚本 `scripts/verify-network.ps1` 接收临时共享目录、既有私密状态及通过独立渠道核实的程序 SHA-256。它暂时替换唯一匹配的测试 serve，采样 TCP 物理源地址和路由稳定性，再测试不存在的网卡触发兜底。已配对的 Linux 验证端只通过共享发送固定的 `next`/`finish`/`abort` 信号。脚本恢复旧 serve，删除自己拥有的程序、脚本和样本；验证端取回并删除剩余脱敏报告。这项诊断需要两端配合启动，不提供远程执行程序功能。
+
+这是尽力绕过策略。Linux 的 TCP/DNS 支持接口与源地址约束，Windows 使用接口索引约束；iroh 的 UDP 目前使用物理源地址绑定。强制 VPN、WFP/透明网关策略不一定能被应用绕过，也不保证识别每一种虚拟适配器或支持任意 SOCKS 代理兜底。物理网卡在启动时选择，切换网络后重启 dev 可重新选择。该策略覆盖本实验的设备共享；外部 WebDAV 挂载和稳定 OneDrive 客户端的出口策略未在此修改。
+
+2026-10-11 本机保留 FlClash TUN 时，`direct` 和最终默认 `auto` 的真实 Windows 对端数据校验与清理结果见[实测记录](../../doc/peer-direct-egress-2026-10-11.json)。本机绕过代理仍可经过加密 relay，不能将它等同于 UDP 打洞成功。Windows 原生构建与 Windows TUN 绕过尚未验证本次变更。
+
 复杂 NAT 或 UDP 阻断时会使用中继，底层可经 TCP/TLS，不能保证始终 UDP 直连。设备发现和中继不保存文件内容；私钥仅在本机。
 
 ## 验证与限制

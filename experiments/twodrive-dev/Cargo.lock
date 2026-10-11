@@ -3798,7 +3798,10 @@ dependencies = [
  "hyper",
  "hyper-util",
  "iroh",
+ "iroh-dns",
  "libc",
+ "n0-error",
+ "netdev 0.46.3",
  "percent-encoding",
  "rand 0.8.8",
  "reqwest 0.12.28",
@@ -3806,6 +3809,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "simple-dns",
+ "socket2",
  "subtle",
  "tempfile",
  "thiserror 2.0.21",
@@ -3814,6 +3819,7 @@ dependencies = [
  "twodrive-core",
  "twodrive-fs",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
