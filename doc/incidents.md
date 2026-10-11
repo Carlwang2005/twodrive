@@ -46,11 +46,46 @@
 
 
 
-## TD-20261011-12：远程控制首次 Windows 原生生命周期回归失败
+## TD-20261011-13：修正路径后的 Windows 控制生命周期仍未通过
 
 - 日期：2026-10-11
 - 状态：调查中 / 根因未确认。
-- 影响版本与环境：ee7bdd9，原生 Windows CI 38141236619 的 cargo test。
+- 影响版本与环境：53e4b24，原生 Windows CI 38141818742。
+- 关联历史故障：TD-20261011-12 的路径赋值原生回归已通过；完整生命周期另一次失败，需按新阶段核实。
+
+### 症状与影响
+
+Linux 原生完整流程通过；Windows cargo test 仍失败，未交付实机控制包、未推进 dev。
+
+### 触发条件与复现
+
+完成 ProviderPath 修正后再次执行完整 Windows bootstrap 测试，等待具体日志。
+
+### 根因与证据
+
+已确认相邻机制遗漏：ProviderPath 返回的原生 verbatim 路径能供 Rust/.NET 使用，但 PowerShell 5.1 Join-Path 解析该路径时没有 PSDrive，抛 PSArgumentNullException/drive null。CI 精确定位 bootstrap:16，在读取身份/授权 hash 前失败；尚未进入 Rust ready。不是 TD-20261011-12 原生路径字符串问题复发。
+
+### 解决办法与恢复操作
+
+bootstrap 改用 .NET Path.Combine、File/Directory 与流式 SHA256，避免把有效原生路径再次交给 PowerShell provider 路径拼接；原生回归扩展到实际 hash 函数、旧 Join-Path 失败。实机未更新，没有实机恢复。
+
+### 验证结果与边界
+
+原生 5.1 路径回归和 Linux 完整控制传输通过；Windows 生命周期失败。
+
+### 防复发措施与后续
+
+按具体阶段保留失败证据，修复和原生验证后再交付。
+
+### 交付记录
+
+[CI 38141818742](https://github.com/LumiaBlack51/twodrive/actions/runs/38141818742)；修正待补充。
+
+## TD-20261011-12：远程控制首次 Windows 原生生命周期回归失败
+
+- 日期：2026-10-11
+- 状态：已确认路径机制并通过原生 5.1 回归；完整生命周期复测中。
+- 影响版本与环境：ee7bdd9/e7f3bbc，原生 Windows CI 38141236619/38141388630 的 cargo test。
 - 关联历史故障：TD-20261011-11 新控制工具验证；不能仅以测试失败认定与 TD-20261011-10 网络退出相同根因。
 
 ### 症状与影响
@@ -63,15 +98,15 @@ Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付
 
 ### 根因与证据
 
-原生日志显示首次 ready 前退出：`The filename, directory name, or volume label syntax is incorrect. (os error 123)`，35 秒后等待报告断言失败。当前假设是 Resolve-Path.Path 把 Rust 规范化的 Windows verbatim 状态路径表示为 PowerShell provider-qualified 字符串；先改用 ProviderPath 并补充具体阶段上下文，根因仍待原生复测确认。
+原生日志显示首次 ready 前退出：`The filename, directory name, or volume label syntax is incorrect. (os error 123)`，35 秒后等待报告断言失败。CI 38141820760 的 Windows PowerShell 5.1 回归确认：Resolve-Path.Path 将 Rust 的 verbatim 状态路径表示为 provider-qualified 字符串，原生 IO 拒绝该字符串；ProviderPath 返回可被原生 IO 使用的真实路径，执行 bootstrap 中的实际赋值语句通过。
 
 ### 解决办法与恢复操作
 
-待定位。没有实机恢复操作。
+改用 ProviderPath，给状态、queue 和签名报告写入补充阶段上下文；保留原生 verbatim 路径回归与完整 bootstrap 测试。没有实机恢复操作。
 
 ### 验证结果与边界
 
-本机完整单元/集成与 QUIC 控制通道通过；本次 Windows 原生测试未通过。
+本机完整单元/集成与 QUIC 控制通道通过。旧原生完整生命周期在 ready 前失败；修正后的 5.1 真实路径赋值回归通过，完整生命周期与 release 仍待 CI 38141818742。
 
 ### 防复发措施与后续
 
@@ -79,7 +114,7 @@ Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付
 
 ### 交付记录
 
-[失败 CI 38141236619](https://github.com/LumiaBlack51/twodrive/actions/runs/38141236619)；修正待补充。
+[失败 CI 38141236619](https://github.com/LumiaBlack51/twodrive/actions/runs/38141236619)、[同源码机制验证 CI 38141388630](https://github.com/LumiaBlack51/twodrive/actions/runs/38141388630)；[修正 53e4b24](https://github.com/LumiaBlack51/twodrive/commit/53e4b24fc8220360ed906deb9ab63f410238b4ab)、[原生路径回归 CI 38141820760](https://github.com/LumiaBlack51/twodrive/actions/runs/38141820760)。
 
 ## TD-20261011-11：跨端验证切换失败后未保留 child 退出证据，需反复人工操作
 

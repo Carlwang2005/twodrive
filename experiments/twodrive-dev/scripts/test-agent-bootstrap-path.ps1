@@ -16,5 +16,15 @@ try {
     if (-not $assignment) { throw 'Missing bootstrap state assignment.' }
     . ([ScriptBlock]::Create($assignment.Extent.Text))
     if (-not [IO.Directory]::Exists($statePath)) { throw 'Bootstrap state path is not usable by native code.' }
-    Write-Host 'PASS: exact bootstrap path assignment accepts Rust verbatim state; legacy Path fails native IO.'
+    $legacyJoinFailed=$false
+    try { Join-Path $statePath 'identity.json' | Out-Null } catch { $legacyJoinFailed=$true }
+    if (-not $legacyJoinFailed) { throw 'Expected legacy Join-Path to reject the verbatim native path.' }
+    $nativeFile=[IO.Path]::Combine($statePath,'identity.json')
+    [IO.File]::WriteAllText($nativeFile,'synthetic private state')
+    $hashFunction=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Native-Hash'}, $true)
+    if (-not $hashFunction) { throw 'Missing bootstrap native hash function.' }
+    . ([ScriptBlock]::Create($hashFunction.Extent.Text))
+    $hash=Native-Hash $nativeFile
+    if ($hash -notmatch '^[A-F0-9]{64}$') { throw 'Native state hash invalid.' }
+    Write-Host 'PASS: exact bootstrap assignment/hash supports verbatim paths; legacy Path and Join-Path fail.' 
 } finally { Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue }
