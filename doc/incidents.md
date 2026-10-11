@@ -46,6 +46,41 @@
 
 
 
+## TD-20261011-05：自动物理出口的 Windows 原生 CI 未通过
+
+- 日期：2026-10-11
+- 状态：已定位并修正原生测试假设，Windows 复测待执行。
+- 影响版本与环境：验证分支 `1ae7b8f`；GitHub Windows 原生 CI 38134766370。
+- 关联历史故障：TD-20261011-03 的 Windows 验证；已阅读 TD-20260916-03 的原生 CLI 历史和 TD-20261011-04，不凭相同 CI 失败认定同一根因。
+
+### 症状与影响
+
+Windows matrix job 的两项新网络测试失败；编译和严格 Clippy 成功。未交付新版程序、未重启用户 Windows serve，也未推进 dev。
+
+### 触发条件与复现
+
+对验证分支 workflow_dispatch 原生构建，cargo test 的 8 项单元测试中 6 项通过、2 项失败：Winsock 接口读取和连接器受控回退。
+
+### 根因与证据
+
+原生读取实得索引 14，测试错误期望 network-order 的 234881024。[Microsoft 文档](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options)说明 IP_UNICAST_IF 的设置参数为 network-order，而读取返回 host-order；有效设置的生产代码无需改字节序。另一测试把 u32::MAX 当作不存在接口索引，Windows 的 IPv4 接口索引实际只编码 24 位；原生 loopback 连接成功，不能将这个越界设置当作稳定故障注入。该证据不证明校园网或用户 Windows 的实际出口缺陷。
+
+### 解决办法与恢复操作
+
+读取测试改为检查 host-order 的真实索引；Windows 约束函数明确拒绝 0（未指定）和 IPv4 大于 24 位的非法索引，使同一回退测试在进入 OS 之前得到确定失败，并覆盖两种非法索引。正常 IPv4 设置继续采用 network-order。用户设备和稳定服务未进行恢复操作。
+
+### 验证结果与边界
+
+修正前 Windows 原生测试已实际失败；修正后的完整原生 CI 待补充。初轮 Linux 的 13 项单元、10 项集成及 release/LAN smoke 通过。Linux 不能替代 Windows 原生和用户实机结果。
+
+### 防复发措施与后续
+
+定位实际失败机制后补充回归，原生 CI 与真实两端验证通过后才能推进 dev。
+
+### 交付记录
+
+[验证提交 1ae7b8f](https://github.com/LumiaBlack51/twodrive/commit/1ae7b8f064511d67c1e88be2ee82ef9b0bfa783c)；[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38134766370)。尚未提交到 dev，未发布。
+
 ## TD-20261011-04：物理 DNS 将 NXDOMAIN 错当出口失败
 
 - 日期：2026-10-11

@@ -145,6 +145,12 @@ impl Physical {
                 IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET_ERROR,
                 WSAGetLastError, setsockopt,
             };
+            // Zero means unspecified. IPv4 encodes only a 24-bit index;
+            // larger values are not a valid interface-selection request.
+            ensure!(
+                self.index != 0 && (!target.is_ipv4() || self.index <= 0x00ff_ffff),
+                "invalid physical interface index"
+            );
             let (level, option, index) = if target.is_ipv4() {
                 (IPPROTO_IP, IP_UNICAST_IF, self.index.to_be())
             } else {
@@ -407,7 +413,8 @@ mod tests {
                 )
             };
             assert_eq!(result, 0);
-            assert_eq!(value, index.to_be());
+            // Unlike setsockopt, getsockopt returns host byte order.
+            assert_eq!(value, index);
         }
         let tcp = TcpSocket::new_v4().unwrap();
         physical
@@ -423,14 +430,16 @@ mod tests {
             .protect(&socket2::SockRef::from(&udp), ip.into())
             .unwrap();
         assert_index(&socket2::SockRef::from(&udp), physical.index);
-        let invalid = Physical {
-            index: u32::MAX,
-            ..physical
-        };
-        assert!(
-            invalid
-                .protect(&socket2::SockRef::from(&tcp), ip.into())
-                .is_err()
-        );
+        for index in [0, u32::MAX] {
+            let invalid = Physical {
+                index,
+                ..physical.clone()
+            };
+            assert!(
+                invalid
+                    .protect(&socket2::SockRef::from(&tcp), ip.into())
+                    .is_err()
+            );
+        }
     }
 }
