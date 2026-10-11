@@ -1,42 +1,42 @@
 {
   "date": "2026-10-11",
-  "run_id": "td-egress-9721b9cf6cf94876b9ced544af07b77a",
-  "expected_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
-  "ci_run_id": 38135147276,
-  "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+  "run_id": "td-egress-432afa5455c34820acd1d3751d354ac4",
+  "expected_sha256": "e3f5b450578d14daf1befb2defacd45b1788e0ecedee3e2f1b3d887908bc2783",
+  "ci_run_id": 38137498647,
+  "source_commit": "e3dc0b76a5b5ad274b6ac809003762146d359842",
   "delivery": {
     "initial_visible_root_entries": 0,
     "twodrive-dev.exe": {
-      "bytes": 15728640,
-      "sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
+      "bytes": 15712768,
+      "sha256": "e3f5b450578d14daf1befb2defacd45b1788e0ecedee3e2f1b3d887908bc2783",
       "readback_match": true,
-      "seconds": 301.061
+      "seconds": 349.007
     },
     "verify-network.ps1": {
-      "bytes": 10278,
-      "sha256": "7402f0836c0d64db0c419ffade83f89ec3f155f87c617e3225c74e1bee496c2b",
+      "bytes": 10599,
+      "sha256": "17f35074a5e44aeb6566e5e3920cd1e29b8e881893f5d32cce3dc97eac2f97a5",
       "readback_match": true,
-      "seconds": 1.633
+      "seconds": 2.072
     },
     "manifest.json": {
       "bytes": 240,
-      "sha256": "65df3e4363dc1f8de938c76b1b4a427fd855adab61909d7277cd66900505b6dd",
+      "sha256": "8484cc9937015c466ca0f090b7761c31536c2d9e4401c561ed74392bba444523",
       "readback_match": true,
-      "seconds": 1.555
+      "seconds": 2.511
     },
     "complete": true,
     "linux": {
-      "samples": 544,
-      "public_tcp_samples": 1437,
-      "physical_tcp_samples": 1437,
+      "samples": 633,
+      "public_tcp_samples": 1697,
+      "physical_tcp_samples": 1697,
       "nonphysical_tcp_samples": 0,
-      "interface_bound_samples": 1437,
+      "interface_bound_samples": 1697,
       "route_unchanged": true,
       "network_messages": [
         "network: route=physical interface=wlo1 fallback=reported-system/proxy"
       ],
       "selected_paths": [
-        "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 968.0 ms"
+        "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 874.1 ms"
       ],
       "exit_code": 0
     }
@@ -74,29 +74,131 @@
     }
   },
   "native_ci": {
-    "run_id": 38135147276,
-    "url": "https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276",
-    "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+    "run_id": 38137498647,
+    "url": "https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647",
+    "source_commit": "e3dc0b76a5b5ad274b6ac809003762146d359842",
     "conclusion": "success",
     "linux": {
-      "unit_tests": 13,
+      "unit_tests": 15,
       "integration_tests": 10,
       "strict_clippy": true,
       "release": true,
       "two_process_lan_smoke": true,
-      "binary_sha256": "7b724f30703bc8353d65aa8d6c30e8b198bd7f798c23e1c7c887c8f2018fd0e2"
+      "old_dns_selection_regression_failed_as_expected": true,
+      "binary_sha256": "647d8126578660583117987dd5ea5e0f38bf7984b0acd4e3f5737ff2afc50f0b"
     },
     "windows": {
-      "unit_tests": 8,
+      "unit_tests": 10,
       "integration_tests": 9,
       "strict_clippy": true,
-      "powershell_parser": true,
+      "powershell_5_1_runtime": true,
+      "powershell_7_runtime": true,
+      "old_report_bounded_regression_failed_as_expected": true,
+      "old_dns_selection_regression_failed_as_expected": true,
       "static_crt_release": true,
       "two_process_lan_smoke": true,
-      "binary_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9"
+      "binary_sha256": "e3f5b450578d14daf1befb2defacd45b1788e0ecedee3e2f1b3d887908bc2783"
     }
   },
-  "windows_tun_live_status": "Failed attempt: serve reached Serving device with physical interface selected; PowerShell script raised OutOfMemoryException before report collection. Native runtime regression and real retest pending.",
+  "initial_attempt": {
+    "date": "2026-10-11",
+    "run_id": "td-egress-9721b9cf6cf94876b9ced544af07b77a",
+    "expected_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
+    "ci_run_id": 38135147276,
+    "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+    "delivery": {
+      "initial_visible_root_entries": 0,
+      "twodrive-dev.exe": {
+        "bytes": 15728640,
+        "sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
+        "readback_match": true,
+        "seconds": 301.061
+      },
+      "verify-network.ps1": {
+        "bytes": 10278,
+        "sha256": "7402f0836c0d64db0c419ffade83f89ec3f155f87c617e3225c74e1bee496c2b",
+        "readback_match": true,
+        "seconds": 1.633
+      },
+      "manifest.json": {
+        "bytes": 240,
+        "sha256": "65df3e4363dc1f8de938c76b1b4a427fd855adab61909d7277cd66900505b6dd",
+        "readback_match": true,
+        "seconds": 1.555
+      },
+      "complete": true,
+      "linux": {
+        "samples": 544,
+        "public_tcp_samples": 1437,
+        "physical_tcp_samples": 1437,
+        "nonphysical_tcp_samples": 0,
+        "interface_bound_samples": 1437,
+        "route_unchanged": true,
+        "network_messages": [
+          "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+        ],
+        "selected_paths": [
+          "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 968.0 ms"
+        ],
+        "exit_code": 0
+      }
+    },
+    "native_ci": {
+      "run_id": 38135147276,
+      "url": "https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276",
+      "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+      "conclusion": "success",
+      "linux": {
+        "unit_tests": 13,
+        "integration_tests": 10,
+        "strict_clippy": true,
+        "release": true,
+        "two_process_lan_smoke": true,
+        "binary_sha256": "7b724f30703bc8353d65aa8d6c30e8b198bd7f798c23e1c7c887c8f2018fd0e2"
+      },
+      "windows": {
+        "unit_tests": 8,
+        "integration_tests": 9,
+        "strict_clippy": true,
+        "powershell_parser": true,
+        "static_crt_release": true,
+        "two_process_lan_smoke": true,
+        "binary_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9"
+      }
+    },
+    "failed_attempt": {
+      "report_collected": false,
+      "linux_verifier_stopped": true,
+      "windows_cleanup_confirmed": true,
+      "dev_advanced": false,
+      "remote_cleanup": {
+        "owned_bundle_remaining_entries_before_delete": 0,
+        "owned_bundle_get_404": true,
+        "visible_root_entries_after_cleanup": 0,
+        "linux": {
+          "samples": 13,
+          "public_tcp_samples": 45,
+          "physical_tcp_samples": 45,
+          "nonphysical_tcp_samples": 0,
+          "interface_bound_samples": 45,
+          "route_unchanged": true,
+          "network_messages": [
+            "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+          ],
+          "selected_paths": [
+            "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 846.8 ms"
+          ],
+          "exit_code": 0
+        }
+      },
+      "windows_exception_location": "Save-Report ConvertTo-Json -Depth 10, line 49",
+      "script_returned_to_prompt": true,
+      "user_windows_recovery_check": {
+        "temporary_runtime_present": false,
+        "server_count": 1
+      }
+    }
+  },
   "verification_limits": [
     "Native CI uses runner LAN without the user campus network or TUN.",
     "Prior Linux-to-old-Windows tests do not establish the new Windows native egress.",
@@ -104,10 +206,55 @@
     "Binding cannot guarantee bypassing mandatory VPN/WFP/transparent interception.",
     "Periodic route/socket sampling cannot exclude events between samples."
   ],
-  "failed_attempt": {
-    "report_collected": false,
-    "linux_verifier_stopped": true,
-    "windows_cleanup_confirmed": false,
-    "dev_advanced": false
+  "windows_tun_live_status": "Second attempt failed at active redirected log ReadAllLines; Windows identity/grants preserved, original server restored and all owned runtime/bundle files removed. Active-writer regression and retest pending.",
+  "live": {
+    "status": "failed",
+    "probes": {},
+    "linux": {
+      "final_cleanup": {
+        "samples": 105,
+        "public_tcp_samples": 321,
+        "physical_tcp_samples": 321,
+        "nonphysical_tcp_samples": 0,
+        "interface_bound_samples": 321,
+        "route_unchanged": true,
+        "network_messages": [
+          "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+        ],
+        "selected_paths": [
+          "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 986.4 ms"
+        ],
+        "exit_code": 0
+      }
+    },
+    "error_type": "RuntimeError",
+    "local_paired_state_preserved": true,
+    "windows": {
+      "run_id": "td-egress-432afa5455c34820acd1d3751d354ac4",
+      "status": "failed",
+      "executable_sha256": "e3f5b450578d14daf1befb2defacd45b1788e0ecedee3e2f1b3d887908bc2783",
+      "stages": {
+        "auto": {
+          "samples": 1,
+          "public_tcp_samples": 2,
+          "physical_tcp_samples": 2,
+          "nonphysical_tcp_samples": 0,
+          "route_unchanged": true,
+          "proxy_fake_ip_present": true,
+          "network_messages": []
+        }
+      },
+      "cleanup": {
+        "identity_and_grants_preserved": true,
+        "original_server_restarted": true,
+        "bundle_payloads_removed": true,
+        "temporary_runtime_removed": true
+      },
+      "error_type": "System.Management.Automation.MethodInvocationException"
+    },
+    "cleanup": {
+      "owned_bundle_get_404": true,
+      "visible_root_entries_after_cleanup": 0
+    }
   }
 }

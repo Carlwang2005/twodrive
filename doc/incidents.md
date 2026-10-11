@@ -46,10 +46,45 @@
 
 
 
+## TD-20261011-09：修正报告字符串后读取正在重定向的 Windows 日志失败
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因待原生回归确认。
+- 影响版本与环境：验证分支 e3dc0b7 的 verify-network.ps1，用户 Windows PowerShell 实机。
+- 关联历史故障：TD-20261011-07 的报告修正遗漏实际 Start-Process 日志写入共享条件；不是 JSON 内存异常复发。
+
+### 症状与影响
+
+新脚本在 ReadAllLines(auto.stderr) 处报告文件正由另一进程使用；随后 Validation ended 并返回提示符。新版 serve 和网络验证未完成，dev 未推进。
+
+### 触发条件与复现
+
+Start-Process -RedirectStandardError 的日志 writer 仍保持打开时，报告采样读取同一文件。原生 CI 的合成日志写完即关闭，没有覆盖持续写入句柄。
+
+### 根因与证据
+
+待确认：ReadAllLines 的默认共享方式没有允许已经存在的写入访问，导致 Windows sharing violation。用户提供原生 MethodInvocationException，明确路径为本轮 auto.stderr；需用实际 Start-Process 活跃重定向的原生对照验证。
+
+### 解决办法与恢复操作
+
+已用显式允许 ReadWrite/Delete 共享的 FileStream/StreamReader 读取纯字符串，保持报告不带 provider 属性。新增活跃 Start-Process 原生回归，待执行。实机失败报告已收集：identity_and_grants_preserved、original_server_restarted、bundle_payloads_removed、temporary_runtime_removed 全为 true；Linux 删除自有报告/control bundle 后 GET 404，root 可见项为 0。身份与授权目录保留。
+
+### 验证结果与边界
+
+静态日志原生回归已通过，但实际活跃日志条件失败；不将静态成功当作完整脚本验证。
+
+### 防复发措施与后续
+
+原生测试应使用仍在运行的 Start-Process 重定向 child，验证旧读取失败、新读取成功，并停止 child、删除自有测试目录；实机完成后才能推进 dev。
+
+### 交付记录
+
+修正提交与通过测试待补充；此前构建 [CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
+
 ## TD-20261011-08：DNS 并发回归新增后原生 CI 检查失败
 
 - 日期：2026-10-11
-- 状态：已修正待原生验证。
+- 状态：已验证两平台严格 Clippy、回归与 release CI。
 - 影响版本与环境：验证分支 254918b，原生 CI 38137377190。
 - 关联历史故障：TD-20261011-06/07 的修复验证；不是用户 serve 内存故障。
 
@@ -71,7 +106,7 @@ Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，de
 
 ### 验证结果与边界
 
-失败阶段已确认；回归和原生 release 尚未通过。
+CI 38137377190 的两平台原先严格 Clippy 失败；修正后的 CI 38137498647 两平台全部通过。Linux 15 单元/10 集成，Windows 10 单元/9 集成，严格检查、release 和 LAN smoke 均通过；原生报告 5.1/7 回归通过。校园网/TUN 实机仍待复测。
 
 ### 防复发措施与后续
 
@@ -79,12 +114,12 @@ Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，de
 
 ### 交付记录
 
-[CI 38137377190](https://github.com/LumiaBlack51/twodrive/actions/runs/38137377190)，修正提交待补充。
+[失败 CI 38137377190](https://github.com/LumiaBlack51/twodrive/actions/runs/38137377190)；[修正提交 e3dc0b7](https://github.com/LumiaBlack51/twodrive/commit/e3dc0b76a5b5ad274b6ac809003762146d359842)；[通过 CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
 
 ## TD-20261011-07：Windows PowerShell 5.1 验证报告写入内存耗尽
 
 - 日期：2026-10-11
-- 状态：调查中 / 根因待原生回归确认。
+- 状态：已验证原生 5.1 报告机制；校园网/TUN 实机复测待执行。
 - 影响版本与环境：验证分支 bdab13e 的 verify-network.ps1；用户以 powershell.exe 启动，原生 CI 此前仅用 pwsh 解析语法。
 - 关联历史故障：TD-20261011-06 同轮切换不可达；本条记录独立的测试脚本故障，不将其当成 Rust serve 内存耗尽。
 
@@ -98,15 +133,15 @@ Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，de
 
 ### 根因与证据
 
-当前假设：PowerShell 5.1 的日志字符串带 PSDrive/PSProvider 等扩展属性，深层 JSON 序列化递归展开文件系统对象。[PowerShell #6388](https://github.com/PowerShell/PowerShell/issues/6388)记录相同 Get-Content / Depth 10 路径；[官方文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/convertto-json?view=powershell-7.6)说明新版字符串序列化与旧版不同。需在原生 5.1 有界回归中验证旧报告违反纯字符串/大小约束，以及新脚本完整报告成功；不故意再次耗尽用户内存。
+已确认脚本的报告数据边界缺陷：PowerShell 5.1 的日志字符串带 PSDrive/PSProvider 等扩展属性，深层 JSON 序列化递归展开文件系统对象。[PowerShell #6388](https://github.com/PowerShell/PowerShell/issues/6388)记录相同 Get-Content / Depth 10 路径；[官方文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/convertto-json?view=powershell-7.6)说明新版字符串序列化与旧版不同。原生 5.1 已执行旧 Wait-Stage/Save-Report（将 JSON 深度限到 3，避免 OOM），稳定违反“network_messages 只能为纯字符串”的断言；新实际函数以原深度 10 成功写入紧凑报告。
 
 ### 解决办法与恢复操作
 
-已改用纯 .NET 日志字符串生成报告，并增加 powershell.exe 实际 Wait-Stage/Save-Report 运行测试，原生 CI 待执行。Linux 本轮验证客户端已停止。用户后续提供异常栈，明确 Save-Report 第 49 行 ConvertTo-Json 失败且已返回提示符；fresh 已配对 Linux 网关重新连通 Windows，原 bundle 的 exe、脚本与报告均 GET 404，root 仅有本轮 bundle。Windows 临时运行目录清理仍待本地确认；持久身份目录保留。
+已改用纯 .NET 日志字符串生成报告，并增加 powershell.exe 实际 Wait-Stage/Save-Report 运行测试，原生 CI 待执行。Linux 本轮验证客户端已停止。用户后续提供异常栈，明确 Save-Report 第 49 行 ConvertTo-Json 失败且已返回提示符；fresh 已配对 Linux 网关重新连通 Windows，原 bundle 的 exe、脚本与报告均 GET 404，root 仅有本轮 bundle。Windows 用户只读复查确认 TemporaryRuntimePresent=false、ServerCount=1；Linux 已删除空的自有 bundle，GET 404、root 可见项为 0，持久身份目录保留。
 
 ### 验证结果与边界
 
-尚未执行修复后的原生回归或真实复测；原生 CI 的 pwsh 语法检查不能证明 Windows PowerShell 5.1 运行兼容。
+CI 38137498647 的 Windows 原生运行步骤已通过：旧 5.1 报告有界失败，新 5.1 与 pwsh 实际 Wait-Stage/Save-Report 测试成功，验证单行、多行、空与不存在日志。网络 API 使用隔离 fixture，未操作真实代理或服务；该测试证明序列化机制，校园网/TUN 实机复测待执行。
 
 ### 防复发措施与后续
 
@@ -114,7 +149,7 @@ Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，de
 
 ### 交付记录
 
-尚未提交、未发布。
+[修复提交 254918b](https://github.com/LumiaBlack51/twodrive/commit/254918b5c53e427335c5ae1f743ab54787e7ad4d)；[通过原生 CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。未推进 dev、未发布。
 
 ## TD-20261011-06：Windows 实机切换新版 serve 后已配对客户端无法访问共享
 
@@ -137,11 +172,11 @@ Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，de
 
 ### 解决办法与恢复操作
 
-DNS 并发选择改为优先非空的有效答案；空响应等待其余有界候选，均无记录时仍返回正常负响应，TTL 取最小值；全部请求失败仍报出口失败。新增确定顺序的 fast_negative_does_not_hide_later_positive_dns_record 与 negative_dns_remains_valid_when_no_server_has_records，待原生验证。临时 Windows 脚本退出后 fresh 客户端已重新连通；脚本修复另记 TD-20261011-07。未改全局路由或代理。
+DNS 并发选择改为优先非空的有效答案；空响应等待其余有界候选，均无记录时仍返回正常负响应，TTL 取最小值；全部请求失败仍报出口失败。新增确定顺序的 fast_negative_does_not_hide_later_positive_dns_record 与 negative_dns_remains_valid_when_no_server_has_records，原生两平台已通过；同一回归临时还原旧 first-valid 选择循环时，两平台均因漏掉有效记录稳定失败，退出后自动恢复源码。临时 Windows 脚本退出后 fresh 客户端已重新连通；脚本修复另记 TD-20261011-07。未改全局路由或代理。
 
 ### 验证结果与边界
 
-原生 CI 已通过，旧 serve 的程序传送通过；新版 Windows 双端 TUN 实机验证尚未通过，不将原生 CI 当作这次网络验证。
+修复后的原生 CI 38137498647 已通过（Linux 15 单元/10 集成、Windows 10 单元/9 集成及 release/LAN smoke），旧 DNS 选择实际失败与新选择通过对照成立。旧 serve 的程序传送通过；新版 Windows 双端 TUN 实机验证尚未通过，不将原生 CI 当作这次网络验证。
 
 ### 防复发措施与后续
 

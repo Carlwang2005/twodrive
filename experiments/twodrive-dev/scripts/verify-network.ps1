@@ -55,9 +55,16 @@ function Read-NetworkMessages([string]$path) {
     if (-not [IO.File]::Exists($path)) { return }
     # Get-Content adds PSDrive/PSProvider metadata to strings on PowerShell
     # 5.1. Deep JSON serialization follows those graphs and can exhaust RAM.
-    foreach ($line in [IO.File]::ReadAllLines($path)) {
-        if ($line.StartsWith('network:')) { $line }
-    }
+    # Start-Process keeps its redirected writer open. The reader must also
+    # permit that existing write access, unlike File.ReadAllLines/OpenRead.
+    $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+    $stream = New-Object IO.FileStream($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+    $reader = New-Object IO.StreamReader($stream)
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if ($line.StartsWith('network:')) { $line }
+        }
+    } finally { $reader.Dispose() }
 }
 function Route-Stamp {
     $routes = Get-NetRoute | Sort-Object AddressFamily, InterfaceIndex, DestinationPrefix, NextHop | Select-Object AddressFamily, InterfaceIndex, DestinationPrefix, NextHop, RouteMetric

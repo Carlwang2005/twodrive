@@ -8,12 +8,18 @@ on:
       - 'crates/**'
       - '.github/workflows/dev-webdav-peer.yml'
   workflow_dispatch:
+    inputs:
+      report_only:
+        description: Run only the native Windows report runtime regression
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'workflow_dispatch' || !inputs.report_only
     strategy:
       fail-fast: false
       matrix:
@@ -70,3 +76,28 @@ jobs:
             experiments/twodrive-dev/target/release/twodrive-dev
             experiments/twodrive-dev/target/release/twodrive-dev.exe
           if-no-files-found: error
+
+  report:
+    if: github.event_name == 'workflow_dispatch' && inputs.report_only
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: experiments/twodrive-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm old live-reader failure and corrected 5.1/7 runtime
+        run: |
+          git fetch --no-tags --depth=1 origin e3dc0b76a5b5ad274b6ac809003762146d359842
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $legacy = Join-Path $env:RUNNER_TEMP 'td-old-live-reader.ps1'
+          [IO.File]::WriteAllText($legacy, ((git show e3dc0b76a5b5ad274b6ac809003762146d359842:experiments/twodrive-dev/scripts/verify-network.ps1) -join "`n"))
+          try {
+            $oldOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-network-report.ps1 -ScriptPath $legacy 2>&1
+            if ($LASTEXITCODE -eq 0 -or ($oldOutput -join "`n") -notmatch 'Expected sharing violation reproduced by active redirected log reader') { $oldOutput; throw 'Expected old active-reader failure was not observed.' }
+            Write-Host 'Confirmed old ReadAllLines fails with the actual active Start-Process writer.'
+          } finally { Remove-Item -LiteralPath $legacy -Force }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-network-report.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & pwsh -NoProfile -File scripts/test-network-report.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
