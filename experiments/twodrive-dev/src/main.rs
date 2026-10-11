@@ -62,6 +62,33 @@ impl From<NetworkArgs> for Network {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Print the public device identity (no private key).
+    DeviceId,
+    /// Opt in to leased, signed test-process control over an existing share.
+    TestAgent {
+        #[arg(long)]
+        queue: PathBuf,
+        #[arg(long)]
+        owner: iroh::PublicKey,
+        #[arg(long, default_value_t = 3600)]
+        lifetime: u64,
+    },
+    /// Sign a typed test request with this paired device's identity.
+    TestSign {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Verify a control response against the server's public identity.
+    TestVerify {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        device: iroh::PublicKey,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Export one directory over authenticated, encrypted QUIC.
     Serve {
         #[arg(long)]
@@ -218,6 +245,29 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     match cli.command {
+        Command::DeviceId => println!("{}", state.identity()?.public()),
+        Command::TestAgent {
+            queue,
+            owner,
+            lifetime,
+        } => {
+            let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let signal = cancelled.clone();
+            let signal_task = runtime.spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    signal.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            });
+            let result = twodrive_dev::test_agent::run(&state, &queue, owner, lifetime, cancelled);
+            signal_task.abort();
+            result?;
+        }
+        Command::TestSign { input, out } => {
+            twodrive_dev::test_agent::sign_job(&state, &input, &out)?
+        }
+        Command::TestVerify { input, device, out } => {
+            twodrive_dev::test_agent::verify_report(&input, device, &out)?
+        }
         Command::Webdav {
             url,
             auth_file,

@@ -46,10 +46,82 @@
 
 
 
+## TD-20261011-11：跨端验证切换失败后未保留 child 退出证据，需反复人工操作
+
+- 日期：2026-10-11
+- 状态：已定位，远程测试控制实现验证中。
+- 影响版本与环境：至 7337283 的临时 Windows 验证脚本；旧 serve 仅提供文件传输。
+- 关联历史故障：TD-20261011-07/09/10；07/09 根因已分别验证，10 的核心退出原因仍未确认。
+
+### 症状与影响
+
+用户多次执行脚本和复制日志；最后的 Windows 兜底启动失败没有留下 stderr，阻断自主定位和完整验证。没有推进 dev。
+
+### 触发条件与复现
+
+脚本重启唯一传输端执行分阶段测试；child 退出后 catch 只保存异常类型，finally 删除 runtime 日志。实际 TD-20261011-10 报告未提供核心错误。
+
+### 根因与证据
+
+测试进程与控制传输生命周期耦合；退出错误和日志未进入报告。脚本没有通用的远程重试/诊断机制。这是测试工具缺陷，不据此断言核心网络退出根因。
+
+### 解决办法与恢复操作
+
+用户明确授权实现远程控制。增加 opt-in、绝对租期的 test-agent，通过旧配对共享接收设备签名的 start/snapshot/stop/finish 请求；响应由原 Windows 身份签名，随机会话、序号和有效期防重放。旧 serve 不重启，child 使用独立临时身份、共享与签名指定的临时客户端；保存有限长度 stdout/stderr 和退出码。候选构建复制到私有 runtime，核对签名请求的 SHA256 后执行。Windows 使用独立进程 Job，关闭控制句柄时终止自有子树。
+
+本地恢复：此前三轮 bundle 已删除，原配对状态及旧 serve 保留；首次 bootstrap 是旧版没有执行 API 的技术边界。
+
+### 验证结果与边界
+
+本机 18 项单元、10 项既有集成与 2 项控制 CLI 集成全部通过，严格 Clippy/格式检查通过。实际 child 退出错误保留、失败后重启、重放拒绝、finish 清理及原身份/授权字节不变通过。Windows 原生完整 bootstrap 与实机控制仍待完成。提供测试进程管理，不开放监听任意 shell；签名 owner 可授权运行候选构建，候选仍具有启动者的系统权限。没有 Windows 核心兜底成功结论。
+
+### 防复发措施与后续
+
+保留签名/篡改/会话/过期/重放/未知指令回归、实际 child 失败日志捕获与失败后重试、退出清理和原身份/授权字节不变测试。实机取回 TD-20261011-10 退出原因再修复、验证并推进 dev。
+
+### 交付记录
+
+待提交、原生构建和实机验证。
+
+## TD-20261011-10：Windows 默认出口通过后兜底阶段启动失败
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：e3dc0b7 原生核心、7337283 Windows 脚本；用户校园网 TUN 与 Linux 热点 TUN。
+- 关联历史故障：TD-20261011-07/09 的脚本序列化与读取已通过该次实机默认阶段；本条记录后续 Windows 兜底阶段失败。
+
+### 症状与影响
+
+Windows auto_ready 报告正常；双端默认 auto 与 Linux 人为无网卡兜底各完成 2 MiB 全量哈希、MOVE、Range、DELETE。随后 Windows 兜底阶段报告 RuntimeException，尚未完成 Windows 兜底数据验证，dev 未推进。
+
+### 触发条件与复现
+
+同一脚本先停止默认 serve，再以不存在网卡参数启动 auto serve，预期系统出口兜底。固定 next 信号已发送；用户确认具体警告为 `Test server exited during fallback startup.`。
+
+### 根因与证据
+
+根因未确认。启动检查检测到 child 已退出，报告却只保留 error_type，finally 删除了 stderr，缺少核心退出原因。不能以 RuntimeException 或 30 秒注册预算猜测根因。
+
+### 解决办法与恢复操作
+
+待定位。失败报告已收集，四项恢复/清理标志为 true；Linux 删除自有 bundle 后 GET 404、共享根目录可见项为 0，持久身份和配对保留。默认阶段实际路由选择 aps1、初始 RTT 115.1 ms；用户授权增加远程控制，采用旧 serve 保持传输、独立子进程状态与带设备签名的测试指令，取回退出日志后再定位。
+
+### 验证结果与边界
+
+默认和 Linux 兜底阶段已实际通过，Windows 默认公网 TCP 实际采样 94/94 为物理源地址、TUN fake-IP 存在、路由未变化。Windows 兜底尚未通过，不报告整轮成功。
+
+### 防复发措施与后续
+
+补充启动阶段诊断与对应原生回归，获得实际 Windows 兜底结果后才能推进 dev。
+
+### 交付记录
+
+待补充修正和整轮实机记录。
+
 ## TD-20261011-09：修正报告字符串后读取正在重定向的 Windows 日志失败
 
 - 日期：2026-10-11
-- 状态：调查中 / 根因待原生回归确认。
+- 状态：已验证原生活跃日志共享机制，后续实机默认阶段读取与报告成功。
 - 影响版本与环境：验证分支 e3dc0b7 的 verify-network.ps1，用户 Windows PowerShell 实机。
 - 关联历史故障：TD-20261011-07 的报告修正遗漏实际 Start-Process 日志写入共享条件；不是 JSON 内存异常复发。
 
@@ -63,7 +135,7 @@ Start-Process -RedirectStandardError 的日志 writer 仍保持打开时，报�
 
 ### 根因与证据
 
-待确认：ReadAllLines 的默认共享方式没有允许已经存在的写入访问，导致 Windows sharing violation。用户提供原生 MethodInvocationException，明确路径为本轮 auto.stderr；需用实际 Start-Process 活跃重定向的原生对照验证。
+已确认：ReadAllLines 的默认共享方式没有允许已经存在的写入访问，导致 Windows sharing violation。原生 CI 用实际活跃 Start-Process 重定向 writer 复现旧函数 IOException/HRESULT 32，新 FileStream 共享方式通过。用户提供原生 MethodInvocationException，明确路径为本轮 auto.stderr；需用实际 Start-Process 活跃重定向的原生对照验证。
 
 ### 解决办法与恢复操作
 
@@ -71,7 +143,7 @@ Start-Process -RedirectStandardError 的日志 writer 仍保持打开时，报�
 
 ### 验证结果与边界
 
-静态日志原生回归已通过，但实际活跃日志条件失败；不将静态成功当作完整脚本验证。
+此前静态日志原生回归已通过、实机活跃日志条件失败。CI 38138971808 对旧 ReadAllLines 实际复现共享冲突；修复后的 PowerShell 5.1 与 7 在子进程仍存活、重定向 writer 仍打开时，读取与实际 Wait-Stage/Save-Report 均通过，fixture 子进程和目录已清理。Rust 源码与 e3dc0b7 完全相同，沿用 CI 38137498647 原生 binaries，不将脚本专用 CI 说成新的核心构建；校园网实机默认阶段 47 次采样/94 条物理 TCP，报告正常；后续兜底 child 退出另记 TD-20261011-10。
 
 ### 防复发措施与后续
 
@@ -79,7 +151,7 @@ Start-Process -RedirectStandardError 的日志 writer 仍保持打开时，报�
 
 ### 交付记录
 
-修正提交与通过测试待补充；此前构建 [CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
+[修正提交 7337283](https://github.com/LumiaBlack51/twodrive/commit/733728343cb6b99b70a56f668265b00c0ea2cbfa)；[原生活跃 writer CI 38138971808](https://github.com/LumiaBlack51/twodrive/actions/runs/38138971808)；核心构建 [CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
 
 ## TD-20261011-08：DNS 并发回归新增后原生 CI 检查失败
 

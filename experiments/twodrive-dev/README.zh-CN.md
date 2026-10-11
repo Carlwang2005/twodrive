@@ -94,11 +94,11 @@ twodrive-dev --state ~/.local/share/twodrive-dev/local-dav dav-serve \
 - `--network-route system`：主动使用系统路由和 iroh 支持的 HTTP(S) 代理环境变量。
 - `--network-interface NAME`：按系统名称、Windows 友好名称或接口索引指定物理网卡。指定网卡不可用时，`auto` 明确提示系统/代理兜底，`direct` 失败；可据此测试兜底，无需修改全局路由。
 
-Windows 实机验证脚本 `scripts/verify-network.ps1` 接收临时共享目录、既有私密状态及通过独立渠道核实的程序 SHA-256。它暂时替换唯一匹配的测试 serve，采样 TCP 物理源地址和路由稳定性，再测试不存在的网卡触发兜底。已配对的 Linux 验证端只通过共享发送固定的 `next`/`finish`/`abort` 信号。脚本恢复旧 serve，删除自己拥有的程序、脚本和样本；验证端取回并删除剩余脱敏报告。这项诊断需要两端配合启动，不提供远程执行程序功能。
+Windows 实机验证脚本 `scripts/verify-network.ps1` 接收临时共享目录、既有私密状态及通过独立渠道核实的程序 SHA-256。它暂时替换唯一匹配的测试 serve，采样 TCP 物理源地址和路由稳定性，再测试不存在的网卡触发兜底。已配对的 Linux 验证端只通过共享发送固定的 `next`/`finish`/`abort` 信号。脚本恢复旧 serve，删除自己拥有的程序、脚本和样本；验证端取回并删除剩余脱敏报告。这份旧分阶段脚本会重启传输端；自主重试应使用下文的远程测试进程控制端。
 
 这是尽力绕过策略。Linux 的 TCP/DNS 支持接口与源地址约束，Windows 使用接口索引约束；iroh 的 UDP 目前使用物理源地址绑定。强制 VPN、WFP/透明网关策略不一定能被应用绕过，也不保证识别每一种虚拟适配器或支持任意 SOCKS 代理兜底。物理网卡在启动时选择，切换网络后重启 dev 可重新选择。该策略覆盖本实验的设备共享；外部 WebDAV 挂载和稳定 OneDrive 客户端的出口策略未在此修改。
 
-2026-10-11 本机保留 FlClash TUN 时，`direct` 和最终默认 `auto` 的真实 Windows 对端数据校验与清理结果见[实测记录](../../doc/peer-direct-egress-2026-10-11.json)。本机绕过代理仍可经过加密 relay，不能将它等同于 UDP 打洞成功。Windows 原生构建与 Windows TUN 绕过尚未验证本次变更。
+2026-10-11 本机保留 FlClash TUN 时，`direct` 和最终默认 `auto` 的真实 Windows 对端数据校验与清理结果见[实测记录](../../doc/peer-direct-egress-2026-10-11.json)。本机绕过代理仍可经过加密 relay，不能将它等同于 UDP 打洞成功。[Windows 原生与双端 TUN 实测](../../doc/peer-windows-egress-2026-10-11.json)已通过默认物理 TCP 出口与 Linux 兜底；Windows 兜底启动退出仍在调查（TD-20261011-10）。
 
 复杂 NAT 或 UDP 阻断时会使用中继，底层可经 TCP/TLS，不能保证始终 UDP 直连。设备发现和中继不保存文件内容；私钥仅在本机。
 
@@ -118,3 +118,13 @@ smoke 创建两套临时设备状态和文件，结束时只卸载自己的挂�
 WebDAV 按完整元数据快照轮询，默认最大 100,000 条、单响应 16 MiB；无原生 delta 和持久远端文件 ID，移动使路径 ID 改变。自建服务器仅导出普通文件/目录，隐藏符号链接，不允许 capability 外部访问。PUT 最多 8 GiB（`--max-upload` 可调整），完整接收后同步并原子替换；中断不覆盖原文件。暂不支持断点 PUT、PATCH 和 Content-Range。网络写请求串行保护条件检查；本机其他进程写入不受此锁约束。外部 WebDAV 的原子性由对方决定。
 
 Unix 私有目录 0700、文件 0600；Windows 继承目录 ACL，请使用当前用户的私有状态目录。静态文件不做磁盘加密。本机 QUIC、公共中继和真实异地 NAT 是不同验证范围；实际结果见故障记录与 PR，不把模拟云端或同机测试当成真实 OneDrive/异地 NAT 端到端证明。
+
+## 远程测试进程控制
+
+`test-agent` 是显式启动、有租期的测试控制端。它通过已有配对的可写 TwoDrive 共享接收指令，不停止旧 serve。控制 owner 必须已在原状态中授权；每个请求由该设备签名，响应由服务端原身份签名。随机会话、递增序号和短有效期拒绝篡改、重放及其他会话指令。
+
+将原生构建及 `scripts/start-test-agent.ps1` 放入共享中的新 `td-control-<32 位十六进制>` 目录，核实程序 SHA256 后启动一次脚本，传入原 `-State`、`-Owner` 公钥和 `-ExpectedSha256`。默认租期两小时，不能远程续期；之后 `scripts/control-test-agent.py` 通过本机已经连接的回环 WebDAV 网关发出 `start`、`snapshot`、`stop`、`finish`。快照包含启动错误、退出码、有限长度日志和 Windows 路由/TCP 采样。控制通道在测试子进程失败后仍可取日志、重试及上传新候选构建。
+
+每个测试 serve 都使用独立的临时身份、共享与临时客户端授权；控制端和测试客户端应使用不同身份，避免并发发布同一个设备地址。`start` 只能指定固定网络选项和候选 SHA256；候选从共享的固定 `candidate.bin` 复制到私有目录，核验后运行。没有任意 shell 或主机路径参数。签名 owner 能授权候选程序执行，程序仍具有启动者的系统权限，这不是操作系统沙箱。Windows 自有进程 Job 在控制端崩溃时终止测试子树。
+
+`finish`、租期到期或 owner 被撤销时停止并回收测试子进程、删除临时 child 状态；bootstrap 退出后删除自己的私有程序副本和共享程序负载，保留原身份/授权。Linux 收集签名结果与小型清理回执后删除该次共享控制目录。旧版只有传输 API，首次启用仍需在 Windows 启动一次；启用后的测试和重试由控制端完成。
