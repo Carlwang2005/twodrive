@@ -56,7 +56,7 @@ impl Backend {
         ]);
         servers.sort();
         servers.dedup();
-        let mut calls = FuturesUnordered::new();
+        let calls = FuturesUnordered::new();
         for server in servers {
             let bytes = &bytes;
             let host = &host;
