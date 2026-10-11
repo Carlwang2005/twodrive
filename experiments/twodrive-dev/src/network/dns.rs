@@ -70,25 +70,21 @@ impl Backend {
                 .context("physical DNS timeout")?
             });
         }
-        while let Some(result) = calls.next().await {
-            if let Ok((records, ttl)) = result {
-                if ttl > 0 {
-                    let mut cache = self.cache.lock().unwrap();
-                    if cache.len() >= 512 {
-                        cache.clear();
-                    }
-                    cache.insert(
-                        key,
-                        (
-                            Instant::now() + Duration::from_secs(ttl.min(300).into()),
-                            records.clone(),
-                        ),
-                    );
-                }
-                return Ok(records);
+        let (records, ttl) = prefer_records(calls).await?;
+        if ttl > 0 {
+            let mut cache = self.cache.lock().unwrap();
+            if cache.len() >= 512 {
+                cache.clear();
             }
+            cache.insert(
+                key,
+                (
+                    Instant::now() + Duration::from_secs(ttl.min(300).into()),
+                    records.clone(),
+                ),
+            );
         }
-        anyhow::bail!("physical DNS resolution failed")
+        Ok(records)
     }
 
     pub async fn ips(&self, host: &str) -> anyhow::Result<Vec<IpAddr>> {
@@ -116,6 +112,30 @@ impl Backend {
         ensure!(!ips.is_empty(), "no resolved destination addresses");
         Ok(ips)
     }
+}
+
+// Recursive servers may have different cached generations during publication.
+// A quick NXDOMAIN must not cancel another server's available relay record.
+// Every candidate already has a bounded transport deadline. Return a valid
+// negative only after the remaining candidates fail or also return negatives.
+async fn prefer_records<F>(mut calls: FuturesUnordered<F>) -> anyhow::Result<(Records, u32)>
+where
+    F: std::future::Future<Output = anyhow::Result<(Records, u32)>>,
+{
+    let mut negative = None;
+    while let Some(result) = calls.next().await {
+        if let Ok((records, ttl)) = result {
+            if !records.is_empty() {
+                return Ok((records, ttl));
+            }
+            // Do not retain a negative longer than any participating server.
+            negative = Some(negative.map_or(ttl, |previous: u32| previous.min(ttl)));
+        }
+    }
+    if let Some(ttl) = negative {
+        return Ok((Vec::new(), ttl));
+    }
+    anyhow::bail!("physical DNS resolution failed")
 }
 
 async fn exchange(
@@ -372,6 +392,54 @@ impl iroh::dns::Resolver for Resolver {
 mod tests {
     use super::*;
     use simple_dns::{CLASS, ResourceRecord, rdata::A};
+    #[tokio::test]
+    async fn fast_negative_does_not_hide_later_positive_dns_record() {
+        let calls = FuturesUnordered::new();
+        let (release, waited) = tokio::sync::oneshot::channel();
+        calls.push(
+            async move {
+                release.send(()).unwrap();
+                Ok((Vec::new(), 0))
+            }
+            .boxed(),
+        );
+        calls.push(
+            async move {
+                waited.await.unwrap();
+                tokio::task::yield_now().await;
+                Ok((
+                    vec![RData::A(A {
+                        address: u32::from(Ipv4Addr::new(203, 0, 113, 2)),
+                    })],
+                    30,
+                ))
+            }
+            .boxed(),
+        );
+        let (records, ttl) = prefer_records(calls).await.unwrap();
+        assert_eq!(
+            records.len(),
+            1,
+            "a stale negative hid the published record"
+        );
+        assert_eq!(ttl, 30);
+    }
+
+    #[tokio::test]
+    async fn negative_dns_remains_valid_when_no_server_has_records() {
+        let calls = FuturesUnordered::new();
+        for ttl in [60, 0] {
+            calls.push(async move { Ok((Vec::new(), ttl)) }.boxed());
+        }
+        calls.push(async { anyhow::bail!("controlled timeout") }.boxed());
+        let (records, ttl) = prefer_records(calls).await.unwrap();
+        assert!(records.is_empty());
+        assert_eq!(ttl, 0);
+        let failures = FuturesUnordered::new();
+        failures.push(async { anyhow::bail!("controlled timeout") });
+        assert!(prefer_records(failures).await.is_err());
+    }
+
     #[test]
     fn valid_nxdomain_is_not_a_physical_route_failure() {
         let mut response = Packet::new_reply(42);

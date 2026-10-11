@@ -51,6 +51,14 @@ function Save-Report {
     [IO.File]::WriteAllText($temp, $text, (New-Object Text.UTF8Encoding($false)))
     Move-Item -LiteralPath $temp -Destination $reportPath -Force
 }
+function Read-NetworkMessages([string]$path) {
+    if (-not [IO.File]::Exists($path)) { return }
+    # Get-Content adds PSDrive/PSProvider metadata to strings on PowerShell
+    # 5.1. Deep JSON serialization follows those graphs and can exhaust RAM.
+    foreach ($line in [IO.File]::ReadAllLines($path)) {
+        if ($line.StartsWith('network:')) { $line }
+    }
+}
 function Route-Stamp {
     $routes = Get-NetRoute | Sort-Object AddressFamily, InterfaceIndex, DestinationPrefix, NextHop | Select-Object AddressFamily, InterfaceIndex, DestinationPrefix, NextHop, RouteMetric
     $bytes = [Text.Encoding]::UTF8.GetBytes(($routes | ConvertTo-Json -Compress))
@@ -108,7 +116,7 @@ function Wait-Stage([string]$stage, [string]$nextAction) {
         }
         $stats.samples++
         if ((Route-Stamp) -ne $initialRoutes) { $stats.route_unchanged = $false }
-        $stats.network_messages = @(Get-Content -LiteralPath $script:current.stderr | Where-Object { $_ -match '^network:' })
+        $stats.network_messages = @(Read-NetworkMessages $script:current.stderr)
         Save-Report
         if (Test-Path -LiteralPath $controlPath) {
             try { $control = Get-Content -LiteralPath $controlPath -Raw | ConvertFrom-Json } catch { $control = $null }

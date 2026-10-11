@@ -46,10 +46,80 @@
 
 
 
+## TD-20261011-07：Windows PowerShell 5.1 验证报告写入内存耗尽
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因待原生回归确认。
+- 影响版本与环境：验证分支 bdab13e 的 verify-network.ps1；用户以 powershell.exe 启动，原生 CI 此前仅用 pwsh 解析语法。
+- 关联历史故障：TD-20261011-06 同轮切换不可达；本条记录独立的测试脚本故障，不将其当成 Rust serve 内存耗尽。
+
+### 症状与影响
+
+用户报告验证窗口警告 System.OutOfMemoryException。auto.stdout 已出现 Serving device，auto.stderr 已出现物理网卡选择；windows-report.json 未生成。脚本最终恢复和清理状态尚未确认，dev 未推进。
+
+### 触发条件与复现
+
+脚本将 Get-Content 返回的网络日志行存入报告，再调用 ConvertTo-Json -Depth 10。用户原生系统运行一次失败，尚未取得完整异常栈。
+
+### 根因与证据
+
+当前假设：PowerShell 5.1 的日志字符串带 PSDrive/PSProvider 等扩展属性，深层 JSON 序列化递归展开文件系统对象。[PowerShell #6388](https://github.com/PowerShell/PowerShell/issues/6388)记录相同 Get-Content / Depth 10 路径；[官方文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/convertto-json?view=powershell-7.6)说明新版字符串序列化与旧版不同。需在原生 5.1 有界回归中验证旧报告违反纯字符串/大小约束，以及新脚本完整报告成功；不故意再次耗尽用户内存。
+
+### 解决办法与恢复操作
+
+已改用纯 .NET 日志字符串生成报告，并增加 powershell.exe 实际 Wait-Stage/Save-Report 运行测试，原生 CI 待执行。Linux 本轮验证客户端已停止。用户后续提供异常栈，明确 Save-Report 第 49 行 ConvertTo-Json 失败且已返回提示符；fresh 已配对 Linux 网关重新连通 Windows，原 bundle 的 exe、脚本与报告均 GET 404，root 仅有本轮 bundle。Windows 临时运行目录清理仍待本地确认；持久身份目录保留。
+
+### 验证结果与边界
+
+尚未执行修复后的原生回归或真实复测；原生 CI 的 pwsh 语法检查不能证明 Windows PowerShell 5.1 运行兼容。
+
+### 防复发措施与后续
+
+用隔离合成日志验证实际 Wait-Stage/Save-Report 的紧凑 JSON 与纯字符串字段，包含缺少/单行/多行日志；原生 CI 同时使用 5.1 与 pwsh。报告不保存 provider 对象或凭据。
+
+### 交付记录
+
+尚未提交、未发布。
+
+## TD-20261011-06：Windows 实机切换新版 serve 后已配对客户端无法访问共享
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：验证分支 `bdab13e` 的原生 release；Windows 校园网 TUN、Linux 热点 FlClash TUN。
+- 关联历史故障：TD-20261011-03 的 Windows 实机验证；TD-20261011-04 涉及地址发现负响应，但尚不能认为根因相同。
+
+### 症状与影响
+
+通过旧 Windows serve 完成 15 MiB 新程序和脚本 PUT/GET 哈希校验后，用户确认启动临时 Windows 验证脚本。Linux 网关先无邀请连通旧 serve，切换期间随后 GET windows-report.json 持续返回 502，尚未取得新版 serve 的报告。没有推进 dev。
+
+### 触发条件与复现
+
+同一持久身份和授权，从旧 Windows serve 切换到自动物理出口的新 serve，未更新客户端已有地址提示。当前只观察到该次真实切换；用户日志确认新版已出现 Serving device，物理接口已选定。随后脚本发生内存异常，另记 TD-20261011-07。
+
+### 根因与证据
+
+已发现 DNS 响应选择缺陷，待回归与实机确认其修复效果。2026-10-11 19:44 从热点物理源地址查询同一公共设备 TXT：1.1.1.1 在约 25 ms 返回 NXDOMAIN（SOA MINIMUM=0），8.8.8.8 在约 315 ms 返回新加坡 relay 的 NOERROR/TXT、TTL 30。已有提示为美西 relay。Backend::query 接受第一个有效结果，快速空响应会取消尚未完成的有效记录查询，无法发现切换后的新 relay。TD-20261011-04 正确区分负响应与出口故障，但遗漏并发正/负响应冲突；不能以重新触发系统兜底代替修正有效 DNS 结果选择。脚本报告故障另记 TD-20261011-07，两者均需处理。
+
+### 解决办法与恢复操作
+
+DNS 并发选择改为优先非空的有效答案；空响应等待其余有界候选，均无记录时仍返回正常负响应，TTL 取最小值；全部请求失败仍报出口失败。新增确定顺序的 fast_negative_does_not_hide_later_positive_dns_record 与 negative_dns_remains_valid_when_no_server_has_records，待原生验证。临时 Windows 脚本退出后 fresh 客户端已重新连通；脚本修复另记 TD-20261011-07。未改全局路由或代理。
+
+### 验证结果与边界
+
+原生 CI 已通过，旧 serve 的程序传送通过；新版 Windows 双端 TUN 实机验证尚未通过，不将原生 CI 当作这次网络验证。
+
+### 防复发措施与后续
+
+确定机制后补充相关回归与实机复测；保留失败阶段和恢复结果。
+
+### 交付记录
+
+[构建提交 bdab13e](https://github.com/LumiaBlack51/twodrive/commit/bdab13ec0d3a2804b93c55498c73385075ed5df7)；[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276)。待补充实机记录。
+
 ## TD-20261011-05：自动物理出口的 Windows 原生 CI 未通过
 
 - 日期：2026-10-11
-- 状态：已定位并修正原生测试假设，Windows 复测待执行。
+- 状态：已验证修正后的 Windows 原生测试、release 和双进程 smoke；用户 Windows TUN 实机待执行。
 - 影响版本与环境：验证分支 `1ae7b8f`；GitHub Windows 原生 CI 38134766370。
 - 关联历史故障：TD-20261011-03 的 Windows 验证；已阅读 TD-20260916-03 的原生 CLI 历史和 TD-20261011-04，不凭相同 CI 失败认定同一根因。
 
@@ -71,7 +141,7 @@ Windows matrix job 的两项新网络测试失败；编译和严格 Clippy 成�
 
 ### 验证结果与边界
 
-修正前 Windows 原生测试已实际失败；修正后的完整原生 CI 待补充。初轮 Linux 的 13 项单元、10 项集成及 release/LAN smoke 通过。Linux 不能替代 Windows 原生和用户实机结果。
+修正前 Windows 原生测试已实际失败；[修正后的原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276) 完整通过，Windows 8 项单元、9 项集成、严格 Clippy、PowerShell 脚本解析、static-CRT release 构建以及独立两进程 2,097,105 字节 GET/PUT/MOVE/DELETE smoke 通过。Linux 的 13 项单元、10 项集成、严格 Clippy、release/LAN smoke 同轮通过。原生 CI 没有用户的校园网和 TUN，不能替代用户实机结果。
 
 ### 防复发措施与后续
 
@@ -80,6 +150,8 @@ Windows matrix job 的两项新网络测试失败；编译和严格 Clippy 成�
 ### 交付记录
 
 [验证提交 1ae7b8f](https://github.com/LumiaBlack51/twodrive/commit/1ae7b8f064511d67c1e88be2ee82ef9b0bfa783c)；[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38134766370)。尚未提交到 dev，未发布。
+
+[修正提交 bdab13e](https://github.com/LumiaBlack51/twodrive/commit/bdab13ec0d3a2804b93c55498c73385075ed5df7)；[通过 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276)。验证分支尚未推进 dev。
 
 ## TD-20261011-04：物理 DNS 将 NXDOMAIN 错当出口失败
 

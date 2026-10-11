@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-11",
+  "run_id": "td-egress-9721b9cf6cf94876b9ced544af07b77a",
+  "expected_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
+  "ci_run_id": 38135147276,
+  "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+  "delivery": {
+    "initial_visible_root_entries": 0,
+    "twodrive-dev.exe": {
+      "bytes": 15728640,
+      "sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9",
+      "readback_match": true,
+      "seconds": 301.061
+    },
+    "verify-network.ps1": {
+      "bytes": 10278,
+      "sha256": "7402f0836c0d64db0c419ffade83f89ec3f155f87c617e3225c74e1bee496c2b",
+      "readback_match": true,
+      "seconds": 1.633
+    },
+    "manifest.json": {
+      "bytes": 240,
+      "sha256": "65df3e4363dc1f8de938c76b1b4a427fd855adab61909d7277cd66900505b6dd",
+      "readback_match": true,
+      "seconds": 1.555
+    },
+    "complete": true,
+    "linux": {
+      "samples": 544,
+      "public_tcp_samples": 1437,
+      "physical_tcp_samples": 1437,
+      "nonphysical_tcp_samples": 0,
+      "interface_bound_samples": 1437,
+      "route_unchanged": true,
+      "network_messages": [
+        "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+      ],
+      "selected_paths": [
+        "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 968.0 ms"
+      ],
+      "exit_code": 0
+    }
+  },
+  "preflight_linux_fallback": {
+    "ci_run_id": 38134766370,
+    "linux_source_commit": "1ae7b8f064511d67c1e88be2ee82ef9b0bfa783c",
+    "probe": {
+      "payload_bytes": 2097152,
+      "sha256": "91d3beb88a9b2f778a6c44a1c53b63d3c79931845a9aef84b3fb414610bd1938",
+      "upload_seconds": 6.396,
+      "download_seconds": 5.65,
+      "full_sha256_and_move_range_match": true,
+      "delete_statuses": [
+        404,
+        204
+      ],
+      "both_owned_paths_404": true
+    },
+    "linux": {
+      "samples": 41,
+      "public_tcp_samples": 131,
+      "physical_tcp_samples": 0,
+      "nonphysical_tcp_samples": 131,
+      "interface_bound_samples": 0,
+      "route_unchanged": true,
+      "network_messages": [
+        "network: route=system/proxy fallback; physical setup or relay registration failed",
+        "network: route=system/proxy; physical bypass disabled"
+      ],
+      "selected_paths": [
+        "Selected path: relay:https://usw1-1.relay.n0.iroh.link./ RTT: 450.9 ms"
+      ],
+      "exit_code": 0
+    }
+  },
+  "native_ci": {
+    "run_id": 38135147276,
+    "url": "https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276",
+    "source_commit": "bdab13ec0d3a2804b93c55498c73385075ed5df7",
+    "conclusion": "success",
+    "linux": {
+      "unit_tests": 13,
+      "integration_tests": 10,
+      "strict_clippy": true,
+      "release": true,
+      "two_process_lan_smoke": true,
+      "binary_sha256": "7b724f30703bc8353d65aa8d6c30e8b198bd7f798c23e1c7c887c8f2018fd0e2"
+    },
+    "windows": {
+      "unit_tests": 8,
+      "integration_tests": 9,
+      "strict_clippy": true,
+      "powershell_parser": true,
+      "static_crt_release": true,
+      "two_process_lan_smoke": true,
+      "binary_sha256": "136e4c015fec09ea12bd858b355baff709b7ccbae81a89bde5f15fd10ea454b9"
+    }
+  },
+  "windows_tun_live_status": "Failed attempt: serve reached Serving device with physical interface selected; PowerShell script raised OutOfMemoryException before report collection. Native runtime regression and real retest pending.",
+  "verification_limits": [
+    "Native CI uses runner LAN without the user campus network or TUN.",
+    "Prior Linux-to-old-Windows tests do not establish the new Windows native egress.",
+    "No real OneDrive validation or UDP peer-direct-path claim.",
+    "Binding cannot guarantee bypassing mandatory VPN/WFP/transparent interception.",
+    "Periodic route/socket sampling cannot exclude events between samples."
+  ],
+  "failed_attempt": {
+    "report_collected": false,
+    "linux_verifier_stopped": true,
+    "windows_cleanup_confirmed": false,
+    "dev_advanced": false
+  }
+}
