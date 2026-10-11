@@ -46,6 +46,41 @@
 
 
 
+## TD-20261011-12：远程控制首次 Windows 原生生命周期回归失败
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：ee7bdd9，原生 Windows CI 38141236619 的 cargo test。
+- 关联历史故障：TD-20261011-11 新控制工具验证；不能仅以测试失败认定与 TD-20261011-10 网络退出相同根因。
+
+### 症状与影响
+
+Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付 Windows 实机，dev 未推进。
+
+### 触发条件与复现
+
+第一次执行原生 Windows bootstrap/child 完整生命周期回归。待读取具体失败日志。
+
+### 根因与证据
+
+原生日志显示首次 ready 前退出：`The filename, directory name, or volume label syntax is incorrect. (os error 123)`，35 秒后等待报告断言失败。当前假设是 Resolve-Path.Path 把 Rust 规范化的 Windows verbatim 状态路径表示为 PowerShell provider-qualified 字符串；先改用 ProviderPath 并补充具体阶段上下文，根因仍待原生复测确认。
+
+### 解决办法与恢复操作
+
+待定位。没有实机恢复操作。
+
+### 验证结果与边界
+
+本机完整单元/集成与 QUIC 控制通道通过；本次 Windows 原生测试未通过。
+
+### 防复发措施与后续
+
+保留首次 bootstrap 完整原生测试，修复后重新验证再交付。
+
+### 交付记录
+
+[失败 CI 38141236619](https://github.com/LumiaBlack51/twodrive/actions/runs/38141236619)；修正待补充。
+
 ## TD-20261011-11：跨端验证切换失败后未保留 child 退出证据，需反复人工操作
 
 - 日期：2026-10-11

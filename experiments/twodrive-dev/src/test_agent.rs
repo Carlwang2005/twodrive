@@ -505,12 +505,13 @@ pub fn run(
         "agent lifetime must be 120..7200 seconds"
     );
     trusted(state, owner)?;
-    let queue = queue.canonicalize()?;
+    let queue = queue.canonicalize().context("canonicalize control queue")?;
     ensure!(
         queue.is_dir() && !state.dir.starts_with(&queue),
         "queue must be separate from private state"
     );
-    let dir = Dir::open_ambient_dir(&queue, ambient_authority())?;
+    let dir = Dir::open_ambient_dir(&queue, ambient_authority())
+        .context("open control queue capability")?;
     let lock = dir
         .open_with(
             "agent.lock",
@@ -532,9 +533,10 @@ pub fn run(
         seq: 0,
         expires,
         status: "ready".into(),
-        data: json!({"device": key.public(), "agent_sha256": digest(&std::env::current_exe()?)?, "agent_pid": std::process::id(), "proxy_environment_present": (["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"].iter().any(|name| std::env::var_os(name).is_some()))}),
+        data: json!({"device": key.public(), "agent_sha256": digest(&std::env::current_exe()?).context("hash controller executable")?, "agent_pid": std::process::id(), "proxy_environment_present": (["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy"].iter().any(|name| std::env::var_os(name).is_some()))}),
     };
-    atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)?;
+    atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)
+        .context("write signed control response")?;
     println!("Test control ready; paired owner pinned; lease={lifetime}s");
     let mut child: Option<TestChild> = None;
     let mut last_job = Vec::new();
@@ -621,7 +623,8 @@ pub fn run(
                 report.data = json!({"error": format!("{error:#}")});
             }
         }
-        atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)?;
+        atomic_report(&dir, &sign(&key, REPORT_DOMAIN, &report)?)
+            .context("write signed control response")?;
         if finish {
             return Ok(());
         }

@@ -240,7 +240,8 @@ fn main() -> anyhow::Result<()> {
     let state = State::new(match cli.state {
         Some(path) => path,
         None => default_state()?,
-    })?;
+    })
+    .context("open private command state")?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

@@ -6,9 +6,9 @@ param(
 )
 # One bootstrap: the original paired serve stays running throughout.
 $ErrorActionPreference='Stop'
-$bundle=(Resolve-Path -LiteralPath $PSScriptRoot).Path
+$bundle=(Resolve-Path -LiteralPath $PSScriptRoot).ProviderPath
 if ((Split-Path $bundle -Leaf) -notmatch '^td-control-[a-f0-9]{32}$') { throw 'Unexpected control bundle name.' }
-$statePath=(Resolve-Path -LiteralPath $State).Path
+$statePath=(Resolve-Path -LiteralPath $State).ProviderPath
 if ($statePath.StartsWith($bundle + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Private state must be outside the shared control directory.' }
 $source=Join-Path $bundle 'twodrive-dev.exe'
 if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $ExpectedSha256) { throw 'Agent executable SHA256 mismatch.' }
