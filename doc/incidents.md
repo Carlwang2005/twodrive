@@ -46,6 +46,41 @@
 
 
 
+## TD-20261012-05：Windows TUN 兜底没有使用可用的原生系统地址解析
+
+- 日期：2026-10-12
+- 状态：已定位解析路径缺口，修复及实机验证中。
+- 影响版本与环境：至 55b80ad；Windows 校园网 TUN，System 路由中继注册失败。
+- 关联历史故障：TD-20261012-02 的持续调查；TD-20261011-06 是物理 DNS 并发答案选择，本条为另一机制；TD-20261012-04 的系统代理配置缺口不是本机本次失败的原因。
+
+### 症状与影响
+
+Windows 兜底约 32 秒注册超时，不能完成文件探针；默认物理路由和 Linux 兜底此前实测通过，原 serve 和配对状态仍可用。
+
+### 触发条件与复现
+
+签名 agent 执行经原生 CI 验证并全量校验 SHA256 的 55b80ad 候选，指定不存在物理接口。自动进入 System 路由后失败，失败 child 已自动停止并清理。
+
+### 根因与证据
+
+同一公共中继名字，endpoint 原解析器记录 `aps_dns_a=error=[dns,other]`、`aps_dns_aaaa=records=0`、`home_relays=0`；有界 Windows 原生地址解析返回 `records=1 ipv4=1 fake_ip=1`。System 分支没有原生地址解析后备，无法使用 TUN 提供的有效 fake-IP。原 raw DNS 上游更深的失败原因仍未确认；成功解析是否足以恢复中继及文件访问仍待实机复测。系统代理读取成功但 manual/usable/pac/autodetect 均 false，排除本次候选因遗漏静态 HTTP 代理而失败。
+
+### 解决办法与恢复操作
+
+拟在 System 路由中对 A/AAAA 错误或空结果使用有界原生 OS 解析，限制未完成原生调用数量；只在已经明确提示的 System/TUN 兜底接受 fake-IP。物理 DNS 和物理 TCP 仍拒绝 fake-IP，TXT 保持原解析路径。不修改全局代理、DNS 或路由。运行恢复单独说明：agent 和原 serve 保持运行，候选通过旧 TwoDrive 传送。
+
+### 验证结果与边界
+
+55b80ad 的原生 CI 38253177181 两平台通过，候选传送 PUT 204（279.899 秒），签名快照确认私有执行副本 SHA256；实际 Windows 兜底仍失败。拟补充 raw 解析失败/原生 fake-IP 成功对照、原生 localhost 和超时并发上限回归；当前两端校园网，不称为独立 NAT 验证。
+
+### 防复发措施与后续
+
+保持物理路径拒绝 fake-IP 的回归；验证修复后的实际 Windows 兜底，再用同一版本复测两端默认及两端兜底。最终收集 bootstrap 清理回执并删除自有测试包，保留原身份授权。
+
+### 交付记录
+
+[诊断候选 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[原生 CI 38253177181](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)；修复待补充。
+
 ## TD-20261012-04：Windows 系统代理设置没有进入自动兜底配置
 
 - 日期：2026-10-12
@@ -71,7 +106,7 @@ network::configure 的 System 分支只调用 builder.proxy_from_env；锁定 ir
 
 ### 验证结果与边界
 
-解析及两平台原生回归待执行，当前实机该设置的读取结果待补充。
+55b80ad 的两平台原生 CI 38253177181 通过，包括环境变量优先、CGI 限制、静态协议代理解析、绕过规则与非法 URL 回归。实机 API 读取成功（read_error=None），manual/usable/bypass/pac/autodetect 均 false；此配置缺口不是本机这次注册失败的原因，原生系统 DNS 对照见 TD-20261012-05。未实测启用静态 HTTP 代理、PAC/WPAD/SOCKS。
 
 ### 防复发措施与后续
 
@@ -79,7 +114,7 @@ network::configure 的 System 分支只调用 builder.proxy_from_env；锁定 ir
 
 ### 交付记录
 
-待补充。
+[修复 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)。
 
 ## TD-20261012-03：注册诊断候选使用了不完整的依赖 API 签名
 

@@ -5,6 +5,7 @@
 mod dns;
 mod lookup;
 mod proxy;
+mod system_dns;
 mod system_proxy;
 
 use anyhow::{Context, ensure};
@@ -226,6 +227,9 @@ pub(crate) async fn configure(
 ) -> anyhow::Result<Builder> {
     if mode == RouteMode::System {
         eprintln!("network: route=system/proxy; physical bypass disabled");
+        let builder = builder.dns_resolver(iroh::dns::DnsResolver::custom(
+            system_dns::SystemResolver::default(),
+        ));
         return Ok(system_proxy::configure(builder, relays));
     }
     let physical = Arc::new(select_physical(netdev::get_interfaces(), mode, requested)?);

@@ -94,7 +94,7 @@ twodrive-dev --state ~/.local/share/twodrive-dev/local-dav dav-serve \
 - `--network-route system`：主动使用系统路由和 iroh 支持的 HTTP(S) 代理环境变量。
 - `--network-interface NAME`：按系统名称、Windows 友好名称或接口索引指定物理网卡。指定网卡不可用时，`auto` 明确提示系统/代理兜底，`direct` 失败；可据此测试兜底，无需修改全局路由。
 
-系统兜底优先使用显式 HTTP(S) 代理环境变量；Windows 再读取当前用户的静态 HTTP(S) 系统代理，并尊重已配置中继主机的代理绕过规则。日志仅报告代理来源及存在性，不打印地址、凭据或 PAC 内容。自动执行 PAC/WPAD 和 SOCKS 代理支持尚未实现。
+系统兜底优先使用显式 HTTP(S) 代理环境变量；Windows 再读取当前用户的静态 HTTP(S) 系统代理，并尊重已配置中继主机的代理绕过规则。日志仅报告代理来源及存在性，不打印地址、凭据或 PAC 内容。自动执行 PAC/WPAD 和 SOCKS 代理支持尚未实现。系统路由的 A/AAAA 查询失败或无结果时，还会尝试原生 OS 解析，限制等待时间与未完成调用数量；此路径允许 TUN fake-IP。物理 DNS 与物理 TCP 仍拒绝 fake-IP，TXT 保持原解析器。
 
 Windows 实机验证脚本 `scripts/verify-network.ps1` 接收临时共享目录、既有私密状态及通过独立渠道核实的程序 SHA-256。它暂时替换唯一匹配的测试 serve，采样 TCP 物理源地址和路由稳定性，再测试不存在的网卡触发兜底。已配对的 Linux 验证端只通过共享发送固定的 `next`/`finish`/`abort` 信号。脚本恢复旧 serve，删除自己拥有的程序、脚本和样本；验证端取回并删除剩余脱敏报告。这份旧分阶段脚本会重启传输端；自主重试应使用下文的远程测试进程控制端。
 
