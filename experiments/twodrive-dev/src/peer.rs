@@ -180,15 +180,15 @@ async fn registration_diagnostics(endpoint: &Endpoint) {
     let host = iroh::defaults::prod::AP_RELAY_HOSTNAME;
     let budget = Duration::from_secs(3);
     let (v4, v6) = tokio::join!(
-        tokio::time::timeout(budget, resolver.lookup_ipv4(host)),
-        tokio::time::timeout(budget, resolver.lookup_ipv6(host)),
+        tokio::time::timeout(budget, resolver.lookup_ipv4(host, budget)),
+        tokio::time::timeout(budget, resolver.lookup_ipv6(host, budget)),
     );
     let v4 = match v4 {
         Ok(Ok(addresses)) => {
             let addresses: Vec<_> = addresses.collect();
             let fake = addresses
                 .iter()
-                .filter(|ip| ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19))
+                .filter(|ip| matches!(ip, std::net::IpAddr::V4(ip) if ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19)))
                 .count();
             format!("records={} fake_ip={fake}", addresses.len())
         }
