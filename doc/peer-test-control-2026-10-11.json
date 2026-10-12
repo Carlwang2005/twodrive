@@ -61,7 +61,7 @@
   },
   "validation": {
     "native_both_platforms": "success; full bootstrap/child lifecycle and real encrypted control transport",
-    "windows_live": "awaiting first opt-in bootstrap",
+    "windows_live": "signed ready observed 2026-10-12; remote retry and candidate delivery executed",
     "windows_fallback": "unresolved TD-20261011-10",
     "dev_promoted": false
   },
@@ -70,5 +70,17 @@
     "superseded_local_binaries_removed": true,
     "remaining_native_binaries": "required for pending live validation",
     "windows_original_identity_and_grants": "preserved by prior failures; controller will verify normal finish"
+  },
+  "resume_2026_10_12": {
+    "native_ci": 38248783869,
+    "live_signed_ready": true,
+    "both_auto_passed": true,
+    "linux_fallback_passed": true,
+    "windows_fallback": "registration timeout; TD-20261012-02",
+    "diagnostic_candidate_ci": 38250184130,
+    "candidate_delivery_put_201": true,
+    "candidate_bytes": 16175104,
+    "cleanup": "failed children removed; controller finish and bundle cleanup pending",
+    "record": "peer-windows-egress-2026-10-12.json"
   }
 }

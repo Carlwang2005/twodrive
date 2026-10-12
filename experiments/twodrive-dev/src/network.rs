@@ -5,6 +5,7 @@
 mod dns;
 mod lookup;
 mod proxy;
+mod system_proxy;
 
 use anyhow::{Context, ensure};
 use clap::ValueEnum;
@@ -221,10 +222,11 @@ pub(crate) async fn configure(
     requested: Option<&str>,
     discovery: bool,
     relay_only: bool,
+    relays: &[String],
 ) -> anyhow::Result<Builder> {
     if mode == RouteMode::System {
         eprintln!("network: route=system/proxy; physical bypass disabled");
-        return Ok(builder.proxy_from_env());
+        return Ok(system_proxy::configure(builder, relays));
     }
     let physical = Arc::new(select_physical(netdev::get_interfaces(), mode, requested)?);
     let backend = Arc::new(dns::Backend::new(physical.clone()));

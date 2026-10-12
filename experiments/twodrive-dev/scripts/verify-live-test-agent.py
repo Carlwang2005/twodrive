@@ -244,20 +244,26 @@ def run(args):
                 info = stopped['data']['child']
                 network = info['network']
                 stage['windows_final'] = info
-                assert network and network['samples'] > 0 and network['public_tcp_samples'] > 0
+                assert network and network['samples'] > 0
                 assert network['route_unchanged'] and network['proxy_fake_ip_present'] and 'error_type' not in network
                 if windows_missing:
                     assert 'route=system/proxy fallback' in info['stderr']
+                    # A local HTTP CONNECT proxy owns its outbound 443 socket;
+                    # the child can have zero public-443 samples in this mode.
+                    assert network['public_tcp_samples'] > 0 or 'proxy=windows-user-http' in info['stderr'] or 'proxy=environment' in info['stderr']
                 else:
                     assert 'route=physical' in info['stderr'] and 'route=system/proxy fallback' not in info['stderr']
                     assert network['nonphysical_tcp_samples'] == 0
+                    assert network['public_tcp_samples'] > 0
                 linux = stage['linux_network']
-                assert linux['route_unchanged'] and linux['proxy_fake_ip_present'] and linux['public_tcp_samples'] > 0 and 'error_type' not in linux
+                assert linux['route_unchanged'] and linux['proxy_fake_ip_present'] and 'error_type' not in linux
                 if linux_missing:
                     assert 'route=system/proxy fallback' in stage['linux_log']
+                    assert linux['public_tcp_samples'] > 0 or 'proxy=environment' in stage['linux_log']
                 else:
                     assert 'route=physical' in stage['linux_log'] and 'route=system/proxy fallback' not in stage['linux_log']
                     assert linux['nonphysical_tcp_samples'] == 0
+                    assert linux['public_tcp_samples'] > 0
                 stage['passed'] = True
                 save(args.output, result)
                 print('Passed ' + name + ': 2 MiB hash, move, range and cleanup', flush=True)

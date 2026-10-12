@@ -94,6 +94,8 @@ twodrive-dev --state ~/.local/share/twodrive-dev/local-dav dav-serve \
 - `--network-route system`：主动使用系统路由和 iroh 支持的 HTTP(S) 代理环境变量。
 - `--network-interface NAME`：按系统名称、Windows 友好名称或接口索引指定物理网卡。指定网卡不可用时，`auto` 明确提示系统/代理兜底，`direct` 失败；可据此测试兜底，无需修改全局路由。
 
+系统兜底优先使用显式 HTTP(S) 代理环境变量；Windows 再读取当前用户的静态 HTTP(S) 系统代理，并尊重已配置中继主机的代理绕过规则。日志仅报告代理来源及存在性，不打印地址、凭据或 PAC 内容。自动执行 PAC/WPAD 和 SOCKS 代理支持尚未实现。
+
 Windows 实机验证脚本 `scripts/verify-network.ps1` 接收临时共享目录、既有私密状态及通过独立渠道核实的程序 SHA-256。它暂时替换唯一匹配的测试 serve，采样 TCP 物理源地址和路由稳定性，再测试不存在的网卡触发兜底。已配对的 Linux 验证端只通过共享发送固定的 `next`/`finish`/`abort` 信号。脚本恢复旧 serve，删除自己拥有的程序、脚本和样本；验证端取回并删除剩余脱敏报告。这份旧分阶段脚本会重启传输端；自主重试应使用下文的远程测试进程控制端。
 
 这是尽力绕过策略。Linux 的 TCP/DNS 支持接口与源地址约束，Windows 使用接口索引约束；iroh 的 UDP 目前使用物理源地址绑定。强制 VPN、WFP/透明网关策略不一定能被应用绕过，也不保证识别每一种虚拟适配器或支持任意 SOCKS 代理兜底。物理网卡在启动时选择，切换网络后重启 dev 可重新选择。该策略覆盖本实验的设备共享；外部 WebDAV 挂载和稳定 OneDrive 客户端的出口策略未在此修改。

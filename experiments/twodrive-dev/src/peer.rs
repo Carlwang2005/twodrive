@@ -95,6 +95,7 @@ async fn bind_endpoint(secret: &SecretKey, network: &Network) -> anyhow::Result<
         network.interface.as_deref(),
         !network.no_relay && network.relays.is_empty(),
         network.relay_only,
+        &network.relays,
     )
     .await?;
     let transport = iroh::endpoint::QuicTransportConfig::builder()
@@ -130,6 +131,18 @@ fn error_categories(error: &(dyn std::error::Error + 'static)) -> Vec<String> {
         let message = error.to_string().to_ascii_lowercase();
         let category = if let Some(io) = error.downcast_ref::<std::io::Error>() {
             format!("io({:?},os={:?})", io.kind(), io.raw_os_error())
+        } else if message.contains("nxdomain") {
+            "dns_nxdomain".into()
+        } else if message.contains("no nameservers configured") {
+            "dns_no_nameservers".into()
+        } else if message.contains("no nameserver returned") {
+            "dns_no_usable_response".into()
+        } else if message.contains("servfail") {
+            "dns_servfail".into()
+        } else if message.contains("refused") {
+            "refused".into()
+        } else if message.contains("malformed dns") {
+            "dns_invalid_response".into()
         } else if ["dns", "resolve", "lookup", "query"]
             .iter()
             .any(|word| message.contains(word))
@@ -201,6 +214,32 @@ async fn registration_diagnostics(endpoint: &Endpoint) {
         Err(_) => "timeout".into(),
     };
     eprintln!("network: registration diagnostic aps_dns_a={v4} aps_dns_aaaa={v6}");
+    // Contrast the dependency's raw DNS resolver with the operating system's
+    // native resolver. A detached native lookup cannot stall endpoint teardown.
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let started = std::thread::Builder::new().name("td-dns-diagnostic".into()).spawn(move || {
+        use std::net::ToSocketAddrs;
+        let result = match (host, 443).to_socket_addrs() {
+            Ok(addresses) => {
+                let addresses: Vec<_> = addresses.collect();
+                let v4 = addresses.iter().filter(|a| a.is_ipv4()).count();
+                let fake = addresses.iter().filter(|a| matches!(a.ip(), std::net::IpAddr::V4(ip) if ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19))).count();
+                format!("records={} ipv4={v4} fake_ip={fake}", addresses.len())
+            }
+            Err(error) => format!("error={:?}", error_categories(&error)),
+        };
+        let _ = send.send(result);
+    });
+    let native = if started.is_err() {
+        "thread_unavailable".into()
+    } else {
+        match tokio::time::timeout(budget, receive).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => "lookup_unavailable".into(),
+            Err(_) => "timeout".into(),
+        }
+    };
+    eprintln!("network: registration diagnostic native_aps_dns={native}");
 }
 
 #[cfg(test)]
@@ -217,6 +256,18 @@ mod diagnostic_tests {
         let categories = error_categories(&os_error);
         assert!(categories[0].contains("10061"));
         assert!(!categories[0].contains("private-"));
+        assert_eq!(
+            error_categories(&n0_error::AnyError::from_string(
+                "domain name does not exist (NXDOMAIN)".into()
+            )),
+            ["dns_nxdomain"]
+        );
+        assert_eq!(
+            error_categories(&n0_error::AnyError::from_string(
+                "no nameserver returned a usable response".into()
+            )),
+            ["dns_no_usable_response"]
+        );
     }
 }
 
