@@ -8,7 +8,9 @@ use std::{
     time::Duration,
 };
 
-const BUDGET: Duration = Duration::from_secs(3);
+// Relay DNS has a three-second outer budget. Leave time for native fallback.
+const PRIMARY_BUDGET: Duration = Duration::from_millis(500);
+const BUDGET: Duration = Duration::from_secs(2);
 type NativeLookup = fn(&str) -> std::io::Result<Vec<IpAddr>>;
 
 #[derive(Clone, Debug)]
@@ -41,12 +43,12 @@ impl SystemResolver {
     async fn addresses(&self, host: String, ipv4: bool) -> Result<Vec<IpAddr>, DnsError> {
         let primary = if ipv4 {
             self.primary
-                .lookup_ipv4(&host, self.budget)
+                .lookup_ipv4(&host, PRIMARY_BUDGET.min(self.budget))
                 .await
                 .map(|values| values.collect::<Vec<_>>())
         } else {
             self.primary
-                .lookup_ipv6(&host, self.budget)
+                .lookup_ipv6(&host, PRIMARY_BUDGET.min(self.budget))
                 .await
                 .map(|values| values.collect::<Vec<_>>())
         };
@@ -167,6 +169,63 @@ mod tests {
         fn reset(&self) -> Box<dyn Resolver> {
             Box::new(self.clone())
         }
+    }
+
+    #[derive(Debug, Clone)]
+    struct Hanging;
+    impl Resolver for Hanging {
+        fn lookup_ipv4(
+            &self,
+            _: String,
+        ) -> BoxFuture<'static, Result<BoxIter<Ipv4Addr>, DnsError>> {
+            futures_util::future::pending().boxed()
+        }
+        fn lookup_ipv6(
+            &self,
+            host: String,
+        ) -> BoxFuture<'static, Result<BoxIter<Ipv6Addr>, DnsError>> {
+            Unavailable.lookup_ipv6(host)
+        }
+        fn lookup_txt(
+            &self,
+            host: String,
+        ) -> BoxFuture<'static, Result<BoxIter<TxtRecordData>, DnsError>> {
+            Unavailable.lookup_txt(host)
+        }
+        fn clear_cache(&self) {}
+        fn reset(&self) -> Box<dyn Resolver> {
+            Box::new(self.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn hanging_raw_dns_leaves_time_for_native_before_relay_deadline() {
+        let primary = DnsResolver::custom(Hanging);
+        // The old first-step budget cannot reach fallback within this window.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                primary.lookup_ipv4("fixture.invalid", Duration::from_secs(3))
+            )
+            .await
+            .is_err()
+        );
+        let resolver = DnsResolver::custom(SystemResolver {
+            primary,
+            native: |_| Ok(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            ..Default::default()
+        });
+        let addresses = tokio::time::timeout(
+            Duration::from_secs(1),
+            resolver.lookup_ipv4("fixture.invalid", Duration::from_secs(3)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            addresses.collect::<Vec<_>>(),
+            vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]
+        );
     }
 
     #[tokio::test]
