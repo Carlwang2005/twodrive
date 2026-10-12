@@ -16,6 +16,9 @@ from pathlib import Path
 SPEC = importlib.util.spec_from_file_location('control_test_agent', Path(__file__).with_name('control-test-agent.py'))
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+LIVE_SPEC = importlib.util.spec_from_file_location('live_validation', Path(__file__).with_name('verify-live-test-agent.py'))
+LIVE = importlib.util.module_from_spec(LIVE_SPEC)
+LIVE_SPEC.loader.exec_module(LIVE)
 
 
 def wait(check, processes, seconds=40):
@@ -100,6 +103,12 @@ def main():
             request(child_base, child, 'payload.bin', 'PUT', payload)
             assert hashlib.sha256(request(child_base, child, 'payload.bin', 'GET')).digest() == hashlib.sha256(payload).digest()
             request(child_base, child, 'payload.bin', 'DELETE')
+            # Exercise the two-device verifier's data probe through the real
+            # independently authenticated temporary child.
+            live_gateway = object.__new__(LIVE.Gateway)
+            live_gateway.base, live_gateway.state, live_gateway.opener = child_base, child, opener
+            validation = LIVE.probe(live_gateway)
+            assert validation['bytes'] == 2 * 1024 * 1024 and validation['delete_404']
             # Stop the test server while the independent original transport lives.
             client.terminate()
             client.wait(timeout=10)
@@ -115,7 +124,7 @@ def main():
             assert not list(child_runtime.iterdir())
             for name, digest in before.items():
                 assert hashlib.sha256((server / name).read_bytes()).digest() == digest
-            print('PASS: signed jobs through real encrypted TwoDrive, separate temporary child identity, 1 MiB hash roundtrip, original server stays available, child/agent cleanup and identity preservation')
+            print('PASS: signed jobs through real encrypted TwoDrive, separate temporary child identity, 1 MiB roundtrip plus live 2 MiB hash/move/range/delete probe, original server stays available, child/agent cleanup and identity preservation')
         finally:
             for process in reversed(processes):
                 process.terminate()
