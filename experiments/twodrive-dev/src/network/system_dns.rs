@@ -40,12 +40,17 @@ fn native_lookup(host: &str) -> std::io::Result<Vec<IpAddr>> {
 impl SystemResolver {
     async fn addresses(&self, host: String, ipv4: bool) -> Result<Vec<IpAddr>, DnsError> {
         let primary = if ipv4 {
-            self.primary.lookup_ipv4(&host, self.budget).await
+            self.primary
+                .lookup_ipv4(&host, self.budget)
+                .await
+                .map(|values| values.collect::<Vec<_>>())
         } else {
-            self.primary.lookup_ipv6(&host, self.budget).await
+            self.primary
+                .lookup_ipv6(&host, self.budget)
+                .await
+                .map(|values| values.collect::<Vec<_>>())
         };
         if let Ok(values) = primary {
-            let values: Vec<_> = values.collect();
             if !values.is_empty() {
                 return Ok(values);
             }
