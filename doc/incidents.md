@@ -49,7 +49,7 @@
 ## TD-20261012-08：系统 DNS 后备预算与中继外层超时相同
 
 - 日期：2026-10-12
-- 状态：维护中确认预算缺口，修复待原生和实机验证。
+- 状态：已验证；两平台原生回归及当前双端 TUN 实测通过。
 - 影响版本与环境：至 772b3ce；raw DNS 完整耗尽三秒预算时。
 - 关联历史故障：TD-20261012-05 的新后备实现；不是对本机 raw DNS 深层失败原因的推断。
 
@@ -71,7 +71,7 @@ raw 查询上限改为 500 ms，原生调用上限两秒，总计至多约 2.5 �
 
 ### 验证结果与边界
 
-严格编译已过的旧候选未覆盖慢 raw DNS；新超时回归及两平台实机结果待补充。
+1a48437 的原生 CI 38256439762 两平台通过 hanging_raw_dns_leaves_time_for_native_before_relay_deadline：旧三秒 raw 步骤无法在一秒窗口完成；新后备在同一窗口完成有效解析。另通过快失败/空结果原生 TUN 地址、原生 localhost、超时调用持有并发槽三项回归。同一原生产物的双端默认、Linux 兜底、Windows 兜底三阶段均完成 2 MiB 完整哈希、MOVE、256 KiB Range、DELETE 404；两端路由未变化。
 
 ### 防复发措施与后续
 
@@ -79,12 +79,12 @@ raw 查询上限改为 500 ms，原生调用上限两秒，总计至多约 2.5 �
 
 ### 交付记录
 
-修复待补充。
+[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
 
 ## TD-20261012-07：系统 DNS 候选被严格 Clippy 的嵌套条件检查阻止
 
 - 日期：2026-10-12
-- 状态：已定位，修正后原生验证待执行。
+- 状态：已验证；两平台严格 Clippy 及回归通过。
 - 影响版本与环境：47837e3；CI 38255820778，两平台严格 Clippy。
 - 关联历史故障：TD-20261012-06 修正后的另一项构建检查；不改变实机 DNS 根因。
 
@@ -106,7 +106,7 @@ CI 明确报告 system_dns.rs:53 的 `collapsible_if`；是源码结构未符合
 
 ### 验证结果与边界
 
-旧候选两平台失败已确认；修正后的原生 CI 待补充。
+47837e3 旧候选两平台失败已确认；772b3ce 的原生 CI 38256039757 与 1a48437 的原生 CI 38256439762 两平台全部通过，包含严格 Clippy。
 
 ### 防复发措施与后续
 
@@ -114,12 +114,12 @@ CI 明确报告 system_dns.rs:53 的 `collapsible_if`；是源码结构未符合
 
 ### 交付记录
 
-[失败 CI 38255820778](https://github.com/LumiaBlack51/twodrive/actions/runs/38255820778)；修正待补充。
+[失败 CI 38255820778](https://github.com/LumiaBlack51/twodrive/actions/runs/38255820778)；[修正 772b3ce](https://github.com/LumiaBlack51/twodrive/commit/772b3ce7c635425cd53b985e409c60c6a1c3c010)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)。
 
 ## TD-20261012-06：系统 DNS 候选合并了两个不同的 opaque 迭代器类型
 
 - 日期：2026-10-12
-- 状态：已定位待原生修复验证。
+- 状态：已验证修正；两平台原生构建通过。
 - 影响版本与环境：9b93c88，CI 38255613648 的 Linux Clippy 编译。
 - 关联历史故障：TD-20261012-03 同属候选 API 使用失误，但本次是两个 `impl Iterator` 的类型不相同；不是 Windows 实机网络失败。
 
@@ -141,7 +141,7 @@ if/else 直接合并 lookup_ipv4 和 lookup_ipv6 的返回结果。
 
 ### 验证结果与边界
 
-旧候选原生编译失败已确认；新候选原生编译及回归待执行。本条不改变 TD-20261012-05 的实机验证状态。
+9b93c88 原生编译失败已确认。修正 opaque 类型后另发现严格 Clippy 条件结构问题（TD-20261012-07）；772b3ce 的 CI 38256039757、1a48437 的 CI 38256439762 两平台全部通过。本条不改变 TD-20261012-05 的实机验证状态。
 
 ### 防复发措施与后续
 
@@ -149,12 +149,12 @@ if/else 直接合并 lookup_ipv4 和 lookup_ipv6 的返回结果。
 
 ### 交付记录
 
-[失败 CI 38255613648](https://github.com/LumiaBlack51/twodrive/actions/runs/38255613648)；修复待补充。
+[失败 CI 38255613648](https://github.com/LumiaBlack51/twodrive/actions/runs/38255613648)；[类型修正 47837e3](https://github.com/LumiaBlack51/twodrive/commit/47837e363f5c9883f391862d57221755da5a2926)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)。
 
 ## TD-20261012-05：Windows TUN 兜底没有使用可用的原生系统地址解析
 
 - 日期：2026-10-12
-- 状态：已定位解析路径缺口，修复及实机验证中。
+- 状态：已验证修复；当前两端 TUN 实机通过，raw DNS 上游更深的失败原因仍未确认。
 - 影响版本与环境：至 55b80ad；Windows 校园网 TUN，System 路由中继注册失败。
 - 关联历史故障：TD-20261012-02 的持续调查；TD-20261011-06 是物理 DNS 并发答案选择，本条为另一机制；TD-20261012-04 的系统代理配置缺口不是本机本次失败的原因。
 
@@ -168,28 +168,28 @@ Windows 兜底约 32 秒注册超时，不能完成文件探针；默认物理�
 
 ### 根因与证据
 
-同一公共中继名字，endpoint 原解析器记录 `aps_dns_a=error=[dns,other]`、`aps_dns_aaaa=records=0`、`home_relays=0`；有界 Windows 原生地址解析返回 `records=1 ipv4=1 fake_ip=1`。System 分支没有原生地址解析后备，无法使用 TUN 提供的有效 fake-IP。原 raw DNS 上游更深的失败原因仍未确认；成功解析是否足以恢复中继及文件访问仍待实机复测。系统代理读取成功但 manual/usable/pac/autodetect 均 false，排除本次候选因遗漏静态 HTTP 代理而失败。
+同一公共中继名字，endpoint 原解析器记录 `aps_dns_a=error=[dns,other]`、`aps_dns_aaaa=records=0`、`home_relays=0`；有界 Windows 原生地址解析返回 `records=1 ipv4=1 fake_ip=1`。System 分支没有原生地址解析后备，无法使用 TUN 提供的有效 fake-IP。原 raw DNS 上游更深的失败原因仍未确认；2026-10-12 后续实测：加入原生后备的 1a48437 已恢复中继注册及文件访问；同版本完整三阶段再次通过。系统代理读取成功但 manual/usable/pac/autodetect 均 false，排除本次候选因遗漏静态 HTTP 代理而失败。
 
 ### 解决办法与恢复操作
 
-拟在 System 路由中对 A/AAAA 错误或空结果使用有界原生 OS 解析，限制未完成原生调用数量；只在已经明确提示的 System/TUN 兜底接受 fake-IP。物理 DNS 和物理 TCP 仍拒绝 fake-IP，TXT 保持原解析路径。不修改全局代理、DNS 或路由。运行恢复单独说明：agent 和原 serve 保持运行，候选通过旧 TwoDrive 传送。
+在 System 路由中对 A/AAAA 错误或空结果使用有界原生 OS 解析，限制等待预算（raw 500 ms、原生两秒）及未完成原生调用数量（八个，reset 共享上限）；只在已经明确提示的 System/TUN 兜底接受 fake-IP。物理 DNS 和物理 TCP 仍拒绝 fake-IP，TXT 保持原解析路径。不修改全局代理、DNS 或路由。运行恢复单独说明：agent 和原 serve 保持运行，候选通过旧 TwoDrive 传送。
 
 ### 验证结果与边界
 
-55b80ad 的原生 CI 38253177181 两平台通过，候选传送 PUT 204（279.899 秒），签名快照确认私有执行副本 SHA256；实际 Windows 兜底仍失败。拟补充 raw 解析失败/原生 fake-IP 成功对照、原生 localhost 和超时并发上限回归；当前两端校园网，不称为独立 NAT 验证。
+55b80ad 的原生 CI 38253177181 两平台通过，候选传送 PUT 204（279.899 秒），签名快照确认私有执行副本 SHA256；实际 Windows 兜底仍失败。1a48437 两平台完整原生 CI 通过四项系统 DNS 回归，Linux 27/Windows 22 单元、10/9 集成、各两项控制协议测试、原生 release、LAN 和签名双通道实传 smoke，以及 Windows PowerShell 5.1/7 回归。Windows 程序实际经旧 TwoDrive PUT 204 传送（312.001 秒），签名快照校验私有执行副本全量 SHA256。Windows 兜底先独立通过，再以同版两端完整复测：默认物理 TCP 为 Linux 14/14、Windows 16/16；Linux 兜底 65 个非物理 TCP 样本；Windows 兜底 30 个非物理 TCP 样本。三阶段全部完成 2 MiB 哈希、MOVE、Range 256 KiB 和 DELETE 404，TUN 存在、全局路由未变。默认 APS RTT 90.5 ms，Linux 兜底 APS 1003.6 ms，Windows 兜底 US-west 739.8 ms。当前两端校园网，不称为独立 NAT 验证；此前热点/校园网默认验证另保留在前一日记录。
 
 ### 防复发措施与后续
 
-保持物理路径拒绝 fake-IP 的回归；验证修复后的实际 Windows 兜底，再用同一版本复测两端默认及两端兜底。最终收集 bootstrap 清理回执并删除自有测试包，保留原身份授权。
+保持物理路径拒绝 fake-IP 的回归；验证修复后的实际 Windows 兜底，再用同一版本复测两端默认及两端兜底。已收集 bootstrap 清理回执：agent 退出 0，原身份/授权保留、私有 runtime 删除、程序负载删除均 true。公共包删除确认 404，Windows 共享根目录零项、原 serve 仍可用。本机自有 gateway 已退出，临时二进制、ZIP、负载、私密日志、临时客户端状态均已删除，原配对状态保留；稳定 daemon active、NRestarts=0。PAC/WPAD/SOCKS 和强制 VPN/WFP 仍有实现/验证边界，不将 TCP 采样当作所有 UDP 流量绕过保证。
 
 ### 交付记录
 
-[诊断候选 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[原生 CI 38253177181](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)；修复待补充。
+[诊断候选 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[原生 CI 38253177181](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)；[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
 
 ## TD-20261012-04：Windows 系统代理设置没有进入自动兜底配置
 
 - 日期：2026-10-12
-- 状态：已确认配置缺口，修复及实机验证中。
+- 状态：已验证读取与原生回归；启用静态系统代理的实际传输未覆盖。
 - 影响版本与环境：至 23ab327 的 System 路由仅调用 iroh proxy_from_env；Windows 用户配置系统 HTTP 代理、没有代理环境变量时。
 - 关联历史故障：TD-20261012-02 的 DNS/注册超时调查；当前实机是否具备系统 HTTP 代理、是否为这次超时的直接原因仍待确认。
 
@@ -246,7 +246,7 @@ network::configure 的 System 分支只调用 builder.proxy_from_env；锁定 ir
 
 ### 验证结果与边界
 
-CI 38249950281 确认 E0061（缺少预算参数）与 E0599（IpAddr 没有 octets）旧候选构建失败；修复提交 23ab327 的 CI 38250184130 两平台全部通过，含严格 Clippy、格式、既有网络/控制测试、新增诊断脱敏回归及实际双通道 2 MiB 探针。实机注册失败诊断取回待执行；不把原生同机测试当作校园网兜底成功。
+CI 38249950281 确认 E0061（缺少预算参数）与 E0599（IpAddr 没有 octets）旧候选构建失败；修复提交 23ab327 的 CI 38250184130 两平台全部通过，含严格 Clippy、格式、既有网络/控制测试、新增诊断脱敏回归及实际双通道 2 MiB 探针。实机注册失败诊断已取回并定位 System 原生地址后备缺口，修复后的校园网 TUN 三阶段实测见 TD-20261012-05；不把原生同机测试当作校园网兜底成功。
 
 ### 防复发措施与后续
 
@@ -259,7 +259,7 @@ CI 38249950281 确认 E0061（缺少预算参数）与 E0599（IpAddr 没有 oct
 ## TD-20261012-02：Windows 系统/代理兜底再次因中继注册超时退出
 
 - 日期：2026-10-12
-- 状态：调查中 / 已确认退出机制，网络失败根因未确认。
+- 状态：已验证原生 DNS 后备修复；raw DNS 上游更深失败原因仍未确认。
 - 影响版本与环境：3dddc00 原生 Windows 核心，f1657e5 编排；两端校园网，FlClash/TUN 存在。
 - 关联历史故障：TD-20261011-10；旧记录因日志丢失没有根因结论，本轮通过 TD-20261011-11 控制端保留了签名错误证据。
 
@@ -275,9 +275,11 @@ CI 38249950281 确认 E0061（缺少预算参数）与 E0599（IpAddr 没有 oct
 
 已确认 endpoint.online 的 30 秒预算触发退出。尚未确认系统 DNS、代理环境、中继选择、TCP/TLS 或其他网络策略中的失败环节，不把预算到期本身当作完整根因。默认 Windows 物理出口实际 14/14、30/30 TCP 样本为物理源，路由未变、fake-IP 存在；失败兜底阶段无已建立公网 443 TCP 样本。
 
+2026-10-12 追加：55b80ad 对照确认 endpoint raw A 失败而原生 Windows DNS 可返回 TUN fake-IP；系统静态代理未配置。已定位 System 解析后备缺口，修复及三阶段实测、两端清理结果见 TD-20261012-05。原 raw DNS 深层错误仍不作猜测，旧 TD-20261011-10 丢失日志不能追溯认定同一根因。
+
 ### 解决办法与恢复操作
 
-调查中。固定 aps1 relay 的诊断重试仍在约 31 秒退出，不能据此把故障只归因于默认 relay 列表。增加注册失败后的有限错误类别/OS 错误码、home relay 状态及相同 resolver 的 A/AAAA 计数诊断，不输出上游任意错误文本或代理 URL。23ab327 候选通过原生 CI 后实际上传成功（289.013 秒），签名快照确认私有程序全量 SHA256 与原生产物一致；实际 home_relays=0、aps_dns_a=error=[dns,other]、aps_dns_aaaa=records=0。下一候选区分 NXDOMAIN/无可用响应，并增加有界原生 OS 解析对照；Windows 静态代理读取缺口另记 TD-20261012-04。编排已自动收集签名 stderr 并停止、删除失败 child 私有 runtime；保留 agent 与原 serve，用于远程重试和传送经过原生验证的候选构建。尚未发送 finish。
+调查中。固定 aps1 relay 的诊断重试仍在约 31 秒退出，不能据此把故障只归因于默认 relay 列表。增加注册失败后的有限错误类别/OS 错误码、home relay 状态及相同 resolver 的 A/AAAA 计数诊断，不输出上游任意错误文本或代理 URL。23ab327 候选通过原生 CI 后实际上传成功（289.013 秒），签名快照确认私有程序全量 SHA256 与原生产物一致；实际 home_relays=0、aps_dns_a=error=[dns,other]、aps_dns_aaaa=records=0。下一候选区分 NXDOMAIN/无可用响应，并增加有界原生 OS 解析对照；Windows 静态代理读取缺口另记 TD-20261012-04。编排已自动收集签名 stderr 并停止、删除失败 child 私有 runtime；保留 agent 与原 serve，用于远程重试和传送经过原生验证的候选构建。上述为调查阶段保留措施；后续完整验证通过后已发送 finish、取得正常退出/身份保留回执并完成双端清理。
 
 ### 验证结果与边界
 
@@ -289,7 +291,7 @@ Windows/Linux CI 38248783869 全部通过，包括新版实际传输探针；这
 
 ### 交付记录
 
-[实机编排 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38248783869)；修复待补充。
+[实机编排 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38248783869)；[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
 
 ## TD-20261012-01：实机控制编排只保存在临时目录，重启后不能直接续测
 
@@ -308,7 +310,7 @@ Windows/Linux CI 38248783869 全部通过，包括新版实际传输探针；这
 
 ### 根因与证据
 
-临时运行数据的生命周期短于跨天维护任务。控制协议、原生 CI 和交付信息已持久保存，但组合实机验证入口没有保存到仓库。恢复旧配对连接成功；Windows response.json 与 bootstrap-cleanup.json 均为 404，启动脚本和程序 HEAD 为 200，脚本逐字节与仓库版本一致。尚无首次启用成功证据，不能把缺少回执归因为 agent 崩溃。
+临时运行数据的生命周期短于跨天维护任务。控制协议、原生 CI 和交付信息已持久保存，但组合实机验证入口没有保存到仓库。恢复旧配对连接成功；Windows response.json 与 bootstrap-cleanup.json 均为 404，启动脚本和程序 HEAD 为 200，脚本逐字节与仓库版本一致。恢复时尚无首次启用成功证据，不能把缺少回执归因为 agent 崩溃；后续签名就绪和正常退出已确认，完整结果见 TD-20261012-05。
 
 ### 解决办法与恢复操作
 
@@ -316,7 +318,7 @@ Windows/Linux CI 38248783869 全部通过，包括新版实际传输探针；这
 
 ### 验证结果与边界
 
-Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。旧配对实连 US-west relay、初始 RTT 782.8 ms。当前本机为校园网，不将本轮称为手机热点与校园网跨 NAT。本机实际 QUIC 控制双通道 smoke 已执行新版实机入口使用的完整 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404 探针，原服务继续可用、临时 child 和 client 清理、原身份授权字节保留通过；两个既有签名响应回归通过。后续 Windows 首次启用成功、双端默认及 Linux 兜底实测通过；Windows 再次超时另记 TD-20261012-02。完整清理仍待完成。
+Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。旧配对实连 US-west relay、初始 RTT 782.8 ms。当前本机为校园网，不将本轮称为手机热点与校园网跨 NAT。本机实际 QUIC 控制双通道 smoke 已执行新版实机入口使用的完整 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404 探针，原服务继续可用、临时 child 和 client 清理、原身份授权字节保留通过；两个既有签名响应回归通过。后续 Windows 首次启用成功、双端默认及 Linux 兜底实测通过；Windows 再次超时另记 TD-20261012-02。2026-10-12 后续完整三阶段均通过，Windows bootstrap 身份授权保留回执与双端自有临时文件清理确认完成，见 TD-20261012-05。
 
 ### 防复发措施与后续
 
@@ -571,7 +573,7 @@ Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付
 
 保留签名/篡改/会话/过期/重放/未知指令回归、实际 child 失败日志捕获与失败后重试、退出清理和原身份/授权字节不变测试。实机取回 TD-20261011-10 退出原因再修复、验证并推进 dev。
 
-2026-10-12 补充：Windows 首次 bootstrap 成功，已收到设备签名就绪回执；测试 child 失败后日志保留、远程重试和候选构建传送均已实际执行，旧 serve 持续可用。复发退出为注册超时，后续调查见 TD-20261012-02；最终 bootstrap 清理回执仍待收集。
+2026-10-12 补充：Windows 首次 bootstrap 成功，已收到设备签名就绪回执；测试 child 失败后日志保留、远程重试和候选构建传送均已实际执行，旧 serve 持续可用。复发退出为注册超时，后续调查见 TD-20261012-02；2026-10-12 后续三阶段完整通过，finish 已执行，bootstrap 退出 0、身份授权字节保留、私有 runtime/公开负载删除的回执均已收集；Windows 共享根目录零项、本机测试产物清理完成。脱敏证据见 TD-20261012-05。
 
 ### 交付记录
 

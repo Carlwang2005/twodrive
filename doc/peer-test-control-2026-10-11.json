@@ -82,5 +82,28 @@
     "candidate_bytes": 16175104,
     "cleanup": "failed children removed; controller finish and bundle cleanup pending",
     "record": "peer-windows-egress-2026-10-12.json"
+  },
+  "completed_2026_10_12": {
+    "status": "passed",
+    "source_commit": "1a484376ba4cc5a45ce8c9909832482245974eac",
+    "native_ci": 38256439762,
+    "candidate_delivered_by_twodrive": true,
+    "windows_private_copy_sha256_verified": true,
+    "stages_passed": [
+      "both_auto",
+      "linux_fallback",
+      "windows_fallback"
+    ],
+    "control_finished": true,
+    "bootstrap_cleanup": {
+      "agent_exit_code": 0,
+      "identity_and_grants_preserved": true,
+      "bootstrap_runtime_removed": true,
+      "executable_payload_removed": true
+    },
+    "public_control_bundle_removed": true,
+    "shared_root_children_remaining": 0,
+    "original_windows_serve_available": true,
+    "evidence": "peer-windows-egress-2026-10-12.json"
   }
 }
