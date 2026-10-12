@@ -50,10 +50,10 @@ impl SystemResolver {
                 .await
                 .map(|values| values.collect::<Vec<_>>())
         };
-        if let Ok(values) = primary {
-            if !values.is_empty() {
-                return Ok(values);
-            }
+        if let Ok(values) = primary
+            && !values.is_empty()
+        {
+            return Ok(values);
         }
         // A timed-out OS call retains its permit until it actually exits. Do
         // not use Tokio's blocking pool: runtime shutdown must remain bounded.
