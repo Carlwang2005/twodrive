@@ -46,6 +46,41 @@
 
 
 
+## TD-20261012-02：Windows 系统/代理兜底再次因中继注册超时退出
+
+- 日期：2026-10-12
+- 状态：调查中 / 已确认退出机制，网络失败根因未确认。
+- 影响版本与环境：3dddc00 原生 Windows 核心，f1657e5 编排；两端校园网，FlClash/TUN 存在。
+- 关联历史故障：TD-20261011-10；旧记录因日志丢失没有根因结论，本轮通过 TD-20261011-11 控制端保留了签名错误证据。
+
+### 症状与影响
+
+双端 auto 和 Linux 强制缺失网卡兜底均完成 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404；Windows 缺失网卡触发系统/代理兜底后，在约 31 秒退出，无法完成该阶段数据验证。旧控制传输和 agent 保持可用，dev 没有推进。
+
+### 触发条件与复现
+
+使用独立临时身份启动 Windows auto child，指定固定不存在接口。签名快照记录了明确 fallback 提示及 `Error: relay registration timed out; check outbound connectivity or use --no-relay for LAN testing`，退出码 1。
+
+### 根因与证据
+
+已确认 endpoint.online 的 30 秒预算触发退出。尚未确认系统 DNS、代理环境、中继选择、TCP/TLS 或其他网络策略中的失败环节，不把预算到期本身当作完整根因。默认 Windows 物理出口实际 14/14、30/30 TCP 样本为物理源，路由未变、fake-IP 存在；失败兜底阶段无已建立公网 443 TCP 样本。
+
+### 解决办法与恢复操作
+
+调查中。固定 aps1 relay 的诊断重试仍在约 31 秒退出，不能据此把故障只归因于默认 relay 列表。增加注册失败后的有限错误类别/OS 错误码、home relay 状态及相同 resolver 的 A/AAAA 计数诊断，不输出上游任意错误文本或代理 URL。编排已自动收集签名 stderr 并停止、删除失败 child 私有 runtime；保留 agent 与原 serve，用于远程重试和传送经过原生验证的候选构建。尚未发送 finish。
+
+### 验证结果与边界
+
+Windows/Linux CI 38248783869 全部通过，包括新版实际传输探针；这不覆盖校园网 TUN 中的 Windows 系统出口失败。旧 TD-20261011-10 的具体退出机制无法追溯确认，保留其原结论。本轮同在校园网，不称为独立 NAT 验证。
+
+### 防复发措施与后续
+
+增加系统出口故障的脱敏诊断，取得对应网络错误后补充有意义的回归和真实 Windows 兜底验证。agent 有绝对租期，修复和清理须在租期内完成或记录未完成范围。
+
+### 交付记录
+
+[实机编排 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38248783869)；修复待补充。
+
 ## TD-20261012-01：实机控制编排只保存在临时目录，重启后不能直接续测
 
 - 日期：2026-10-12
@@ -71,7 +106,7 @@
 
 ### 验证结果与边界
 
-Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。旧配对实连 US-west relay、初始 RTT 782.8 ms。当前本机为校园网，不将本轮称为手机热点与校园网跨 NAT。本机实际 QUIC 控制双通道 smoke 已执行新版实机入口使用的完整 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404 探针，原服务继续可用、临时 child 和 client 清理、原身份授权字节保留通过；两个既有签名响应回归通过。Windows 首次启用、兜底退出原因与完整清理仍待验证。
+Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。旧配对实连 US-west relay、初始 RTT 782.8 ms。当前本机为校园网，不将本轮称为手机热点与校园网跨 NAT。本机实际 QUIC 控制双通道 smoke 已执行新版实机入口使用的完整 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404 探针，原服务继续可用、临时 child 和 client 清理、原身份授权字节保留通过；两个既有签名响应回归通过。后续 Windows 首次启用成功、双端默认及 Linux 兜底实测通过；Windows 再次超时另记 TD-20261012-02。完整清理仍待完成。
 
 ### 防复发措施与后续
 

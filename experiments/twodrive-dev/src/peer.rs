@@ -11,7 +11,7 @@ use http_body_util::{BodyExt, Full, Limited, combinators::UnsyncBoxBody};
 use hyper::{body::Incoming, service::service_fn};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use iroh::{
-    Endpoint, EndpointAddr, RelayMode, SecretKey,
+    Endpoint, EndpointAddr, RelayMode, SecretKey, Watcher,
     endpoint::{Connection, RecvStream, SendStream, presets},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -112,12 +112,112 @@ async fn bind_endpoint(secret: &SecretKey, network: &Network) -> anyhow::Result<
             .await
             .is_err()
     {
+        registration_diagnostics(&endpoint).await;
         crate::network::close_failed(endpoint).await;
         anyhow::bail!(
             "relay registration timed out; check outbound connectivity or use --no-relay for LAN testing"
         );
     }
     Ok(endpoint)
+}
+
+// Report bounded categories and counts, never arbitrary upstream error text:
+// proxy URLs and server messages can contain credentials or tokens.
+fn error_categories(error: &(dyn std::error::Error + 'static)) -> Vec<String> {
+    let mut categories = Vec::new();
+    let mut current = Some(error);
+    while let Some(error) = current {
+        let message = error.to_string().to_ascii_lowercase();
+        let category = if let Some(io) = error.downcast_ref::<std::io::Error>() {
+            format!("io({:?},os={:?})", io.kind(), io.raw_os_error())
+        } else if ["dns", "resolve", "lookup", "query"]
+            .iter()
+            .any(|word| message.contains(word))
+        {
+            "dns".into()
+        } else if ["tls", "certificate"]
+            .iter()
+            .any(|word| message.contains(word))
+        {
+            "tls".into()
+        } else if message.contains("proxy") {
+            "proxy".into()
+        } else if message.contains("timeout") || message.contains("timed out") {
+            "timeout".into()
+        } else if message.contains("handshake") {
+            "handshake".into()
+        } else if message.contains("connect") {
+            "connect".into()
+        } else {
+            "other".into()
+        };
+        categories.push(category);
+        if categories.len() == 8 {
+            break;
+        }
+        current = error.source();
+    }
+    categories
+}
+
+async fn registration_diagnostics(endpoint: &Endpoint) {
+    let relays = endpoint.home_relay_status().get();
+    eprintln!(
+        "network: registration diagnostic home_relays={}",
+        relays.len()
+    );
+    for (index, relay) in relays.iter().enumerate() {
+        let error = relay.last_error().map(|error| error_categories(error));
+        eprintln!(
+            "network: registration diagnostic relay_index={index} connected={} errors={error:?}",
+            relay.is_connected()
+        );
+    }
+    let Ok(resolver) = endpoint.dns_resolver() else {
+        return;
+    };
+    // A fixed public name avoids printing custom URLs, credentials or tokens.
+    let host = iroh::defaults::prod::AP_RELAY_HOSTNAME;
+    let budget = Duration::from_secs(3);
+    let (v4, v6) = tokio::join!(
+        tokio::time::timeout(budget, resolver.lookup_ipv4(host)),
+        tokio::time::timeout(budget, resolver.lookup_ipv6(host)),
+    );
+    let v4 = match v4 {
+        Ok(Ok(addresses)) => {
+            let addresses: Vec<_> = addresses.collect();
+            let fake = addresses
+                .iter()
+                .filter(|ip| ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19))
+                .count();
+            format!("records={} fake_ip={fake}", addresses.len())
+        }
+        Ok(Err(error)) => format!("error={:?}", error_categories(&error)),
+        Err(_) => "timeout".into(),
+    };
+    let v6 = match v6 {
+        Ok(Ok(addresses)) => format!("records={}", addresses.count()),
+        Ok(Err(error)) => format!("error={:?}", error_categories(&error)),
+        Err(_) => "timeout".into(),
+    };
+    eprintln!("network: registration diagnostic aps_dns_a={v4} aps_dns_aaaa={v6}");
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::error_categories;
+
+    #[test]
+    fn diagnostics_keep_io_code_without_upstream_secrets() {
+        let secret_error = n0_error::AnyError::from_string(
+            "proxy failed for https://user:private-password@proxy.test/?token=private-token".into(),
+        );
+        assert_eq!(error_categories(&secret_error), ["proxy"]);
+        let os_error = std::io::Error::from_raw_os_error(10061);
+        let categories = error_categories(&os_error);
+        assert!(categories[0].contains("10061"));
+        assert!(!categories[0].contains("private-"));
+    }
 }
 
 /// Retry a failed transport before sending authorization or consuming an invite.

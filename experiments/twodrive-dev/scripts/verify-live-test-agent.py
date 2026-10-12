@@ -171,7 +171,7 @@ class Sampler:
 
 def run(args):
     controller = CONTROL.Control(args.binary, args.state, args.url, args.queue, args.device)
-    result = {'status': 'waiting', 'date': time.strftime('%Y-%m-%d'), 'stages': [], 'network_context': args.network_context}
+    result = {'status': 'waiting', 'date': time.strftime('%Y-%m-%d'), 'stages': [], 'network_context': args.network_context, 'custom_relays': args.relay, 'candidate_sha256': args.candidate_sha256}
     save(args.output, result)
     before = {p.name: hashlib.sha256(p.read_bytes()).digest() for p in args.state.iterdir() if p.is_file()}
     deadline = time.monotonic() + args.wait_ready
@@ -190,6 +190,7 @@ def run(args):
             if error.code != 404 or time.monotonic() >= deadline:
                 raise
             time.sleep(2)
+    result['status'] = 'running'
     save(args.output, result)
     stages = [('both_auto', False, False), ('linux_fallback', False, True), ('windows_fallback', True, False)]
     if args.stage != 'all':
@@ -206,7 +207,7 @@ def run(args):
                 state.mkdir(mode=0o700)
                 client = subprocess.check_output([str(args.binary), '--state', str(state), 'device-id'], text=True).strip()
                 assert client != controller.owner and client != args.device
-                started = controller.command(dict(action='start', client=client, candidate_sha256=None, route='auto', missing_interface=windows_missing, no_relay=False, relay_only=False, relays=[]))
+                started = controller.command(dict(action='start', client=client, candidate_sha256=args.candidate_sha256, route='auto', missing_interface=windows_missing, no_relay=False, relay_only=False, relays=args.relay))
                 stage['start'] = started
                 assert started['status'] == 'ok', 'Windows child start rejected'
                 limit = time.monotonic() + 110
@@ -218,7 +219,7 @@ def run(args):
                     info = snapshot['data']
                     assert not info.get('exited'), 'Windows child exited; signed stderr retained in report'
                     if info.get('ready'):
-                        assert info['executable_sha256'] == args.windows_sha256, 'Unexpected Windows child executable'
+                        assert info['executable_sha256'] == (args.candidate_sha256 or args.windows_sha256), 'Unexpected Windows child executable'
                         break
                     if time.monotonic() >= limit:
                         raise TimeoutError('Windows child startup; signed diagnostics retained')
@@ -292,6 +293,8 @@ def main():
     parser.add_argument('--wait-ready', type=int, default=180)
     parser.add_argument('--stage', choices=('all', 'both_auto', 'linux_fallback', 'windows_fallback'), default='all')
     parser.add_argument('--resume', action='store_true', help='Intentionally restart test stages using an already active signed session')
+    parser.add_argument('--relay', action='append', default=[], help='Explicit child relay for diagnostics; recorded separately from default discovery')
+    parser.add_argument('--candidate-sha256', help='SHA256 of candidate.bin already delivered to the control queue')
     args = parser.parse_args()
     args.binary = args.binary.resolve(strict=True)
     args.state = args.state.resolve(strict=True)
