@@ -112,7 +112,7 @@ synthetic host events, not hardware input or multi-monitor acceptance. [Final Li
 passed the GTK rectangle fix; the Windows source is unchanged from the successful
 [native Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38353525532).
 The earlier shared engine/provider workflows also passed. Local cleanup removed
-12036603904 allocated bytes of owned build directories (11.2 GiB), 50 temporary
+12036763648 allocated bytes of owned build directories (11.2 GiB), 50 temporary
 paths, the empty obsolete mount directory and the failed Windows diagnostic
 artifact. Installed runtime, device pairing and stable daemon were retained. No stable
 release is replaced by this Development build.

@@ -764,7 +764,7 @@
     }
   },
   "cleanup": {
-    "build_allocated_bytes_removed": 12036603904,
+    "build_allocated_bytes_removed": 12036763648,
     "temporary_allocated_bytes_removed": 1155072,
     "build_paths_removed": [
       "target",
@@ -773,12 +773,17 @@
       "apps/dav/.dart_tool",
       "apps/dav/linux/flutter/ephemeral",
       "apps/dav/.flutter-plugins-dependencies",
-      "scripts/__pycache__"
+      "scripts/__pycache__",
+      "apps/dav/.idea",
+      "apps/dav/twodrive_dav.iml",
+      "apps/dav/windows/flutter/ephemeral",
+      "experiments/twodrive-dev/scripts/__pycache__",
+      "packaging/nautilus/__pycache__"
     ],
     "temporary_paths_removed_count": 50,
     "empty_obsolete_mount_directory_removed": true,
     "disk_available_before_bytes": 412170596352,
-    "disk_available_after_bytes": 424208359424,
+    "disk_available_after_bytes": 424207507456,
     "installed_runtime_and_pairing_preserved": true,
     "global_toolchain_caches_preserved": true,
     "remote_disposable_payloads_removed": "verified in actual paired Windows tests; no new remote payloads in final tray regressions",
