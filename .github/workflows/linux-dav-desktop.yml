@@ -105,6 +105,8 @@ jobs:
         run: |
           Copy-Item experiments/twodrive-dev/target/release/twodrive-dev.exe,experiments/twodrive-dev/target/release/twodrive-dav-engine.exe apps/dav/build/windows/x64/runner/Release/
           Copy-Item scripts/install-desktop-windows.ps1 apps/dav/build/windows/x64/runner/Release/
+      - name: Windows native tray smoke
+        run: python scripts/test-desktop-windows-ui.py apps/dav/build/windows/x64/runner/Release/twodrive_dav.exe
       - uses: actions/upload-artifact@v4
         with:
           name: twodrive-development-windows-x64

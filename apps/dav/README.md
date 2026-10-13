@@ -1,9 +1,9 @@
-# TwoDrive Development — Linux desktop
+# TwoDrive Development desktop
 
-Flutter UI for TwoDrive paired devices and HTTPS WebDAV accounts. Includes a
-StatusNotifierItem tray panel, file operations, FUSE, upload-only folder backups,
-progress, pause/resume, sign-out and opt-in autostart. Installing never enables
-autostart or changes the stable TwoDrive OneDrive daemon.
+Shared Flutter UI for TwoDrive paired devices and HTTPS WebDAV accounts, with
+native Linux and Windows tray adapters. Includes file transfer, explicit proxy
+selection, upload-only folder backups and optional login startup (off by default).
+Linux additionally supports isolated FUSE mounting.
 
-Build and verification instructions: [desktop guide](../../doc/linux-dav-desktop.md).
-The internal `dav` directory and executable names are not the product name.
+Build, install, verification and platform limits are in
+[the desktop guide](../../doc/linux-dav-desktop.md).
