@@ -34,14 +34,14 @@ bool trayReady = false;
 
 class Workspace extends StatefulWidget {
   const Workspace({super.key, required this.client, required this.desktop});
-  final DavClient client;
+  final StorageClient client;
   final bool desktop;
   @override
   State<Workspace> createState() => _WorkspaceState();
 }
 
 class _WorkspaceState extends State<Workspace> with WindowListener {
-  DavClient get c => widget.client;
+  StorageClient get c => widget.client;
   final tray = StatusTray();
   bool panel = false;
   bool presenting = false;
@@ -89,15 +89,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       return;
     }
     _traySignature = signature;
-    final icon = c.error != null || c.syncError || c.proxyFallback
-        ? 'error'
-        : c.paused
-        ? 'paused'
-        : c.syncing
-        ? 'syncing'
-        : c.connected
-        ? 'connected'
-        : 'offline';
+    final icon = c.trayState;
     await tray.icon(icon);
   }
 
@@ -481,8 +473,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   Padding(
                     padding: const EdgeInsets.only(top: 6, bottom: 20),
                     child: Text(
-                      c.profile?['name'] as String? ??
-                          '添加 WebDAV 服务器或已有的 TwoDrive 配对',
+                      c.profile?['name'] as String? ?? '添加存储账号或已配对设备',
                       style: const TextStyle(color: Colors.blueGrey),
                     ),
                   ),
@@ -491,7 +482,18 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                       color: Color(0xfffff2cd),
                       child: Padding(
                         padding: EdgeInsets.all(12),
-                        child: Text('物理直连未能完成部分请求，已使用系统／代理兜底。可在设置中查看网络路径。'),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              color: Color(0xffe0a000),
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text('直连未能完成，已使用系统／代理兜底。可在设置中查看网络路径。'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   if (c.error != null)
@@ -564,7 +566,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   Text(
                     c.mounted
                         ? '已挂载 · ${c.profile?['mount_path']}'
-                        : 'WebDAV 文件浏览 · 关闭窗口后可从云朵托盘打开',
+                        : '文件浏览 · 关闭窗口后可从云朵托盘打开',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Colors.blueGrey,
@@ -611,7 +613,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       return empty(
         Icons.cloud_outlined,
         '连接你的文件',
-        '使用标准 WebDAV，或连接已配对的 TwoDrive 设备。',
+        '选择存储提供者并连接你的账号或设备。',
         OutlinedButton(
           onPressed: () => setState(() => page = 2),
           child: const Text('管理连接'),
@@ -642,29 +644,31 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
               onPressed: c.busy ? null : () => c.browse(c.path),
               icon: const Icon(Icons.refresh),
             ),
-            if (c.writable) ...[
-              IconButton(
-                tooltip: '新建文件夹',
-                onPressed: c.busy
-                    ? null
-                    : () async {
-                        final identity = c.target;
-                        final directory = c.path;
-                        final name = await nameDialog('新建文件夹');
-                        if (name != null) {
-                          await c.mutate('mkdir', {
-                            'path': childPath(directory, name),
-                            ...identity,
-                          });
-                        }
-                      },
-                icon: const Icon(Icons.create_new_folder_outlined),
-              ),
-              FilledButton.icon(
-                onPressed: c.busy ? null : upload,
-                icon: const Icon(Icons.upload_outlined),
-                label: const Text('上传'),
-              ),
+            if (c.canMkdir || c.canUpload) ...[
+              if (c.canMkdir)
+                IconButton(
+                  tooltip: '新建文件夹',
+                  onPressed: c.busy
+                      ? null
+                      : () async {
+                          final identity = c.target;
+                          final directory = c.path;
+                          final name = await nameDialog('新建文件夹');
+                          if (name != null) {
+                            await c.mutate('mkdir', {
+                              'path': childPath(directory, name),
+                              ...identity,
+                            });
+                          }
+                        },
+                  icon: const Icon(Icons.create_new_folder_outlined),
+                ),
+              if (c.canUpload)
+                FilledButton.icon(
+                  onPressed: c.busy ? null : upload,
+                  icon: const Icon(Icons.upload_outlined),
+                  label: const Text('上传'),
+                ),
             ],
           ],
         ),
@@ -719,22 +723,23 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                                 value: 'download',
                                 child: Text('下载'),
                               ),
-                            if (c.writable) ...[
+                            if (c.canRename)
                               const PopupMenuItem(
                                 value: 'rename',
                                 child: Text('重命名'),
                               ),
-                              if (!directory &&
-                                  (file['etag'] as String).isNotEmpty)
-                                const PopupMenuItem(
-                                  value: 'replace',
-                                  child: Text('替换内容'),
-                                ),
+                            if (c.canUpload &&
+                                !directory &&
+                                (file['etag'] as String).isNotEmpty)
+                              const PopupMenuItem(
+                                value: 'replace',
+                                child: Text('替换内容'),
+                              ),
+                            if (c.canDelete)
                               const PopupMenuItem(
                                 value: 'delete',
                                 child: Text('删除'),
                               ),
-                            ],
                           ],
                         ),
                       );
@@ -848,11 +853,13 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
           color: Colors.white,
           child: ListTile(
             leading: Icon(
-              p['kind'] == 'peer' ? Icons.devices : Icons.cloud_outlined,
+              p['icon'] == 'devices' ? Icons.devices : Icons.cloud_outlined,
             ),
             title: Text(p['name'] as String),
             subtitle: Text(
-              p['kind'] == 'peer' ? 'TwoDrive 配对设备' : p['url'] as String,
+              p['summary'] as String? ??
+                  p['provider_label'] as String? ??
+                  p['kind'] as String,
             ),
             selected: c.selected == p['id'],
             onTap: c.busy || c.connected
@@ -891,7 +898,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       if (c.profiles.isEmpty)
         const Padding(
           padding: EdgeInsets.all(24),
-          child: Text('WebDAV 服务器填写 HTTPS 地址；TwoDrive 设备使用已有配对。'),
+          child: Text('选择存储提供者并填写连接信息。'),
         ),
     ],
   );
@@ -1005,7 +1012,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
   Future<void> editProfile([Json? original]) async {
     final profile = await showDialog<Json>(
       context: context,
-      builder: (_) => ProfileDialog(original: original),
+      builder: (_) => ProfileDialog(original: original, providers: c.providers),
     );
     if (profile != null) {
       await c.save(profile);

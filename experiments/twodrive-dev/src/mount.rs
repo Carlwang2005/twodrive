@@ -2,7 +2,7 @@ use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::mpsc, thread, time::Duration};
 use twodrive_core::Database;
-use twodrive_dev::{state::State, webdav::WebDavBackend};
+use twodrive_dev::{model::CloudBackend, state::State};
 use twodrive_fs::{TwoDriveFs, mount_backend, sync_delta_metadata};
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -11,10 +11,10 @@ struct Binding {
     writable: bool,
 }
 
-pub fn mount(
+pub fn mount<B: CloudBackend + Clone>(
     state: State,
     target: PathBuf,
-    backend: WebDavBackend,
+    backend: B,
     provider: String,
     writable: bool,
 ) -> anyhow::Result<()> {

@@ -13,7 +13,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use twodrive_dev::{model::CloudBackend, webdav::WebDavBackend};
+use twodrive_dev::{model::CloudBackend, provider::Backend};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Folder {
@@ -62,7 +62,12 @@ pub fn cleanup_spool(state: &State, p: &Profile) -> anyhow::Result<()> {
     }
     Ok(())
 }
-pub fn validate(folders: &[Folder], p: &Profile, state: &State) -> anyhow::Result<()> {
+pub fn validate(
+    folders: &[Folder],
+    p: &Profile,
+    state: &State,
+    protected: &[PathBuf],
+) -> anyhow::Result<()> {
     ensure!(folders.len() <= 32, "最多选择 32 个备份文件夹");
     let home = PathBuf::from(
         std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
@@ -90,10 +95,9 @@ pub fn validate(folders: &[Folder], p: &Profile, state: &State) -> anyhow::Resul
             !local.starts_with(&private) && !private.starts_with(&local),
             "备份目录不能包含应用的私有状态"
         );
-        if p.kind == "peer" {
-            let peer = p.peer_state.canonicalize()?;
+        for peer in protected {
             ensure!(
-                !local.starts_with(&peer) && !peer.starts_with(&local),
+                !local.starts_with(peer) && !peer.starts_with(&local),
                 "备份目录不能包含配对身份"
             );
         }
@@ -194,7 +198,7 @@ fn snapshot(source: &Path, target: &Path, paused: &Path) -> anyhow::Result<Strin
     );
     Ok(format!("{:x}", hash.finalize()))
 }
-fn ensure_directory(backend: &WebDavBackend, path: &str) -> anyhow::Result<()> {
+fn ensure_directory(backend: &Backend, path: &str) -> anyhow::Result<()> {
     let mut current = String::new();
     for part in path.trim_matches('/').split('/') {
         current.push('/');
@@ -208,16 +212,47 @@ fn ensure_directory(backend: &WebDavBackend, path: &str) -> anyhow::Result<()> {
     }
     Ok(())
 }
-pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result<()> {
+fn reconcile_intent(
+    backend: &Backend,
+    dest: &str,
+    record: &mut Record,
+    paused: &Path,
+) -> anyhow::Result<()> {
+    if let Some(intent) = &record.intent {
+        // The previous process may have died after the provider committed upload.
+        if let Some(meta) = backend.get_metadata_by_path(dest)?
+            && Some(&meta.etag) != record.etag.as_ref()
+        {
+            let mut digest = HashWriter(Sha256::new());
+            backend.download_path_to(dest, &mut digest, &mut |_| {
+                ensure!(!paused.exists(), "同步已暂停");
+                Ok(())
+            })?;
+            ensure!(
+                &format!("{:x}", digest.0.finalize()) == intent,
+                "远端版本发生冲突，未覆盖；请检查备份目标"
+            );
+            record.hash = intent.clone();
+            record.etag = Some(meta.etag);
+        }
+        record.intent = None;
+    }
+    Ok(())
+}
+pub fn run(
+    state: &State,
+    p: &Profile,
+    backend: Backend,
+    binding: String,
+    protected: Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    ensure!(
+        backend.capabilities().backup(),
+        "此连接不支持安全的文件夹备份"
+    );
     let s = directory(state, p)?;
     let _lock = s.run_lock()?;
     let paused = state.dir.join("paused");
-    let binding = if p.kind == "peer" {
-        let remote: iroh::EndpointAddr = State::new(p.peer_state.clone())?.read("remote.json")?;
-        format!("peer:{}", remote.id)
-    } else {
-        format!("dav:{}:{}", p.url, p.username)
-    };
     let mut manifest: Manifest = if s.dir.join("manifest.json").exists() {
         s.read("manifest.json")?
     } else {
@@ -239,7 +274,7 @@ pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result
                 status["state"] = json!("paused");
                 return Ok(());
             }
-            validate(&selected, p, state)?;
+            validate(&selected, p, state, &protected)?;
             s.save("report.json", &status)?;
             let mut seen = 0;
             for folder in selected.iter().filter(|f| f.enabled) {
@@ -260,7 +295,7 @@ pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result
                             .file_name()
                             .into_string()
                             .map_err(|_| anyhow::anyhow!("文件名不是 UTF-8"))?;
-                        ensure!(!name.contains(['\\', '\0']), "文件名不能映射到 WebDAV");
+                        ensure!(!name.contains(['\\', '\0']), "文件名不能映射到远端路径");
                         let source = item.path().canonicalize()?;
                         ensure!(source.starts_with(&root), "备份路径离开所选目录");
                         let dest = format!("{remote}/{name}");
@@ -283,25 +318,7 @@ pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result
                         let spool = s.dir.join("snapshot");
                         let hash = snapshot(&source, &spool, &paused)?;
                         let record = manifest.files.entry(dest.clone()).or_default();
-                        if let Some(intent) = &record.intent {
-                            // The previous process may have died after the server committed PUT.
-                            if let Some(meta) = backend.get_metadata_by_path(&dest)?
-                                && Some(&meta.etag) != record.etag.as_ref()
-                            {
-                                let mut digest = HashWriter(Sha256::new());
-                                backend.download_to(&dest, &mut digest, &mut |_| {
-                                    ensure!(!paused.exists(), "同步已暂停");
-                                    Ok(())
-                                })?;
-                                ensure!(
-                                    &format!("{:x}", digest.0.finalize()) == intent,
-                                    "远端版本发生冲突，未覆盖；请检查备份目标"
-                                );
-                                record.hash = intent.clone();
-                                record.etag = Some(meta.etag);
-                            }
-                            record.intent = None;
-                        }
+                        reconcile_intent(&backend, &dest, record, &paused)?;
                         if record.hash != hash {
                             let etag = record.etag.clone();
                             record.intent = Some(hash.clone());
@@ -313,7 +330,7 @@ pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result
                                 std::sync::Mutex::new(Instant::now() - Duration::from_secs(1));
                             let display = name.clone();
                             active_status["state"] = json!("uploading");
-                            let uploaded = backend.upload_controlled(&dest, &spool, etag.as_deref(), Arc::new(move |done, total| {
+                            let uploaded = backend.upload_path(&dest, &spool, etag.as_deref(), Arc::new(move |done, total| {
                                 ensure!(!pause_path.exists(), "同步已暂停");
                                 let mut last = last.lock().unwrap();
                                 if done == 0 || done == total || last.elapsed() > Duration::from_millis(200) {
@@ -355,5 +372,34 @@ pub fn run(state: &State, p: &Profile, backend: WebDavBackend) -> anyhow::Result
         s.save("report.json", &status)?;
         cleanup_spool(state, p)?;
         thread::sleep(Duration::from_secs(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_provider::OpaqueProvider;
+    use super::*;
+    #[test]
+    fn backup_recovery_uses_opaque_ids_and_preserves_conflicts() {
+        let p = OpaqueProvider::default();
+        let entry = p.upload("/backup/file", b"committed".to_vec()).unwrap();
+        let backend = Backend::new(p);
+        let temp = tempfile::tempdir().unwrap();
+        let pause = temp.path().join("paused");
+        let hash = format!("{:x}", Sha256::digest(b"committed"));
+        let mut record = Record {
+            intent: Some(hash.clone()),
+            etag: Some("old".into()),
+            ..Default::default()
+        };
+        reconcile_intent(&backend, "/backup/file", &mut record, &pause).unwrap();
+        assert_eq!(record.hash, hash);
+        assert_eq!(record.etag.as_deref(), Some(entry.etag.as_str()));
+        assert!(record.intent.is_none());
+        record.intent = Some(format!("{:x}", Sha256::digest(b"uncommitted")));
+        record.etag = Some("old".into());
+        assert!(reconcile_intent(&backend, "/backup/file", &mut record, &pause).is_err());
+        assert!(record.intent.is_some());
+        assert_eq!(backend.download(&entry.remote_id).unwrap(), b"committed");
     }
 }

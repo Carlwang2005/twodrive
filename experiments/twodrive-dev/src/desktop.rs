@@ -21,8 +21,9 @@ use std::{
 use twodrive_core::{Database, FileState};
 use twodrive_dev::{
     model::{CloudBackend, MetadataEntry},
-    state::{Credentials, State},
-    webdav::WebDavBackend,
+    profile::Profile,
+    provider::Backend,
+    state::State,
 };
 
 #[path = "desktop_backup.rs"]
@@ -42,45 +43,11 @@ struct Args {
     #[arg(long)]
     mount_worker: Option<String>,
     #[arg(long)]
-    mount_url: Option<String>,
-    #[arg(long)]
     backup_worker: Option<String>,
-    #[arg(long, default_value = "direct")]
-    http_route: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
-struct Profile {
-    id: String,
-    revision: String,
-    name: String,
-    kind: String,
-    url: String,
-    username: String,
-    password: String,
-    peer_state: PathBuf,
-    writable: bool,
-    mount_path: PathBuf,
-    network_route: String,
-}
-impl Default for Profile {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            revision: String::new(),
-            name: String::new(),
-            kind: "dav".into(),
-            url: String::new(),
-            username: String::new(),
-            password: String::new(),
-            peer_state: PathBuf::new(),
-            writable: false,
-            mount_path: PathBuf::new(),
-            network_route: "auto".into(),
-        }
-    }
-}
+#[path = "desktop_providers.rs"]
+mod providers;
 #[derive(Default, Serialize, Deserialize)]
 struct Config {
     profiles: Vec<Profile>,
@@ -190,7 +157,7 @@ struct App {
     state: State,
     config: Config,
     connected: Option<Profile>,
-    backend: Option<WebDavBackend>,
+    backend: Option<Backend>,
     gateway: Option<Process>,
     mounted: Option<Process>,
     backup: Option<Process>,
@@ -207,17 +174,6 @@ impl App {
     }
     fn mount_state(&self, p: &Profile) -> PathBuf {
         self.state.dir.join(format!("mount-{}", p.id))
-    }
-    fn credentials(p: &Profile) -> anyhow::Result<Option<Credentials>> {
-        if p.kind == "peer" {
-            return Ok(Some(
-                State::new(p.peer_state.clone())?.read("credentials.json")?,
-            ));
-        }
-        Ok((!p.username.is_empty()).then(|| Credentials {
-            username: p.username.clone(),
-            password: p.password.clone(),
-        }))
     }
     fn cache(&self, p: &Profile, clear: bool) -> anyhow::Result<Value> {
         let path = self.mount_state(p).join("mount.sqlite3");
@@ -293,81 +249,15 @@ impl App {
         self.disconnect()?;
         let p = self.profile(id)?;
         self.network.lock().unwrap().clear();
-        let mut gateway = None;
-        let url = if p.kind == "peer" {
-            let mut cmd = Command::new(&self.args.peer_bin);
-            cmd.arg("--state")
-                .arg(&p.peer_state)
-                .args(["connect", "--listen", "127.0.0.1:0"])
-                .args(["--network-route", &p.network_route]);
-            let mut child = spawn(cmd)?;
-            drain_errors(&mut child, self.network.clone());
-            let stdout = child.0.stdout.take().context("gateway stdout")?;
-            let (send, receive) = mpsc::channel();
-            thread::spawn(move || {
-                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                    if let Some(url) = line.strip_prefix("WebDAV: ") {
-                        let _ = send.send(url.to_owned());
-                    }
-                }
-            });
-            let start = Instant::now();
-            let url = loop {
-                ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
-                ensure!(
-                    start.elapsed() < Duration::from_secs(60),
-                    "连接超时，请确认服务器和网络可用"
-                );
-                ensure!(
-                    child.0.try_wait()?.is_none(),
-                    "配对网关已退出，请检查配对状态、网络和占用情况"
-                );
-                if let Ok(url) = receive.recv_timeout(Duration::from_millis(100)) {
-                    break url;
-                }
-            };
-            gateway = Some(child);
-            url
-        } else {
-            p.url.clone()
-        };
-        let initial = if p.kind == "peer" || p.network_route != "system" {
-            "direct"
-        } else {
-            "system"
-        };
-        let attempt = || -> anyhow::Result<_> {
-            let b = WebDavBackend::routed(&url, Self::credentials(&p)?, p.writable, initial)?;
-            let entries = b.list_directory("/")?;
-            Ok((b, entries))
-        };
-        let (backend, entries) = match attempt() {
-            Ok(value) => value,
-            Err(error)
-                if p.kind == "dav"
-                    && p.network_route == "auto"
-                    && error
-                        .downcast_ref::<twodrive_dev::webdav::DavError>()
-                        .is_none() =>
-            {
-                self.network.lock().unwrap().push(
-                    "network: route=system/proxy fallback; physical WebDAV probe failed".into(),
-                );
-                let b = WebDavBackend::routed(&url, Self::credentials(&p)?, p.writable, "system")?;
-                let entries = b.list_directory("/")?;
-                (b, entries)
-            }
-            Err(error) => return Err(error),
-        };
-        if p.kind == "dav" {
-            self.network
-                .lock()
-                .unwrap()
-                .push(format!("network: WebDAV route={}", backend.route()));
-        }
+        let connection = providers::connect(&p, &self.args, cancel, self.network.clone())?;
+        let entries = connection.backend.list_directory("/")?;
+        self.state.save(
+            &format!("session-{}.json", p.id),
+            &providers::session(&connection, &p),
+        )?;
         let revision = p.revision.clone();
-        self.backend = Some(backend);
-        self.gateway = gateway;
+        self.backend = Some(connection.backend);
+        self.gateway = connection.gateway;
         self.connected = Some(p);
         self.config.selected = Some(id.to_owned());
         self.state.save("profiles.json", &self.config)?;
@@ -380,11 +270,16 @@ impl App {
         self.backup.take();
         let p = self.connected.as_ref().context("请先连接")?;
         backup::cleanup_spool(&self.state, p)?;
-        if !p.writable {
+        if !self
+            .backend
+            .as_ref()
+            .context("请先连接")?
+            .capabilities()
+            .backup()
+        {
             return Ok(());
         }
         backup::reset_report(&self.state, p)?;
-        let backend = self.backend.as_ref().context("请先连接")?;
         let mut cmd = Command::new(std::env::current_exe()?);
         cmd.arg("--state")
             .arg(&self.state.dir)
@@ -393,11 +288,7 @@ impl App {
             .arg("--launcher")
             .arg(&self.args.launcher)
             .arg("--backup-worker")
-            .arg(&p.id)
-            .arg("--mount-url")
-            .arg(backend.root_url())
-            .arg("--http-route")
-            .arg(backend.route());
+            .arg(&p.id);
         let mut child = spawn(cmd)?;
         drain_errors(&mut child, self.network.clone());
         if let Some(mut stdout) = child.0.stdout.take() {
@@ -424,6 +315,22 @@ impl App {
                 );
             Ok(config.join("autostart/twodrive-dav.desktop"))
         }
+    }
+    fn capabilities(&self) -> Value {
+        let c = self
+            .backend
+            .as_ref()
+            .map(|b| b.capabilities())
+            .unwrap_or_default();
+        let mut value = serde_json::to_value(c).unwrap();
+        value["backup"] = json!(c.backup());
+        value["mount"] = json!(
+            self.backend.is_some()
+                && cfg!(all(target_os = "linux", feature = "mount"))
+                && (self.connected.as_ref().is_none_or(|p| !p.writable)
+                    || (c.backup() && c.rename && c.delete))
+        );
+        value
     }
     fn status(&mut self) -> anyhow::Result<Value> {
         let gateway_dead = self
@@ -457,11 +364,12 @@ impl App {
             .backup
             .as_mut()
             .is_some_and(|p| p.0.try_wait().ok().flatten().is_some());
+        let network = self.network.lock().unwrap().clone();
         Ok(
-            json!({"capabilities":{"mount":cfg!(all(target_os="linux",feature="mount"))},"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
+            json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":network.iter().any(|s| s.contains("route=system/proxy fallback")),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
-            "cache":cache,"network":self.network.lock().unwrap().clone(),
+            "cache":cache,"network":network,
             "autostart":self.autostart_path()?.exists()}),
         )
     }
@@ -478,14 +386,11 @@ impl App {
                     .config
                     .profiles
                     .iter()
-                    .map(|p| {
-                        let mut value = serde_json::to_value(p).unwrap();
-                        value["password_saved"] = json!(!p.password.is_empty());
-                        value.as_object_mut().unwrap().remove("password");
-                        value
-                    })
+                    .map(providers::public_profile)
                     .collect();
-                Ok(json!({"profiles":profiles,"selected":self.config.selected}))
+                Ok(
+                    json!({"providers":providers::catalog(),"profiles":profiles,"selected":self.config.selected}),
+                )
             }
             "save_profile" => {
                 ensure!(self.connected.is_none(), "请先断开连接再修改配置");
@@ -512,22 +417,10 @@ impl App {
                     !p.name.trim().is_empty() && p.name.len() <= 120,
                     "连接名称不能为空"
                 );
-                ensure!(
-                    p.kind == "dav" || p.kind == "peer",
-                    "unsupported profile kind"
-                );
                 ensure!(p.mount_path.is_absolute(), "挂载目录必须是绝对路径");
-                if let Some(previous) = self.config.profiles.iter().find(|c| c.id == p.id)
-                    && p.password.is_empty()
-                    && a["clear_password"] != true
-                {
-                    p.password = previous.password.clone();
-                }
-                if p.kind == "dav" {
-                    WebDavBackend::new(&p.url, Self::credentials(&p)?, p.writable)?;
-                } else {
-                    ensure!(p.peer_state.is_absolute(), "配对状态必须是绝对路径");
-                }
+                let previous = self.config.profiles.iter().find(|c| c.id == p.id);
+                providers::retain_secrets(&mut p, previous, a["clear_password"] == true);
+                providers::validate(&p)?;
                 self.config.profiles.retain(|c| c.id != p.id);
                 self.config.profiles.push(p.clone());
                 self.config.selected = Some(p.id.clone());
@@ -570,10 +463,15 @@ impl App {
             "backups" | "save_backups" => {
                 let p = self.profile(string(a, "id")?)?;
                 if req.op == "save_backups" {
-                    ensure!(p.writable, "只读连接不能备份");
+                    providers::validate(&p)?;
+                    let public = providers::public_profile(&p);
+                    ensure!(
+                        public["capabilities"]["backup"] == true,
+                        "此连接不支持文件夹备份"
+                    );
                     let folders: Vec<backup::Folder> =
                         serde_json::from_value(a["folders"].clone())?;
-                    backup::validate(&folders, &p, &self.state)?;
+                    backup::validate(&folders, &p, &self.state, &providers::protected_paths(&p)?)?;
                     if self.connected.as_ref().is_some_and(|v| v.id == p.id) {
                         self.backup.take();
                         backup::cleanup_spool(&self.state, &p)?;
@@ -650,7 +548,7 @@ impl App {
                     !is_mount(&p.mount_path)?,
                     "目录已被其他进程挂载，请使用另一个空目录"
                 );
-                let url = self.backend.as_ref().context("请先连接")?.root_url();
+                ensure!(self.capabilities()["mount"] == true, "此连接不支持安全挂载");
                 let mut cmd = Command::new(std::env::current_exe()?);
                 cmd.arg("--state")
                     .arg(&self.state.dir)
@@ -659,11 +557,7 @@ impl App {
                     .arg("--launcher")
                     .arg(&self.args.launcher)
                     .arg("--mount-worker")
-                    .arg(&p.id)
-                    .arg("--mount-url")
-                    .arg(url)
-                    .arg("--http-route")
-                    .arg(self.backend.as_ref().unwrap().route());
+                    .arg(&p.id);
                 let mut child = spawn(cmd)?;
                 drain_errors(&mut child, self.network.clone());
                 if let Some(mut stdout) = child.0.stdout.take() {
@@ -725,10 +619,10 @@ impl App {
                         json!({"path":path,"entries":backend.list_directory(path)?.into_iter().map(metadata).collect::<Vec<_>>()}),
                     ),
                     "mkdir" => Ok(metadata(backend.create_folder(path)?)),
-                    "rename" => Ok(metadata(backend.rename(path, string(a, "to")?)?)),
+                    "rename" => Ok(metadata(backend.rename_path(path, string(a, "to")?)?)),
                     "delete" => {
                         ensure!(path != "/", "不能删除共享根目录");
-                        backend.delete(path)?;
+                        backend.delete_path(path)?;
                         Ok(json!({}))
                     }
                     "upload" => {
@@ -750,7 +644,7 @@ impl App {
                             }
                             Ok(())
                         });
-                        Ok(metadata(backend.upload_controlled(
+                        Ok(metadata(backend.upload_path(
                             path,
                             Path::new(string(a, "source")?),
                             a["etag"].as_str(),
@@ -765,7 +659,7 @@ impl App {
                         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
                         let mut last = Instant::now() - Duration::from_secs(1);
                         let total = a["size"].as_u64().unwrap_or(0);
-                        let done = backend.download_to(path, &mut temp, &mut |done| {
+                        let done = backend.download_path_to(path, &mut temp, &mut |done| {
                             ensure!(!cancel.load(Ordering::Relaxed), "下载已取消");
                             if last.elapsed() >= Duration::from_millis(150) {
                                 emit(out,json!({"id":req.id,"event":"progress","done":done,"total":total})); last = Instant::now();
@@ -810,31 +704,24 @@ pub fn run() -> anyhow::Result<()> {
     };
     if let Some(id) = &app.args.backup_worker {
         let p = app.profile(id)?;
-        let url = app
-            .args
-            .mount_url
-            .as_deref()
-            .context("backup URL missing")?;
-        let backend =
-            WebDavBackend::routed(url, App::credentials(&p)?, p.writable, &app.args.http_route)?
-                .with_pause_file(app.state.dir.join("paused"));
-        return backup::run(&app.state, &p, backend);
+        let session = app.state.read(&format!("session-{}.json", p.id))?;
+        let (backend, binding) =
+            providers::restore_session(&p, &session, &app.state.dir.join("paused"))?;
+        return backup::run(
+            &app.state,
+            &p,
+            backend,
+            binding,
+            providers::protected_paths(&p)?,
+        );
     }
     #[cfg(all(target_os = "linux", feature = "mount"))]
     if let Some(id) = &app.args.mount_worker {
         let p = app.profile(id)?;
         ensure!(!is_mount(&p.mount_path)?, "mount target is already mounted");
-        let url = app.args.mount_url.as_deref().context("mount URL missing")?;
-        let backend =
-            WebDavBackend::routed(url, App::credentials(&p)?, p.writable, &app.args.http_route)?
-                .with_pause_file(app.state.dir.join("paused"));
-        let binding = if p.kind == "peer" {
-            let remote: iroh::EndpointAddr =
-                State::new(p.peer_state.clone())?.read("remote.json")?;
-            format!("peer:{}", remote.id)
-        } else {
-            format!("dav:{}:{}", p.url, p.username)
-        };
+        let session = app.state.read(&format!("session-{}.json", p.id))?;
+        let (backend, binding) =
+            providers::restore_session(&p, &session, &app.state.dir.join("paused"))?;
         return mount::mount(
             State::new(app.mount_state(&p))?,
             p.mount_path,
@@ -923,4 +810,89 @@ pub fn run() -> anyhow::Result<()> {
     drop(send);
     let _ = worker.join();
     Ok(())
+}
+
+#[cfg(test)]
+#[path = "../tests/support/opaque_provider.rs"]
+mod test_provider;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_provider::OpaqueProvider;
+    #[test]
+    fn ipc_file_service_works_with_non_dav_opaque_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider = OpaqueProvider::default().with_caps(twodrive_dev::provider::Capabilities {
+            upload: true,
+            mkdir: true,
+            rename: true,
+            delete: true,
+            conditional_upload: true,
+        });
+        let p = Profile {
+            id: "opaque".into(),
+            revision: "revision".into(),
+            kind: "opaque".into(),
+            writable: true,
+            ..Default::default()
+        };
+        let state = State::new(temp.path().join("private")).unwrap();
+        let mut app = App {
+            args: Args {
+                state: state.dir.clone(),
+                peer_bin: PathBuf::new(),
+                launcher: PathBuf::new(),
+                mount_worker: None,
+                backup_worker: None,
+            },
+            state,
+            config: Config::default(),
+            connected: Some(p),
+            backend: Some(Backend::new(provider)),
+            gateway: None,
+            mounted: None,
+            backup: None,
+            network: Arc::default(),
+        };
+        let source = temp.path().join("source");
+        fs::write(&source, b"opaque IPC bytes").unwrap();
+        let output = temp.path().join("download");
+        let out = Arc::new(Mutex::new(std::io::stdout()));
+        let mut call = |op: &str, mut args: Value| {
+            args["profile"] = json!("opaque");
+            args["revision"] = json!("revision");
+            app.handle(
+                &Request {
+                    id: 1,
+                    op: op.into(),
+                    args,
+                },
+                Arc::default(),
+                &out,
+            )
+        };
+        call("mkdir", json!({"path":"/folder"})).unwrap();
+        call("upload", json!({"path":"/folder/file","source":source})).unwrap();
+        assert_eq!(
+            call("list", json!({"path":"/"})).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        call("download", json!({"path":"/folder/file","output":output})).unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"opaque IPC bytes");
+        call(
+            "rename",
+            json!({"path":"/folder/file","to":"/folder/moved"}),
+        )
+        .unwrap();
+        call("delete", json!({"path":"/folder/moved"})).unwrap();
+        assert!(
+            call("list", json!({"path":"/folder"})).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

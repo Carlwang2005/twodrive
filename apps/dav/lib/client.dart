@@ -17,11 +17,12 @@ class Transfer {
   String get name => (args['path'] as String).split('/').last;
 }
 
-class DavClient extends ChangeNotifier {
+class StorageClient extends ChangeNotifier {
   Process? _process;
   final Map<int, Completer<Json>> _pending = {};
   final List<Transfer> transfers = [];
   List<Json> profiles = [];
+  List<Json> providers = [];
   List<Json> entries = [];
   Json status = {};
   String? selected;
@@ -62,14 +63,38 @@ class DavClient extends ChangeNotifier {
   bool get canMount => status['capabilities']?['mount'] == true;
   bool get mounted => status['mounted'] == true;
   Json? get profile => profiles.where((p) => p['id'] == selected).firstOrNull;
-  bool get writable => connected && profile?['writable'] == true;
+  bool capability(String key) =>
+      connected && status['capabilities']?[key] == true;
+  bool get canUpload =>
+      capability('upload') && capability('conditional_upload');
+  bool get canMkdir => capability('mkdir');
+  bool get canRename => capability('rename');
+  bool get canDelete => capability('delete');
+  bool get canBackup => connected
+      ? capability('backup')
+      : profile?['capabilities']?['backup'] == true;
+  bool get writable => canUpload || canMkdir || canRename || canDelete;
+  String get providerLabel =>
+      profile?['provider_label'] as String? ?? 'TwoDrive';
+  String get accountLabel => profile?['account_label'] as String? ?? '账号';
+  String get account =>
+      profile?['account'] as String? ?? profile?['name'] as String? ?? '未登录';
+  String get trayState => error != null || syncError
+      ? 'error'
+      : connected && proxyFallback
+      ? 'warning'
+      : paused
+      ? 'paused'
+      : syncing
+      ? 'syncing'
+      : connected
+      ? 'connected'
+      : 'offline';
   Json get target => {
     'profile': selected,
     'revision': profile?['revision'] ?? '',
   };
-  bool get proxyFallback => ((status['network'] as List?) ?? []).any(
-    (line) => line.toString().contains('route=system/proxy fallback'),
-  );
+  bool get proxyFallback => connected && status['route_fallback'] == true;
   void requireProfile(Json args) {
     if (!connected ||
         (args['profile'] != null && args['profile'] != selected)) {
@@ -183,6 +208,7 @@ class DavClient extends ChangeNotifier {
   Future<void> loadProfiles() async {
     final result = await request('profiles');
     profiles = (result['profiles'] as List).cast<Json>();
+    providers = ((result['providers'] as List?) ?? []).cast<Json>();
     selected = connected
         ? status['profile'] as String?
         : result['selected'] as String?;

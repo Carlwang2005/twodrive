@@ -44,6 +44,7 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --features mount --all-targets -- -D warnings
+          python3 scripts/test-provider-old-paths.py
           cargo test --locked --features mount
           cargo build --locked --release --features mount --bins
       - name: Desktop IPC and WebDAV operations
@@ -93,6 +94,8 @@ jobs:
         working-directory: experiments/twodrive-dev
         run: |
           cargo clippy --locked --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test-provider-old-paths.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

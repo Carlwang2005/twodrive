@@ -22,7 +22,7 @@ Future<void> main(List<String> args) async {
   }
 
   final root = File(Platform.resolvedExecutable).parent.path;
-  final client = DavClient();
+  final client = StorageClient();
   runApp(DavApp(client: client, desktop: true));
   await client.start(
     option('--engine', '$root/${executableName('twodrive-dav-engine')}'),
@@ -45,7 +45,7 @@ Future<void> main(List<String> args) async {
 
 class DavApp extends StatelessWidget {
   const DavApp({super.key, required this.client, this.desktop = false});
-  final DavClient client;
+  final StorageClient client;
   final bool desktop;
   @override
   Widget build(BuildContext context) => MaterialApp(

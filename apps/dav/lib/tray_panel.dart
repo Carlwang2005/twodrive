@@ -10,7 +10,7 @@ class TrayPanel extends StatelessWidget {
     required this.onQuit,
     this.onSignOut,
   });
-  final DavClient client;
+  final StorageClient client;
   final Future<void> Function([int page]) onManage;
   final Future<void> Function() onOpenFolder;
   final Future<void> Function() onQuit;
@@ -18,11 +18,8 @@ class TrayPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = client;
-    final provider = c.profile?['kind'] == 'peer' ? 'TwoDrive' : 'WebDAV';
-    final account = c.profile?['username'] as String?;
-    final label = account?.isNotEmpty == true
-        ? account!
-        : (c.profile?['name'] as String? ?? '未登录');
+    final provider = c.providerLabel;
+    final label = c.account;
     final backup = c.status['backup'] as Map? ?? {};
     final issue =
         c.error ??
@@ -55,6 +52,8 @@ class TrayPanel extends StatelessWidget {
         ? '同步已暂停'
         : issue != null
         ? '需要处理'
+        : c.proxyFallback
+        ? '已连接 · 使用系统／代理兜底'
         : c.syncing
         ? '正在同步'
         : (backup['folders'] as num? ?? 0) > 0 &&
@@ -63,6 +62,8 @@ class TrayPanel extends StatelessWidget {
         : '文件已就绪';
     final color = issue != null
         ? Colors.deepOrange
+        : c.proxyFallback
+        ? const Color(0xffe0a000)
         : c.paused
         ? Colors.orange
         : c.connected
@@ -84,7 +85,7 @@ class TrayPanel extends StatelessWidget {
                 Row(
                   children: [
                     Icon(
-                      c.profile?['kind'] == 'peer'
+                      c.profile?['icon'] == 'devices'
                           ? Icons.cloud_rounded
                           : Icons.cloud_queue_rounded,
                       color: const Color(0xff2877dc),
@@ -103,9 +104,7 @@ class TrayPanel extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            c.profile?['kind'] == 'peer'
-                                ? '远程设备 · $label'
-                                : '账号 · $label',
+                            '${c.accountLabel} · $label',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -170,10 +169,12 @@ class TrayPanel extends StatelessWidget {
                 Row(
                   children: [
                     Icon(
-                      c.paused
-                          ? Icons.pause_circle_filled
-                          : issue != null
+                      issue != null
                           ? Icons.error
+                          : c.proxyFallback
+                          ? Icons.warning_amber_rounded
+                          : c.paused
+                          ? Icons.pause_circle_filled
                           : c.syncing
                           ? Icons.sync
                           : c.connected

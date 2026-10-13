@@ -4,7 +4,7 @@ import 'client.dart';
 
 class BackupPage extends StatefulWidget {
   const BackupPage({super.key, required this.client});
-  final DavClient client;
+  final StorageClient client;
   @override
   State<BackupPage> createState() => _BackupPageState();
 }
@@ -13,7 +13,7 @@ class _BackupPageState extends State<BackupPage> {
   List<Json> folders = [];
   bool loading = true;
   String? failure;
-  DavClient get c => widget.client;
+  StorageClient get c => widget.client;
   @override
   void initState() {
     super.initState();
@@ -150,18 +150,15 @@ class _BackupPageState extends State<BackupPage> {
       Align(
         alignment: Alignment.centerLeft,
         child: FilledButton.icon(
-          onPressed:
-              c.selected != null && c.profile?['writable'] == true && !c.busy
-              ? add
-              : null,
+          onPressed: c.selected != null && c.canBackup && !c.busy ? add : null,
           icon: const Icon(Icons.add),
           label: const Text('选择备份文件夹'),
         ),
       ),
-      if (c.profile?['writable'] != true)
+      if (!c.canBackup)
         const Padding(
           padding: EdgeInsets.only(top: 12),
-          child: Text('请添加或选择一个允许写入的连接。'),
+          child: Text('请选择支持安全上传和备份的连接。'),
         ),
       const SizedBox(height: 24),
       const Text(

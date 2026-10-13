@@ -110,3 +110,5 @@ authenticated control messages and signed updates, not file backup transfer.
 ## Combined Windows, WebDAV and QUIC dev preview
 
 The dev branch also includes the Windows Full/Lite preview from PR #9 and encrypted WebDAV/QUIC directory sharing from PR #8. The combined Windows packages contain all three tools with independent state. See the [integration and setup guide](doc/dev-integration.md) for the supported flows and current UI boundaries. These builds do not install or replace stable TwoDrive.
+
+The Development desktop now consumes provider schemas and capabilities through IPC. WebDAV stays inside its adapter; successful proxy fallback uses a yellow warning triangle. See the [provider boundary record](doc/provider-boundaries-2026-10-13.md).

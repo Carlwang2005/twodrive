@@ -8,7 +8,26 @@ import 'package:twodrive_dav/main.dart' as desktop;
 import 'package:twodrive_dav/tray_panel.dart';
 import 'package:twodrive_dav/profile_dialog.dart';
 
-class FakeClient extends DavClient {
+const testProviders = <Json>[
+  {
+    'id': 'dav',
+    'label': 'WebDAV',
+    'fields': [
+      {'key': 'url', 'label': 'WebDAV 根地址 · https://…', 'required': true},
+      {'key': 'username', 'label': '用户名'},
+      {'key': 'password', 'label': '密码', 'secret': true},
+    ],
+  },
+  {
+    'id': 'peer',
+    'label': 'TwoDrive',
+    'fields': [
+      {'key': 'peer_state', 'label': '配对状态目录', 'required': true},
+    ],
+  },
+];
+
+class FakeClient extends StorageClient {
   Completer<Json>? listing;
   final calls = <String>[];
   @override
@@ -79,7 +98,14 @@ void main() {
     final c = FakeClient()..available = true;
     c.selected = 'p';
     c.profiles = [
-      {'id': 'p', 'kind': 'dav', 'name': 'Example', 'username': 'demo'},
+      {
+        'id': 'p',
+        'kind': 'dav',
+        'name': 'Example',
+        'username': 'demo',
+        'provider_label': 'WebDAV',
+        'account': 'demo',
+      },
     ];
     c.status = {
       'connected': true,
@@ -137,6 +163,7 @@ void main() {
               saved = await showDialog<Json>(
                 context: context,
                 builder: (_) => const ProfileDialog(
+                  providers: testProviders,
                   original: {
                     'id': 'p',
                     'name': 'Sample',
@@ -199,7 +226,7 @@ void main() {
     c.dispose();
   });
   test('progress is associated with the matching transfer', () {
-    final c = DavClient();
+    final c = StorageClient();
     c.transfers.addAll([
       Transfer(1, 'upload', {'path': '/a'}),
       Transfer(2, 'download', {'path': '/b'}),
@@ -219,7 +246,7 @@ void main() {
     final c = FakeClient()..available = true;
     await tester.pumpWidget(DavApp(client: c));
     expect(find.text('连接你的文件'), findsOneWidget);
-    expect(find.textContaining('已配对的 TwoDrive 设备'), findsOneWidget);
+    expect(find.textContaining('选择存储提供者'), findsOneWidget);
     expect(find.text('上传'), findsNothing);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
