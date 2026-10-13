@@ -1,6 +1,6 @@
 [package]
 name = "twodrive-backend"
-version = "0.2.11"
+version = "0.2.12"
 edition.workspace = true
 
 [dependencies]
@@ -15,3 +15,4 @@ tiny_http.workspace = true
 time.workspace = true
 twodrive-core.workspace = true
 url.workspace = true
+percent-encoding = "2"

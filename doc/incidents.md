@@ -44,6 +44,1833 @@
 已核实的提交、Release 和详细调查链接；尚未提交或发布时明确注明。
 ```
 
+
+
+
+## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
+
+- 日期：2026-10-13
+- 状态：已验证测试平台假设修复；Linux 与 Windows 完整 CI 均通过。
+- 影响版本与环境：本轮新测试在 Windows CI 38363626181 失败；未证明产品图标实现异常。
+- 关联历史故障：TD-20261013-16 的验证遗漏，非路由或显示机制复发。
+
+### 症状与影响
+
+Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 cloud-warning.svg 的断言拒绝，阻止后续 Windows 原生构建与资产产出。
+
+### 触发条件与复现
+
+在 Windows 上执行 successful proxy fallback uses warning triangle and native warning asset。CI 日志显示12项通过、1项失败，Expected cloud-warning.svg，Actual cloud-warning.ico。
+
+### 根因与证据
+
+新测试硬编码 Linux 后缀；StatusTray 原有实现正确按 Windows 选择 ICO。属于测试缺陷，没有证据支持修改产品资产选择逻辑。
+
+### 解决办法与恢复操作
+
+回归按实际平台断言 SVG 或 ICO，错误图标断言同样处理；不放宽 warning/error 严重程度检查。没有本机恢复或安装操作。
+
+### 验证结果与边界
+
+失败证据来自真实 Windows CI；Linux analyzer 与13项控件回归复验通过。修正后的原生 Windows CI 同样通过 Flutter 检查、13项回归、原生构建、IPC/备份和托盘事件烟测；这不代表用户 Windows 设备上的硬件点击验收。
+
+### 防复发措施与后续
+
+保留原生 Windows/Linux 的同一断言；产物资产按各自平台实际加载格式核对。
+
+### 交付记录
+
+失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；[修复4554021](https://github.com/LumiaBlack51/twodrive/commit/4554021886852e71b04299fd2b2ccc240442c2c7)；[通过的 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)。已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，Release 已发布，见 TD-20261013-15 的交付记录。
+
+## TD-20261013-17：编辑连接身份时沿用原账户保存的密码
+
+- 日期：2026-10-13
+- 状态：已验证隔离配置保存回归；未操作真实账户。
+- 影响版本与环境：dev `8482ee4` 桌面 save_profile；本次解耦中发现。
+- 关联历史故障：TD-20261013-02 的连接绑定遗漏；这里涉及保存凭据的身份边界，而非文件请求目标。
+
+### 症状与影响
+
+编辑同一 profile 的服务器或用户名、或切换提供者时，密码留空仍可能沿用旧账户密码。源码确认保存逻辑只按 profile ID 保留密码，没有检查服务器/用户名/提供者；未确认真实凭据曾被发送到错误服务器。
+
+### 触发条件与复现
+
+使用隔离合成配置：已保存密码的 DAV profile，编辑用户名或切换 peer，密码留空。旧逻辑无条件复制 previous.password；没有使用真实凭据。
+
+### 根因与证据
+
+旧 desktop save_profile 仅检查 p.password.is_empty 与 clear_password，不验证认证身份。将凭据保留规则移到提供者 schema 的 identity_fields 后，同一身份才能保留；切换提供者只保存其 schema 的字段。
+
+### 解决办法与恢复操作
+
+提供者声明秘密字段与身份字段。相同身份留空保留、显式清除可删除；更换身份不会继承秘密，转换提供者会移除其他提供者字段。未知提供者不将不透明 options 输出给 UI。没有修改真实配置或令牌。
+
+### 验证结果与边界
+
+legacy_profiles_roundtrip_and_redact_secrets 验证旧扁平配置兼容、脱敏、同身份保留、更换用户名不保留、切换提供者清理旧字段；unknown_provider_never_exposes_opaque_options 验证未知提供者不输出 password/token。为隔离配置回归，未执行真实账号认证或更换服务器；未主张过去发生实际泄露。
+
+### 防复发措施与后续
+
+新增提供者必须声明身份和秘密字段；禁止通用服务按 password 字段猜测凭据规则。
+
+### 交付记录
+
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 已发布，与 TD-20261013-15 同批交付，见该条交付记录。
+
+## TD-20261013-16：自动路由成功兜底被显示为红色错误
+
+- 日期：2026-10-13
+- 状态：已验证 Flutter 控件与原生托盘图标参数回归；完整硬件交互未验证。
+- 影响版本与环境：dev `8482ee4` Linux/Windows Flutter 桌面。
+- 关联历史故障：TD-20261013-04 的代理兜底状态展示；本条纠正提示严重程度，不改变实际网络路由。
+
+### 症状与影响
+
+用户要求无法绕过代理但通过兜底成功连接时使用黄色三角感叹号。旧 updateTray 把 proxyFallback 和连接/备份错误合并为 cloud-error，令已成功连接被表示为错误。
+
+### 触发条件与复现
+
+connected=true，自动直连探测失败并成功选择 system/proxy fallback；没有其他错误。隔离 Flutter 控件回归验证传给原生托盘的资产路径。
+
+### 根因与证据
+
+旧条件 c.error != null || c.syncError || c.proxyFallback 统一选择 error。使用原始 dev 前端与同一托盘回归（仅兼容类名）时，cloud-warning 断言被 cloud-error 路径拒绝；修复后同项通过。
+
+### 解决办法与恢复操作
+
+成功连接后的 route_fallback 用独立 warning 状态，新增黄色三角感叹号 SVG 与 Windows ICO；托盘面板和工作区显示相同警告。真实连接/同步错误优先，断开后不保留兜底警告。UI 消费结构化布尔状态，不根据任意日志文本判断严重程度。兜底标志独立于24条诊断环，避免日志轮转丢失；每次连接使用独立诊断对象，旧进程残留输出不污染新连接。未更改代理配置或运行中的安装。
+
+### 验证结果与边界
+
+Linux 与 Windows 的13项 Flutter 回归、analyzer 和原生构建通过；warning 控件回归检查 native configure 的 cloud-warning.svg / cloud-warning.ico、黄色三角图标及错误图标，另验证离线、暂停、备份失败优先级。原始 dev 控件回归失败。诊断回归验证兜底标志在日志轮转后仍保留；[持久状态修复f2bc413](https://github.com/LumiaBlack51/twodrive/commit/f2bc41367615bee573af115a4f5eee4a3fef8085)。Windows CI 的原生托盘事件、外部焦点与 Escape 烟测通过。控件、MethodChannel 替身和合成原生事件不等于用户硬件点击、所有桌面主题或实际代理网络验收。
+
+### 防复发措施与后续
+
+保留 provider_contract_test.dart 的严重程度和托盘回归，成功兜底与传输失败分别处理。
+
+### 交付记录
+
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 已发布，与 TD-20261013-15 同批交付，见该条交付记录。
+
+## TD-20261013-15：桌面文件与备份服务绑定 WebDAV，阻碍其他存储提供者
+
+- 日期：2026-10-13
+- 状态：已验证提供者边界与非 DAV 回归、Linux/Windows CI、发布产物和隔离真实 FUSE 挂载；真实云端未验证。
+- 影响版本与环境：dev `8482ee4` 的 Flutter 桌面客户端、IPC 引擎、备份与挂载适配层；Development 版本更新为 0.1.1；合并后的 Linux 软件包版本为 0.2.12-1。
+- 关联历史故障：TD-20261013-02 的账户绑定与 TD-20261013-04 的备份/路由功能；[历史 provider 边界](refactor-2026-09-16.md)。本次是新增桌面实现的边界遗漏，非已证明的历史存储重构回归。
+
+### 症状与影响
+
+用户报告 WebDAV 与前端及其他组件耦合，影响非 WebDAV 支持。确认通用 IPC、备份、mount 都要求具体 WebDavBackend；前端账户表单和标签只能识别 dav/peer，且用 writable 猜测全部修改能力。未确认数据丢失。
+
+### 触发条件与复现
+
+使用隔离非 DAV 提供者，远端 ID 为 object-N，与 /folder/file 路径不同；执行实际 IPC 文件操作、备份已提交意图恢复和界面能力控制。没有网络或真实云端账户。
+
+### 根因与证据
+
+- desktop App 与 backup/mount 签名引用具体 WebDavBackend，通用代码同时承担 DAV 认证/路由和配对网关启动；worker 使用 DAV 根 URL 传递连接。前端写死提供者字段、名称和 kind 分支。
+- download/rename/delete 和备份恢复直接把路径作为 CloudBackend 的 remote_id。DAV 正好以路径作为 ID，掩盖了这一假设；Graph 等 ID 与路径分离的提供者不符合该假设。
+- CloudBackend 的历史 upload_with_etag 默认实现不能保证条件写入。若仅替换为 trait 而仍依赖默认实现，备份和覆盖保护可能失效，故新增接口要求显式条件上传能力。
+
+### 解决办法与恢复操作
+
+- Provider/Backend 定义目录浏览、流式条件上传、能力、路径到不透明 ID 的转换；备份和挂载使用通用接口，CloudBackend 与稳定恢复契约保留。
+- 提供者适配器拥有认证、连接、路由、账户绑定、保护目录与不透明 worker recipe；私有 session 文件绑定提供者和 profile revision，worker 恢复不依赖 DAV URL 参数。原扁平 profiles、mount/backup binding 保持兼容。
+- Flutter StorageClient、动态 schema 表单、提供者标签与逐项能力来自 IPC。新增提供者无需更改通用文件/备份/mount 服务或前端 provider kind 分支。未知提供者不能静默作为 DAV 连接。
+- 备份歧义提交恢复先按路径查元数据，再通过提供者 ID 下载比对哈希；冲突保留意图及远端内容。条件上传能力不足时不提供上传/备份/读写挂载。
+- 已合并先前遗漏的 codex/pin-download-feedback 三项提交，并保留双方故障记录；其他远端功能分支已在 dev 的祖先中。main 的已合并内容已在56248a7同步合入，以对齐历史。
+
+**本地恢复操作**：在独立工作区开发。未修改原工作区未提交调查、真实配置、私人文件、运行服务或已安装客户端；本轮仅用临时测试数据。
+
+### 验证结果与边界
+
+- Development Rust 49 项通过：29 库测试、4 引擎单元测试、11 集成、3 非 DAV 契约与2签名控制。严格 Clippy 与格式通过。
+- 旧表达式回归在隔离源码副本分别恢复 desktop 和 backup 的 path-as-ID 调用，两项行为测试编译成功并在不透明 ID 断言失败；正常代码通过。这是对旧机制的受控回退，非原始完整旧树已支持非 DAV。
+- 13 项 Flutter 测试、analyzer 和 Linux release 构建通过。新提供者表单测试只用自定义 bucket 字段，无 DAV/peer 字段；能力分别控制上传/新建/重命名/删除/备份。
+- 完整根工作区151项默认 Rust、25项 Nautilus、4项 Settings 回归通过；根工作区格式和严格 Clippy 通过。默认忽略的7项中，6项 FUSE 回归使用新 deb 内的 CLI 显式执行并通过，覆盖权限/编译重挂载、索引器复查、目录元数据免下载、大目录读写响应、释放取消/旧句柄和待处理目录解压；余下1项云端/设备环境测试未执行。包内 Nautilus 25项回归及 CLI/daemon 隔离 FUSE+MockBackend 烟测通过。
+- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；本地真实 FUSE + loopback WebDAV 的 CLI 进程烟测已通过（文件读写、挂载所有权、缓存释放、暂停/恢复、备份创建/更新/歧义提交恢复/冲突保护、只读和默认关闭的隔离自启动）；同一烟测使用最终 CI 的 Linux 分发包再次通过。Windows CI 已通过原生构建、IPC/备份、自启动隔离与托盘合成事件/焦点/Escape 检查；未安装到用户 Windows 设备。
+- **边界**：非 DAV 是隔离内存替身，不代表真实 OneDrive、Google Drive 新 OAuth 集成或端到端验证；本轮未使用实际账户。当前配对适配器内部仍通过 loopback DAV gateway 访问设备，这是适配器的实现细节，不再是前端/通用服务合同。新提供者仍需自行实现并注册适配器和服务契约测试。
+
+### 防复发措施与后续
+
+保留不透明 ID 的实际 IPC、备份恢复和条件上传能力回归，以及动态 schema/控件测试。CI 新增两条旧表达式失败验证；新增适配器须明确条件上传、路径/ID 与能力约定，不能仅依赖兼容 trait 的默认行为。详见[边界与验证](provider-boundaries-2026-10-13.md)。
+
+### 交付记录
+
+- 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已于2026-10-13合入 dev，合并提交 [bff03bd](https://github.com/LumiaBlack51/twodrive/commit/bff03bdfc13eab7ab079433bdde8d4155a043ef1)。所有现存远端功能分支均为该提交祖先。
+- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。后续提交对稳定组件没有源码变化，已逐字节核对。Release 已发布，见 TD-20261013-15 的交付记录。
+- 最终验证源码4554021886852e71b04299fd2b2ccc240442c2c7与 dev 合并树完全一致。四组 CI 均成功：[桌面 Linux/Windows](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)、[Development DAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410787)、[Peer 原生构建](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410773)、[Windows 双预览/根工作区](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410768)。Development Linux/Windows 分发包取自该桌面 CI，黄色 SVG/ICO 资产均已核对。
+- 发布前脱敏验证摘要及二进制 SHA-256 见 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。安装包中的故障记录为构建时快照；源码归档将包含发布前完整验证记录。发布链接已核实，见以下补记。
+
+
+- 已发布 [Linux TwoDrive 0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)（Latest）和 [Development 0.1.1 Linux/Windows](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.1)（预览版）。两标签均指向已推送 dev 提交93d1b44e7256f19d4b0822f22c2f90a066ec3305；两个源码归档均由该提交 git archive 生成，不含工作区未提交文件。
+- 两个 Release 各5项资产（分发包/校验/源码/脱敏验证摘要）均为 uploaded，GitHub 报告 SHA-256 与本地全部一致；完整摘要保存在 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。本次交付补记仅更新链接和摘要，不修改已发布二进制。安装包内记录为构建快照，Release 源码与 verification.json 为发布前验证快照。
+
+## TD-20261013-14：映射后仅移动窗口保留了错误的缓存尺寸
+
+- 日期：2026-10-13
+- 状态：已验证本机既有连接配置与隔离空状态的完整矩形回归。
+- 影响版本与环境：a1060fa 的本机 GNOME/X11，已配置实际 Windows 连接的 Development 客户端。
+- 关联历史故障：TD-20261013-13 的修复遗漏；本条是完整矩形与缓存尺寸，不是锚点来源复发。
+
+### 症状与影响
+
+隔离空配置的候选已通过位置和尺寸回归，但安装到已有配置后首次展开只有 592×952 物理像素，期望 780×1140。位置 936,88 已正确，WM_NORMAL_HINTS 的最小/最大尺寸仍是 780×1140。没有改动远端文件。
+
+### 触发条件与复现
+
+安装运行时以既有 Windows 连接后台启动，再进行同一原生单击位置/尺寸检查；旧 gdk_window_move 候选稳定被尺寸断言拒绝。
+
+### 根因与证据
+
+映射后回调只更新位置，保留 GDK 当时缓存的尺寸，未重新应用目标完整矩形。实际 X11 尺寸与 GTK 设置的几何约束不一致。窗口缓存尺寸出现差异的更深层装饰/布局时序仍未确认。
+
+### 解决办法与恢复操作
+
+映射后使用 gdk_window_move_resize 同时提交已计算的位置和尺寸。部署复验必须覆盖既有连接配置，不仅覆盖空状态。仅替换独立 Development 运行时，保留配对状态。
+
+### 验证结果与边界
+
+旧仅移动的候选在已部署客户端中被 592×952 尺寸断言拒绝。完整矩形候选在已配置 Windows 连接的安装运行时通过三轮：实际位置 936,88、尺寸 780×1140，展开 28–54ms、收起 4ms；隔离空状态另行通过，展开 31–36ms、收起 4ms、退出码 0。每次都等待 400ms 后核对矩形。安装运行时随后连接实际 Windows 网关，PROPFIND 207；自启动仍关闭，稳定 daemon PID 2306/NRestarts 0。验证仅覆盖本机 GNOME/X11、2× 缩放和合成宿主转发事件，未覆盖多屏、硬件输入或其他桌面。
+
+### 防复发措施与后续
+
+原生回归核对最终位置与最终尺寸；部署后的检查与隔离检查分别记录。挂载和稳定版守护进程不参与此次窗口恢复。
+
+### 交付记录
+
+[修复 3f2470a](https://github.com/LumiaBlack51/twodrive/commit/3f2470afacc3af51d7972ab61eaa5a0b2f681f6e)；[交付 PR #10](https://github.com/LumiaBlack51/twodrive/pull/10)；[最终 Linux CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38354827650) 成功。验证后清理本轮构建和临时文件，安装运行时及身份保留。
+
+## TD-20261013-13：GTK 面板首映射的实际位置偏离已计算边界
+
+- 日期：2026-10-13
+- 状态：已验证本机映射后定位修复；首映射偏移的更深层原因未确认。
+- 影响版本与环境：本机 GNOME/X11、2× 缩放，TD-20261013-12 坐标来源修正后的未提交候选。
+- 关联历史故障：TD-20261013-06/12；不同于把图标内部坐标误认为屏幕坐标。
+
+### 症状与影响
+
+真实指针来源修正后，面板仍偏离预期位置。Native trace 在激活时得到逻辑指针 838,634、工作区 0,0,1440,843，计算边界 468,44；稳定后 X11 窗口为物理 1030,162，未达到预期 936,88。
+
+### 触发条件与复现
+
+后台启动的新进程首次显示无装饰状态面板，同一个真实指针只读查询回归重复失败。
+
+### 根因与证据
+
+已排除本轮指针来源错误：native trace 的点与真实指针一致，计算结果也正确。GTK 请求与实际 X11 位置不同，首映射/窗口装饰坐标转换的深层原因尚未确认；不能将偏移归于某个窗口管理器机制而无证据。
+
+### 解决办法与恢复操作
+
+映射事件到达后以一次 GLib idle 回调，用 GDK 原生窗口位置接口应用已计算边界；隐藏后回调不移动窗口，销毁时移除待执行源。映射前立即调用 GDK move 的候选仍失败，等待 map-event 后同一断言通过。[GTK move 文档](https://docs.gtk.org/gtk3/method.Window.move.html) 说明初始位置请求可能被窗口管理器修改。仅重启独立 Development 客户端。
+
+### 验证结果与边界
+
+旧候选的实际坐标断言失败。修复后三轮原生事件回归通过，最终坐标逐次匹配真实锚点计算，打开 32–42ms、收起 4–5ms、退出码 0；多屏、其他桌面和缩放组合未实测。
+
+后续安装到既有连接配置时发现位置已正确但尺寸不一致，另记 TD-20261013-14；旧隔离检查不足以代表实际部署。映射后完整矩形修复已通过两种状态的最终检查。
+
+### 防复发措施与后续
+
+位置回归同时检查真实锚点、最终稳定坐标和重复展开，而非仅比较多次位置是否相同。
+
+### 交付记录
+
+[修复 a1060fa](https://github.com/LumiaBlack51/twodrive/commit/a1060fa097658c0491afb1d39c96da7c325ff663)；部署尺寸补充见 TD-20261013-14。
+
+## TD-20261013-12：GNOME 传统托盘转发坐标被误认为屏幕坐标
+
+- 日期：2026-10-13
+- 状态：已验证本机原生坐标来源、三轮切换与安装运行时；尺寸补充见 TD-20261013-14。
+- 影响版本与环境：7632033 的 Linux GTK XEmbed 托盘，GNOME 46/Zorin。
+- 关联历史故障：TD-20261013-06/07 的位置与单击修复遗漏；保留原结论并补充坐标边界更正。
+
+### 症状与影响
+
+GNOME 传统托盘将激活消息转发到 GTK 隐藏图标窗口，当前客户端把转发的 x_root/y_root 当屏幕点击坐标，使面板出现在屏幕左上角，而非用户点击的任务栏图标附近。之前合成事件证明了切换和尺寸稳定，但没有证明真实宿主坐标含义。
+
+### 触发条件与复现
+
+GNOME Shell.TrayIcon.click 转发 EnterNotify 和按钮消息，根坐标等于图标内部中心。本机 GtkStatusIcon 窗口及其宿主 socket 位于 0,0，图标已嵌入；旧合成测试稳定得到面板 16,56（物理像素），与实际鼠标位置无关。
+
+### 根因与证据
+
+[GNOME 46 na_tray_child_emulate_event](https://github.com/GNOME/gnome-shell/blob/46.0/src/tray/na-tray-child.c) 将 x_root/y_root 设置为 width/2、height/2；原生 legacy_activate 直接读取该值。GtkStatusIcon 的窗口几何也不是 Shell 克隆图标的任务栏位置。SNI Activate 的宿主坐标是另一条路径，不能据此推断 XEmbed 坐标相同。
+
+### 解决办法与恢复操作
+
+仅 GNOME GTK 传统托盘在激活回调到达时立即读取指针屏幕坐标，异步窗口操作之前保存；小范围重复点击沿用固定锚点。键盘激活已有锚点时复用该点。SNI 保留宿主坐标。不修改系统扩展或移动全局指针。
+
+### 验证结果与边界
+
+需要在完全仿照 GNOME 的内部中心转发消息下，对照只读查询的实际指针/工作区验证位置。同一原生回归在旧代码报告位置不匹配并失败；修复坐标来源并完成 TD-20261013-13 的映射定位后通过，实际位置与真实指针、工作区和 2× 缩放计算一致。不得将先前“稳定”结论当成真实图标附近位置已正确的证据；未进行硬件输入、多屏或其他宿主实测。
+
+### 防复发措施与后续
+
+原生回归除了稳定性还要核对锚点来源，故意保持转发坐标与真实指针不同；保留工作区和 HiDPI 坐标计算检查。
+
+### 交付记录
+
+[修复 a1060fa](https://github.com/LumiaBlack51/twodrive/commit/a1060fa097658c0491afb1d39c96da7c325ff663)。
+
+## TD-20261013-11：Windows 面板已有焦点时失焦关闭状态可能未启用
+
+- 日期：2026-10-13
+- 状态：已验证 Windows CI 原生外部焦点与 Escape 检查；整体任务成功。
+- 影响版本与环境：b3ccfda 的 Windows native tray；不涉及 Linux 宿主单击机制。
+- 关联历史故障：TD-20261013-07/09 的原生交互边界。
+
+### 症状与影响
+
+审查发现 panel 调用先将 focused_ 清为 false，随后只依赖新的 WM_ACTIVATE 来启用失焦关闭。如果窗口在恢复/调整时已经是前台窗口，SetForegroundWindow 不需要再次发送激活事件，可能使外部点击无法收起。尚未在用户 Windows 桌面观察到此条件。
+
+### 触发条件与复现
+
+面板复用已有前台窗口时，焦点事件可能发生在 panel 调用之前。原有烟测只验证通知消息切换，没有覆盖外部窗口取得焦点。
+
+### 根因与证据
+
+窗口的实际前台状态与 focused_ 记录可能不一致；源码缺少显示完成后的实际前台状态查询。需要原生外部焦点转移测试补足边界，不以合成单击通过代替它。
+
+### 解决办法与恢复操作
+
+显示面板并请求前台后，以 GetForegroundWindow 核对当前状态；保留后续 WM_ACTIVATE 处理。测试创建自有临时焦点窗口验证失焦收起，并验证 Escape 通知收起。无用户配置恢复操作。
+
+### 验证结果与边界
+
+[原生 Windows GUI 检查](https://github.com/LumiaBlack51/twodrive/actions/runs/38351595568/job/115145005154) 的烟测步骤通过，涵盖外部临时窗口取得焦点、重新展开和 Escape 通知收起；此前六次消息切换测试不覆盖此状态条件。测试仅操作 CI 内自有窗口，不使用私人账号或硬件鼠标输入；旧版本未单独复跑该边界。
+
+### 防复发措施与后续
+
+保留单击、窗口稳定、外部焦点转移和 Escape 的独立断言，不依赖点击前后总会产生新的激活事件。
+
+### 交付记录
+
+[修复 7632033](https://github.com/LumiaBlack51/twodrive/commit/7632033f0f60dbfee3c381d426493d697b33d8a1)；[成功 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38351595568)。
+
+## TD-20261013-10：管理窗口在较小尺寸和错误提示下布局溢出
+
+- 日期：2026-10-13
+- 状态：已验证隔离 widget 回归、Linux 原生构建和部署；Windows 原生构建通过。
+- 影响版本与环境：8aefcb6，共享 Flutter 管理窗口。
+- 关联历史故障：TD-20261013-04 的界面功能；本条是新回归测试发现的尺寸边界。
+
+### 症状与影响
+
+启动初始化回归在 800×600 逻辑尺寸、引擎启动错误状态下发现侧栏底部溢出 6 像素，内容空态溢出 18 像素。应用最小高度为 580，因此实际小窗口也可能触发。只影响显示，未操作远程文件。
+
+### 触发条件与复现
+
+Flutter widget 测试在默认窗口尺寸启动客户端，缺失的隔离测试引擎产生错误提示。旧布局稳定报告两个 RenderFlex overflow。
+
+### 根因与证据
+
+侧栏将所有导航和退出项放在不可滚动 Column 内，总高度超过窗口；错误提示缩小内容区域后，空态的固定 Column 也超过可用高度。
+
+### 解决办法与恢复操作
+
+导航区域和内容空态使用滚动容器，保留连接状态和退出入口；限制错误文本区域高度并允许滚动。无本地数据恢复。
+
+### 验证结果与边界
+
+将 8aefcb6 的布局恢复后，最小高度/长错误提示测试重现 RenderFlex 溢出并失败；修复后全部 9 项 Flutter 回归和 analyzer 通过。不代表所有屏幕或字体缩放组合均已实测。
+
+### 防复发措施与后续
+
+保留最小窗口高度、长错误提示与全部导航入口可达的 widget 回归。
+
+### 交付记录
+
+[修复 b3ccfda](https://github.com/LumiaBlack51/twodrive/commit/b3ccfda5d792a6d24c5ddf5a0d449e5d005ed94d)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-09：Windows 原生托盘切换烟测失败
+
+- 日期：2026-10-13
+- 状态：已验证 Windows 原生后台启动及六次托盘消息切换。
+- 影响版本与环境：8aefcb6，Windows 原生 CI，Flutter 3.41.8。
+- 关联历史故障：TD-20261013-07；Linux 宿主双击机制已另行修复，本条尚不能归为相同根因。
+
+### 症状与影响
+
+原生桌面构建和隔离 IPC、文件、备份、自启动测试通过，GUI 烟测等待托盘切换超过三秒失败；尚未部署该 Windows GUI 到用户设备。
+
+### 触发条件与复现
+
+以独立临时状态启动 --background，向该进程窗口发送 Shell 通知消息，检查展开/收起。旧测试只报告 tray did not toggle，没有阶段或原生事件日志。
+
+### 根因与证据
+
+已确认源码中的初始化缺口：window_manager 0.5.1 的 Windows WaitUntilReadyToShow 才创建 taskbar_ COM 接口，ensureInitialized 只保存窗口句柄；应用未调用前者，showPanel 的 setSkipTaskbar 会解引用空 taskbar_。带诊断的旧代码复验确认 configure 与第一条 activate 已收到，随后进程以 3221225477（0xC0000005，访问违例）退出，尚未进入 native panel；与空接口路径一致。修复 b3ccfda 的 Windows 原生同一烟测通过，确认初始化遗漏对应首次激活访问违例。[失败任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38347237158/job/115131358658)。需要区分托盘尚未就绪、Dart 回调异常、窗口操作和焦点引起的收起；启动后的异步 hide 与无条件窗口恢复调用也是待排除路径。
+
+### 解决办法与恢复操作
+
+补充原生事件追踪、就绪判断和失败阶段日志；在创建托盘和使用任务栏方法前调用 waitUntilReadyToShow。无数据恢复操作。
+
+### 验证结果与边界
+
+初始化顺序的 widget 回归在删除初始化步骤后失败，修复后通过；全部 9 项 Flutter 测试通过。带诊断的 [旧代码原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38349552109/job/115138569071) 在第 1 次展开访问违例退出；修复后的 [Windows GUI 原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38349916841/job/115139721893) 的托盘烟测步骤通过，覆盖后台隐藏、三轮展开/收起、稳定后可见性和位置。不把模拟 Shell 通知消息视为用户 Windows 桌面物理点击验证。
+
+### 防复发措施与后续
+
+保留后台启动、重复单击、稳定后可见性和位置断言，失败日志应指明阶段且不包含账号或凭据。
+
+### 交付记录
+
+[修复 b3ccfda](https://github.com/LumiaBlack51/twodrive/commit/b3ccfda5d792a6d24c5ddf5a0d449e5d005ed94d)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-08：Windows 专用备份分支未通过严格 Clippy
+
+- 日期：2026-10-13
+- 状态：已验证 Windows 原生严格 Clippy；GUI 故障另记 TD-20261013-09。
+- 影响版本与环境：d168d34，Windows CI Rust 1.99，新增桌面引擎；Linux 条件编译不会检查此分支。
+- 关联历史故障：TD-20261013-07 的 Windows 适配验证，不是网络故障。
+
+### 症状与影响
+
+Windows desktop/peer CI 在编译检查阶段退出，尚未进入新桌面实测。没有更新用户 Windows 服务。
+
+### 触发条件与复现
+
+Windows 原生 cargo clippy --all-targets -- -D warnings。
+
+### 根因与证据
+
+desktop_backup::is_link 的 Windows 条件块末尾多余 return 触发 needless_return；Linux 条件块没有此写法。[失败任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38346820973/job/115130049741)。
+
+### 解决办法与恢复操作
+
+使用块尾表达式，保留重解析点检测语义和严格检查。无需数据恢复。
+
+### 验证结果与边界
+
+旧 Windows 检查失败；8aefcb6 的 Windows 原生 Clippy、Rust 和 IPC/备份步骤通过，随后 GUI 烟测失败另记 TD-20261013-09。[原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38347237158/job/115131358658)。此变更是平台条件编译检查覆盖问题，没有虚构文件传输故障或额外单元测试。
+
+### 防复发措施与后续
+
+保留 Windows 原生桌面引擎 Clippy、IPC、备份和 GUI 烟测。
+
+### 交付记录
+
+[修复 8aefcb6](https://github.com/LumiaBlack51/twodrive/commit/8aefcb64cf8d9897889612eeee0946d3b32bbff1)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-07：托盘收起迟滞及前端平台依赖暴露
+
+- 日期：2026-10-13
+- 状态：已验证 Linux 原生宿主转发路径与 Windows CI 原生 GUI；用户 Windows 桌面 GUI 尚未实测。
+- 影响版本与环境：未提交的 Development 桌面客户端，GNOME/Flutter；Windows 原生桌面 runner 尚未接入。
+- 关联历史故障：TD-20261013-04/06，分别涉及功能入口和窗口锚点。
+
+### 症状与影响
+
+用户报告收起窗口等待较久，并将标题中的 Windows 理解成客户端的平台。Windows 实际是远程设备配置名。代码还存在 HOME、xdg-open、Linux-only engine 与托盘通道硬依赖，单有 Flutter 不等于已可在 Windows 运行。
+
+### 触发条件与复现
+
+实际桌面点击迟滞尚未稳定复现。D-Bus Activate 连续四次展开/收起，200ms 检查点时状态均已改变、位置固定。该结果不能替代桌面真实点击路径。
+
+### 根因与证据
+
+当前收起等待 Dart 窗口方法回调，失焦也仅由 Flutter 插件转发。不能据此断言这是用户迟滞的唯一原因。标题缺少“远程设备”语义；原生 runner 与引擎的 Linux 限制由源代码直接确认。
+
+### 2026-10-13 根因补充
+
+读取本机 Zorin AppIndicator 的 indicatorStatusIcon.js，确认 vfunc_button_press_event 对主键仅调用 _maybeHandleDoubleClick；只有点击计数为 2 才发 Activate。单击只有菜单路径，而当前客户端要求 GUI 面板。之前 D-Bus 人工激活跳过了这个真实故障点。因此 GNOME/X11 使用已启用的 GTK XEmbed 托盘接口，其他桌面保留 SNI。原生主键事件不再等待双击；没有修改系统扩展。初步独立扩展方案因新扩展无法即时加载而撤回，已清除尚未启用的本地目录。
+
+### 解决办法与恢复操作
+
+增加原生即时收起、失焦和 Escape 路径，避免托盘点击失焦后立即重新展开；明确设备名称。将共享 UI、路径和业务引擎接到 Windows runner，并通过能力字段区分平台挂载支持。不宣称未实现的系统挂载或其他平台已可用。
+
+### 验证结果与边界
+
+本机按 GNOME 实际转发方式发送 EnterNotify 与主键按下/释放，三轮打开 33–36ms、收起 3–6ms，位置与大小一致。此前仅人工 Activate 的测试未覆盖宿主双击机制，这一验证结论已更正。测试早期没有发送 EnterNotify，导致合成输入未触发 GTK；修正测试后通过。Windows CI 构建、IPC/备份测试和 GUI 烟测分别记录；不把 CI 当作用户 Windows 桌面实测。
+
+### 防复发措施与后续
+
+原生窗口可见性检查、Linux/Windows 构建和共享引擎测试。网络操作不得阻塞收起窗口。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-06：托盘状态面板随鼠标位置改变而漂移
+
+- 日期：2026-10-13
+- 状态：已验证本机位置计算与重复激活；多屏仅几何回归。
+- 影响版本与环境：本次未提交的 Linux Flutter 桌面客户端，GNOME、2× 缩放。
+- 关联历史故障：TD-20261013-04 解决托盘入口和尺寸；本条是位置锚点遗漏。
+
+### 症状与影响
+
+用户要求单击云朵图标后在其上方展开状态面板，不应随鼠标或管理窗口位置乱跑。当前代码在异步退出最大化、调整窗口后才获取鼠标位置。
+
+### 触发条件与复现
+
+托盘 Activate 已携带点击坐标，但 native panel 调用忽略该坐标，改用较晚的 gdk_device_get_position。点击后移动鼠标会影响定位；此前人工 D-Bus 激活也使用了与点击参数不同的位置。
+
+### 根因与证据
+
+StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME 扩展发送事件坐标。代码没有保存该事件，而是在 Flutter 异步窗口操作结束后读取全局指针。此缺陷与已修复的窗口尺寸约束不同。
+
+### 解决办法与恢复操作
+
+在收到激活事件时保存锚点，小范围重复点击复用同一锚点；面板展开只读取锚点，优先放在图标上方并约束在工作区。没有收到有效坐标时才在事件接收时获取一次指针。安装程序只为本应用选择可定位的 X11 后端，保留用户显式覆盖。
+
+### 验证结果与边界
+
+新增 tray_geometry_test 覆盖同图标小范围点击、上下边缘、负坐标屏幕和工作区变化并通过。本机 2× 屏幕多轮位置与尺寸一致；旧代码使用指针位置得到 x=853，新代码按同一个激活锚点得到 x=980（逻辑像素），不再跟随指针。多屏和其他桌面环境未实测，不将几何模拟描述成真实多屏验证。 后续 Windows 适配曾把最小尺寸插件调用同时加到 Linux，复测发现 Mutter 后续配置会移位；现已将该调用限制到 Windows，Linux 保持 GTK 单一尺寸控制。重新验证时增加等待窗口管理器稳定后的坐标断言。
+
+### 2026-10-13 坐标边界更正
+
+后续发现 GNOME XEmbed 转发的根坐标实为图标内部中心；先前多次稳定不能证明面板位于真实图标附近。TD-20261013-12 修正真实锚点来源，TD-20261013-13 补上首映射后的最终位置校验。保留先前切换、尺寸和缓存锚点证据，不再把它们当作完整宿主定位验证。
+
+### 防复发措施与后续
+
+位置计算独立回归覆盖重复点击、边缘和屏幕变化；实际面板重复展开检查位置、尺寸和正常退出。
+
+### 交付记录
+
+[修复 8aefcb6](https://github.com/LumiaBlack51/twodrive/commit/8aefcb64cf8d9897889612eeee0946d3b32bbff1)；[桌面交付与验证](linux-dav-desktop.md)。
+位置规范：[StatusNotifierItem](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-item.html)。
+
+## TD-20261013-05：真实 Windows 备份验证中出现一次 WebDAV 502
+
+- 日期：2026-10-13
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：本次新 Linux 桌面引擎，连接既有 Windows 配对服务；备份开始后的目录读取出现一次 HTTP 502。
+- 关联历史故障：TD-20261012-02/05 涉及 Windows 注册和 DNS；当前没有证据将这次目录请求失败归为同一机制。
+
+### 症状与影响
+
+测试的早期 WebDAV/FUSE 往返完成，随后备份等待中的 PROPFIND 返回 502，严格测试终止。finally 清理未报告失败，测试目录被移除；原始配对状态保留。
+
+### 触发条件与复现
+
+备份子进程与主进程共用已配对的本地 WebDAV 网关；首次发生时没有保留网关的详细错误类别，只保留了脱敏 HTTP 状态。需要保留类别后重跑验证。
+
+### 根因与证据
+
+目前只有 HTTP 502 证据，不足以区分暂时连接失败与并发请求缺陷。不能因为昨天存在 DNS 故障就假定根因相同。
+
+### 解决办法与恢复操作
+
+先完善测试失败证据，安全的只读目录请求允许界面用户重试；不自动重放写请求。重新连接进行隔离测试，保留远端清理结果。
+
+### 验证结果与边界
+
+调查中；不能把此前本地备份通过视为真实 Windows 备份通过。
+
+### 防复发措施与后续
+
+测试需保留脱敏网络诊断、实际失败阶段、清理状态。后续重跑成功只说明该轮通过，不证明间歇性网络错误永久消失。
+
+### 2026-10-13 验证补充
+
+已确认并修复的是读取缺少有限重试的机制：新增 `transient_read_is_retried_but_mutation_is_never_replayed` 在原实现稳定失败，修复后通过，并断言 PUT 只发出一次。真实 Windows 后续全流程通过，含备份创建/更新、暂停恢复、冲突保护与远端清理。增加网关脱敏类别日志。初次 502 的深层网络根因仍未确认，不承诺所有网络故障消失。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-04：桌面客户端代理策略不可选，托盘交互和备份入口缺失
+
+- 日期：2026-10-13
+- 状态：已验证本机原生部署、实际 Windows WebDAV 连接与隔离功能回归。
+- 影响版本与环境：本次尚未提交的新 Linux 桌面前端；不涉及稳定版 OneDrive 守护进程。
+- 关联历史故障：TD-20261013-03 是退出路径缺陷；本条记录不同的产品功能和托盘点击机制。
+
+### 症状与影响
+
+用户报告产品被命名为 DAV、网络策略只有固定说明、托盘点击没有快捷状态面板、缺少备份文件夹选择，图标仅显示对勾。固定界面不应使用特定网络环境名称。
+
+### 触发条件与复现
+
+检查已安装前端并对照用户提供的 OneDrive 截图。既有 AppIndicator 以菜单为主要操作，点击回调并不保证触发 Flutter 状态窗口；配置中没有网络路由字段。
+
+### 根因与证据
+
+前端使用协议名作为产品名，连接子进程未传递可选的 network-route；GUI 没有文件夹备份的配置与执行路径。旧托盘图标选用单独的状态 emblem，没有产品云朵主体。
+
+### 解决办法与恢复操作
+
+统一 TwoDrive Development 品牌；新增每连接的三种网络策略，原生 StatusNotifierItem 激活 Flutter 状态面板、云朵角标、账号与真实传输状态；加入上传式文件夹备份、持久版本记录、暂停和冲突保护。仅安装独立 Development 客户端，不更改稳定 OneDrive 配置。
+
+### 验证结果与边界
+
+结果见下方验证补充及桌面验证报告。新界面只显示已实现的 TwoDrive 和 WebDAV 账号，不宣称已支持 Google Drive 或新增 OneDrive 登录。文件夹备份不传播本地删除。
+
+### 防复发措施与后续
+
+增加状态面板、网络选择持久化、文件夹备份创建/更新/暂停与符号链接保护测试。禁止用“已连接”替代“已备份”的证据。原生检查发现主窗口最大化状态使 setSize 无效，托盘打开前须退出最大化并等待窗口状态更新；另修正 GLib 废弃 flags 构建警告。
+
+### 2026-10-13 验证补充
+
+7 项 Flutter 测试通过，包含代理选择保存、托盘真实进度/暂停、只读禁用和跨连接任务拒绝；原生 Linux release 构建与分析通过。三种策略逐一连接实际 Windows，分别报告物理网卡且禁止后备、系统路由、物理优先允许报告后备。备份的本地和 Windows 合成目录测试通过。原生面板使用 GTK 持久尺寸约束，避免异步 resize 后立刻锁定旧尺寸；390×570 逻辑像素在 2× 屏幕对应 780×1140。补充编译修正包括 GLib flags、严格 Clippy 嵌套条件及范围写法，不涉及实际用户数据。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-03：Linux Flutter 窗口退出触发图形上下文断言
+
+- 日期：2026-10-13
+- 状态：已验证本机 GTK 应用退出路径修复
+- 影响版本与环境：新桌面前端，Flutter 3.41.8、Zorin/GNOME 的 X11 窗口，调用 window_manager 0.5.1 的 destroy。
+- 关联历史故障：无相同触发条件的历史记录。
+
+### 症状与影响
+
+通过已安装客户端的托盘“退出”调用正常业务清理后，Flutter 进程退出码为 134。日志包含 `The implicit view cannot be removed`、无法取得 OpenGL 上下文及 libepoxy 断言。FUSE 已卸载，配对网关已退出，后续 Windows 测试可重新取得配对状态锁；没有发现文件丢失。
+
+### 触发条件与复现
+
+实际部署窗口通过 D-Bus 托盘菜单退出；进程 32837 报 Aborted。仅记录临时进程编号用于本次证据对应。
+
+### 根因与证据
+
+window_manager 的 Linux destroy 直接调用 gtk_window_close。Flutter 自带 SystemNavigator.pop 的退出路径先解除窗口的 application 引用再退出应用。当前怀疑显式关闭 GTK 窗口的销毁顺序触发上下文错误，待替代路径实测；不推断所有 GPU 都有相同表现。
+
+### 解决办法与恢复操作
+
+拟在引擎完成卸载、停止子进程后使用 Flutter 的应用退出 API。无需恢复配对或远端文件；本轮异常产生的临时日志和崩溃产物将在验证后定点清理。
+
+### 验证结果与边界
+
+原退出路径实机失败；修复验证待补充。不能以窗口消失代替进程退出码正常。
+
+### 防复发措施与后续
+
+保留原生启动→连接→托盘退出的实机检查，要求退出码 0、子进程退出、挂载解除。
+
+### 2026-10-13 验证补充
+
+使用 SystemNavigator.pop 后，同一 GNOME/X11 环境经应用 D-Bus quit 动作退出，多轮进程退出码均为 0，未再输出原先的 implicit-view/OpenGL 断言。此前窗口销毁路径的退出码为 134。确认修复的是当前 Flutter/GTK 退出顺序；不外推所有 GPU/Wayland 环境。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-02：DAV 前端的连接配置与失败传输缺少目标绑定
+
+- 日期：2026-10-13
+- 状态：已验证连接目标绑定修复
+- 影响版本与环境：尚未提交的新 Linux DAV 前端；当前实机只有一个测试连接，未观察到跨服务器写入。
+- 关联历史故障：TD-20260916-UI 的断连禁用测试属于相邻界面约束；本次是多连接切换后的目标归属。
+
+### 症状与影响
+
+审查发现，连接时仍可添加另一个配置并切换界面选中项，但引擎连接仍指向原服务器。失败传输的重试也只保存文件路径，切换服务器后可能把旧任务用于新服务器。
+
+### 触发条件与复现
+
+计划验证：连接中禁止改变配置选择；A 服务器失败的上传，在连接 B 后不可重试；过期文件对话框提交时仍须核对原连接。
+
+### 根因与证据
+
+当前代码中选中配置和活动连接分别保存，传输参数没有活动配置 ID。回归测试结果待补充。
+
+### 解决办法与恢复操作
+
+拟在前端任务、目录项及引擎文件请求中绑定配置 ID；编辑配置要求先断开，跨连接重试拒绝。没有用户文件恢复操作。
+
+### 验证结果与边界
+
+调查中。之前的单连接 Windows 往返不能覆盖此多连接场景。
+
+### 防复发措施与后续
+
+增加前端旧任务拒绝与后端配置修改拒绝测试；配置身份检查必须先于任何远程文件请求。
+
+### 2026-10-13 验证补充
+
+原前端回归实际记录到了对另一个连接调用 upload/list，测试失败；增加 profile ID/revision 绑定后相同测试通过。引擎 IPC 拒绝连接中编辑配置、错误 profile、过期 revision；真实 Windows 往返同时通过。传输重试和弹窗完成也核对原连接配置版本。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261013-01：新 DAV 桌面客户端的挂载就绪检测缺少既有挂载检查
+
+- 日期：2026-10-13
+- 状态：已验证挂载所有权修复
+- 影响版本与环境：尚未提交的新 Linux DAV 桌面引擎；现有稳定 OneDrive 服务未修改。
+- 关联历史故障：TD-20261006-03 的独立 DAV 挂载状态约束；本次是桌面进程管理的新路径。
+
+### 症状与影响
+
+代码审查发现：启动挂载子进程后只根据 `mountpoint` 判断就绪，没有先排除目标已被其他进程挂载的情况。可能误认他人的挂载为自己的挂载，并在断开时尝试卸载。尚未观察到真实用户挂载被影响。
+
+### 触发条件与复现
+
+计划使用两个独立的临时桌面引擎与同一个测试 FUSE 目录验证；第二个引擎必须拒绝接管已有挂载，退出后第一个挂载仍可访问。
+
+### 根因与证据
+
+当前证据为源码中就绪检查缺少前置所有权检查；实测结果待补充。不能仅以子进程曾启动证明挂载属于该进程。
+
+### 解决办法与恢复操作
+
+拟增加启动前的已有挂载拒绝、取消和失败时的子进程/挂载清理，并覆盖已退出子进程的卸载恢复。所有复现只使用临时测试目录。
+
+### 验证结果与边界
+
+调查中。先前本地与 Windows 正常挂载读写通过，但没有覆盖既有挂载冲突，不能作为该路径已安全的证据。
+
+### 防复发措施与后续
+
+增加双引擎的挂载所有权回归；保留未上传缓存，不接管或卸载无关挂载。
+
+### 2026-10-13 验证补充
+
+两个真实隔离 FUSE 客户端的回归在旧引擎触发 unsafe operation unexpectedly succeeded；修复后第二客户端拒绝接管已有挂载，退出后原挂载仍可读。还验证正常卸载、只释放已同步缓存、暂停中待上传写入阻止卸载。稳定 OneDrive 服务未受影响。
+
+### 交付记录
+
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
+
+## TD-20261012-08：系统 DNS 后备预算与中继外层超时相同
+
+- 日期：2026-10-12
+- 状态：已验证；两平台原生回归及当前双端 TUN 实测通过。
+- 影响版本与环境：至 772b3ce；raw DNS 完整耗尽三秒预算时。
+- 关联历史故障：TD-20261012-05 的新后备实现；不是对本机 raw DNS 深层失败原因的推断。
+
+### 症状与影响
+
+raw DNS 若持续无响应，外层可能在原生后备运行前取消调用；快失败回归不会覆盖该条件。尚未把此候选传到 Windows。
+
+### 触发条件与复现
+
+检查锁定 iroh-relay 1.3.0：client/tls.rs 使用 defaults.rs 的三秒 DNS_TIMEOUT；新后备先给 raw DNS 三秒，再尝试原生解析。
+
+### 根因与证据
+
+外层总预算等于第一步预算，两步串行缺少后备时间。已确认源码预算关系，尚未以此解释原实机失败。
+
+### 解决办法与恢复操作
+
+raw 查询上限改为 500 ms，原生调用上限两秒，总计至多约 2.5 秒；增加 raw 不响应时实际执行后备的回归。无需实机恢复操作。
+
+### 验证结果与边界
+
+1a48437 的原生 CI 38256439762 两平台通过 hanging_raw_dns_leaves_time_for_native_before_relay_deadline：旧三秒 raw 步骤无法在一秒窗口完成；新后备在同一窗口完成有效解析。另通过快失败/空结果原生 TUN 地址、原生 localhost、超时调用持有并发槽三项回归。同一原生产物的双端默认、Linux 兜底、Windows 兜底三阶段均完成 2 MiB 完整哈希、MOVE、256 KiB Range、DELETE 404；两端路由未变化。
+
+### 防复发措施与后续
+
+后备链总预算须小于中继调用预算，保留快失败和耗尽上游预算两种触发条件。
+
+### 交付记录
+
+[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
+
+## TD-20261012-07：系统 DNS 候选被严格 Clippy 的嵌套条件检查阻止
+
+- 日期：2026-10-12
+- 状态：已验证；两平台严格 Clippy 及回归通过。
+- 影响版本与环境：47837e3；CI 38255820778，两平台严格 Clippy。
+- 关联历史故障：TD-20261012-06 修正后的另一项构建检查；不改变实机 DNS 根因。
+
+### 症状与影响
+
+构建门禁失败，候选未传送到 Windows，原服务和 agent 未受影响。
+
+### 触发条件与复现
+
+将 `if let Ok(values)` 与 `if !values.is_empty()` 嵌套，运行 `clippy -D warnings`。
+
+### 根因与证据
+
+CI 明确报告 system_dns.rs:53 的 `collapsible_if`；是源码结构未符合严格检查，没有实机网络行为证据。
+
+### 解决办法与恢复操作
+
+合并为 Rust 2024 let 条件链，保持非空结果行为。无需实机恢复操作。
+
+### 验证结果与边界
+
+47837e3 旧候选两平台失败已确认；772b3ce 的原生 CI 38256039757 与 1a48437 的原生 CI 38256439762 两平台全部通过，包含严格 Clippy。
+
+### 防复发措施与后续
+
+继续执行严格检查，通过完整原生 CI 后才进行候选传送。
+
+### 交付记录
+
+[失败 CI 38255820778](https://github.com/LumiaBlack51/twodrive/actions/runs/38255820778)；[修正 772b3ce](https://github.com/LumiaBlack51/twodrive/commit/772b3ce7c635425cd53b985e409c60c6a1c3c010)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)。
+
+## TD-20261012-06：系统 DNS 候选合并了两个不同的 opaque 迭代器类型
+
+- 日期：2026-10-12
+- 状态：已验证修正；两平台原生构建通过。
+- 影响版本与环境：9b93c88，CI 38255613648 的 Linux Clippy 编译。
+- 关联历史故障：TD-20261012-03 同属候选 API 使用失误，但本次是两个 `impl Iterator` 的类型不相同；不是 Windows 实机网络失败。
+
+### 症状与影响
+
+E0308 阻止候选编译，未交付或启动失败构建；原服务与 agent 保持可用。
+
+### 触发条件与复现
+
+if/else 直接合并 lookup_ipv4 和 lookup_ipv6 的返回结果。
+
+### 根因与证据
+
+锁定依赖的两方法返回各自独立的 `impl Iterator<Item=IpAddr>`，元素相同不代表 opaque 类型相同。原生 CI 在 system_dns.rs:45 确认 incompatible types。
+
+### 解决办法与恢复操作
+
+在每个分支内将结果收集为同一个 Vec 类型，再合并。无需实机恢复操作。
+
+### 验证结果与边界
+
+9b93c88 原生编译失败已确认。修正 opaque 类型后另发现严格 Clippy 条件结构问题（TD-20261012-07）；772b3ce 的 CI 38256039757、1a48437 的 CI 38256439762 两平台全部通过。本条不改变 TD-20261012-05 的实机验证状态。
+
+### 防复发措施与后续
+
+两平台严格 Clippy 和系统 DNS 回归通过后才传送候选；核对 opaque 返回类型，避免只比较元素类型。
+
+### 交付记录
+
+[失败 CI 38255613648](https://github.com/LumiaBlack51/twodrive/actions/runs/38255613648)；[类型修正 47837e3](https://github.com/LumiaBlack51/twodrive/commit/47837e363f5c9883f391862d57221755da5a2926)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)。
+
+## TD-20261012-05：Windows TUN 兜底没有使用可用的原生系统地址解析
+
+- 日期：2026-10-12
+- 状态：已验证修复；当前两端 TUN 实机通过，raw DNS 上游更深的失败原因仍未确认。
+- 影响版本与环境：至 55b80ad；Windows 校园网 TUN，System 路由中继注册失败。
+- 关联历史故障：TD-20261012-02 的持续调查；TD-20261011-06 是物理 DNS 并发答案选择，本条为另一机制；TD-20261012-04 的系统代理配置缺口不是本机本次失败的原因。
+
+### 症状与影响
+
+Windows 兜底约 32 秒注册超时，不能完成文件探针；默认物理路由和 Linux 兜底此前实测通过，原 serve 和配对状态仍可用。
+
+### 触发条件与复现
+
+签名 agent 执行经原生 CI 验证并全量校验 SHA256 的 55b80ad 候选，指定不存在物理接口。自动进入 System 路由后失败，失败 child 已自动停止并清理。
+
+### 根因与证据
+
+同一公共中继名字，endpoint 原解析器记录 `aps_dns_a=error=[dns,other]`、`aps_dns_aaaa=records=0`、`home_relays=0`；有界 Windows 原生地址解析返回 `records=1 ipv4=1 fake_ip=1`。System 分支没有原生地址解析后备，无法使用 TUN 提供的有效 fake-IP。原 raw DNS 上游更深的失败原因仍未确认；2026-10-12 后续实测：加入原生后备的 1a48437 已恢复中继注册及文件访问；同版本完整三阶段再次通过。系统代理读取成功但 manual/usable/pac/autodetect 均 false，排除本次候选因遗漏静态 HTTP 代理而失败。
+
+### 解决办法与恢复操作
+
+在 System 路由中对 A/AAAA 错误或空结果使用有界原生 OS 解析，限制等待预算（raw 500 ms、原生两秒）及未完成原生调用数量（八个，reset 共享上限）；只在已经明确提示的 System/TUN 兜底接受 fake-IP。物理 DNS 和物理 TCP 仍拒绝 fake-IP，TXT 保持原解析路径。不修改全局代理、DNS 或路由。运行恢复单独说明：agent 和原 serve 保持运行，候选通过旧 TwoDrive 传送。
+
+### 验证结果与边界
+
+55b80ad 的原生 CI 38253177181 两平台通过，候选传送 PUT 204（279.899 秒），签名快照确认私有执行副本 SHA256；实际 Windows 兜底仍失败。1a48437 两平台完整原生 CI 通过四项系统 DNS 回归，Linux 27/Windows 22 单元、10/9 集成、各两项控制协议测试、原生 release、LAN 和签名双通道实传 smoke，以及 Windows PowerShell 5.1/7 回归。Windows 程序实际经旧 TwoDrive PUT 204 传送（312.001 秒），签名快照校验私有执行副本全量 SHA256。Windows 兜底先独立通过，再以同版两端完整复测：默认物理 TCP 为 Linux 14/14、Windows 16/16；Linux 兜底 65 个非物理 TCP 样本；Windows 兜底 30 个非物理 TCP 样本。三阶段全部完成 2 MiB 哈希、MOVE、Range 256 KiB 和 DELETE 404，TUN 存在、全局路由未变。默认 APS RTT 90.5 ms，Linux 兜底 APS 1003.6 ms，Windows 兜底 US-west 739.8 ms。当前两端校园网，不称为独立 NAT 验证；此前热点/校园网默认验证另保留在前一日记录。
+
+### 防复发措施与后续
+
+保持物理路径拒绝 fake-IP 的回归；验证修复后的实际 Windows 兜底，再用同一版本复测两端默认及两端兜底。已收集 bootstrap 清理回执：agent 退出 0，原身份/授权保留、私有 runtime 删除、程序负载删除均 true。公共包删除确认 404，Windows 共享根目录零项、原 serve 仍可用。本机自有 gateway 已退出，临时二进制、ZIP、负载、私密日志、临时客户端状态均已删除，原配对状态保留；稳定 daemon active、NRestarts=0。PAC/WPAD/SOCKS 和强制 VPN/WFP 仍有实现/验证边界，不将 TCP 采样当作所有 UDP 流量绕过保证。
+
+### 交付记录
+
+[已核实 dev 推进提交 343b4fa](https://github.com/LumiaBlack51/twodrive/commit/343b4fa93ae9b3cd639f63e4edc4ebcc733143b3)。2026-10-13 补齐：该提交的 [WebDAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670629)、[Peer 原生](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670478)与 [Windows 双预览](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670638)均已成功完成，未因本地会话中断而取消。
+
+[诊断候选 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[原生 CI 38253177181](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)；[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
+
+## TD-20261012-04：Windows 系统代理设置没有进入自动兜底配置
+
+- 日期：2026-10-12
+- 状态：已验证读取与原生回归；启用静态系统代理的实际传输未覆盖。
+- 影响版本与环境：至 23ab327 的 System 路由仅调用 iroh proxy_from_env；Windows 用户配置系统 HTTP 代理、没有代理环境变量时。
+- 关联历史故障：TD-20261012-02 的 DNS/注册超时调查；当前实机是否具备系统 HTTP 代理、是否为这次超时的直接原因仍待确认。
+
+### 症状与影响
+
+Windows 配置的系统 HTTP 代理不会被上述环境变量读取函数发现，直连失败后可能仍走不能连通的系统裸连接。实机 agent 报告代理环境变量不存在；诊断候选 A 查询失败、AAAA 无记录、home_relays 0，尚未形成完整 DNS 根因结论。
+
+### 触发条件与复现
+
+当前 Windows 用户设置静态 HTTP(S) 系统代理、不设置 HTTP_PROXY 等环境变量；auto 触发 System 兜底。旧代码没有读取当前用户系统代理的调用。
+
+### 根因与证据
+
+network::configure 的 System 分支只调用 builder.proxy_from_env；锁定 iroh 1.3.0 依赖源确认该函数只读取 HTTP(S) 环境变量，不读取 Windows 用户代理设置。此处是能力遗漏，不能据此推断当前实机设置的具体值。
+
+### 解决办法与恢复操作
+
+环境变量优先；没有有效环境代理时读取 Windows 当前用户静态 HTTP(S) 代理并应用于本进程。保留明确兜底提示，日志只输出来源/存在性，不输出地址、凭据或 PAC 内容。使用 [Windows 官方读取 API](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetieproxyconfigforcurrentuser)，释放它返回的非空字符串；不修改系统代理或路由，并保留针对中继目标的静态绕过规则。PAC/WPAD/SOCKS 尚未自动处理。
+
+### 验证结果与边界
+
+55b80ad 的两平台原生 CI 38253177181 通过，包括环境变量优先、CGI 限制、静态协议代理解析、绕过规则与非法 URL 回归。实机 API 读取成功（read_error=None），manual/usable/bypass/pac/autodetect 均 false；此配置缺口不是本机这次注册失败的原因，原生系统 DNS 对照见 TD-20261012-05。未实测启用静态 HTTP 代理、PAC/WPAD/SOCKS。
+
+### 防复发措施与后续
+
+覆盖单代理、按协议配置、IPv6、拒绝 SOCKS/非法 URL、原配置不改和环境变量优先。继续取得精确 DNS 类别及原生系统解析的对照，验证默认直连与兜底后再推进 dev。
+
+### 交付记录
+
+[修复 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)。
+
+## TD-20261012-03：注册诊断候选使用了不完整的依赖 API 签名
+
+- 日期：2026-10-12
+- 状态：已验证；两平台原生构建及回归通过。
+- 影响版本与环境：516dda9 诊断候选；CI 38249950281 的 Linux Clippy 构建失败。
+- 关联历史故障：TD-20261012-02 的候选诊断开发；不是 Windows 网络超时的根因。
+
+### 症状与影响
+
+候选没有完成编译，不能传到 Windows 执行。已上线 agent 与旧 serve 未受影响。
+
+### 触发条件与复现
+
+编译新 registration_diagnostics；其 lookup_ipv4/lookup_ipv6 调用只传入 hostname。
+
+### 根因与证据
+
+当前锁定 iroh-dns 1.3.0 的这两项 API 还要求 Duration 参数，返回 IpAddr 迭代器；候选代码遗漏预算参数，并按 Ipv4Addr 使用 octets。检查已下载依赖源确认签名，Linux CI 构建失败。候选未交付，保留已通过验证的旧产物。
+
+### 解决办法与恢复操作
+
+传入显式三秒预算；通过 IpAddr::V4 匹配统计 fake-IP。没有需要恢复的实机候选。
+
+### 验证结果与边界
+
+CI 38249950281 确认 E0061（缺少预算参数）与 E0599（IpAddr 没有 octets）旧候选构建失败；修复提交 23ab327 的 CI 38250184130 两平台全部通过，含严格 Clippy、格式、既有网络/控制测试、新增诊断脱敏回归及实际双通道 2 MiB 探针。实机注册失败诊断已取回并定位 System 原生地址后备缺口，修复后的校园网 TUN 三阶段实测见 TD-20261012-05；不把原生同机测试当作校园网兜底成功。
+
+### 防复发措施与后续
+
+先核对锁定依赖的签名和类型，再执行两平台严格 Clippy、现有网络/控制回归及新的诊断脱敏回归；通过后交付实机。
+
+### 交付记录
+
+[失败候选 516dda9](https://github.com/LumiaBlack51/twodrive/commit/516dda9)；[修复 23ab327](https://github.com/LumiaBlack51/twodrive/commit/23ab32734dcf5a149d8d99ac6258aae471afc4d4)；[两平台原生 CI 38250184130](https://github.com/LumiaBlack51/twodrive/actions/runs/38250184130)。
+
+## TD-20261012-02：Windows 系统/代理兜底再次因中继注册超时退出
+
+- 日期：2026-10-12
+- 状态：已验证原生 DNS 后备修复；raw DNS 上游更深失败原因仍未确认。
+- 影响版本与环境：3dddc00 原生 Windows 核心，f1657e5 编排；两端校园网，FlClash/TUN 存在。
+- 关联历史故障：TD-20261011-10；旧记录因日志丢失没有根因结论，本轮通过 TD-20261011-11 控制端保留了签名错误证据。
+
+### 症状与影响
+
+双端 auto 和 Linux 强制缺失网卡兜底均完成 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404；Windows 缺失网卡触发系统/代理兜底后，在约 31 秒退出，无法完成该阶段数据验证。旧控制传输和 agent 保持可用，dev 没有推进。
+
+### 触发条件与复现
+
+使用独立临时身份启动 Windows auto child，指定固定不存在接口。签名快照记录了明确 fallback 提示及 `Error: relay registration timed out; check outbound connectivity or use --no-relay for LAN testing`，退出码 1。
+
+### 根因与证据
+
+已确认 endpoint.online 的 30 秒预算触发退出。尚未确认系统 DNS、代理环境、中继选择、TCP/TLS 或其他网络策略中的失败环节，不把预算到期本身当作完整根因。默认 Windows 物理出口实际 14/14、30/30 TCP 样本为物理源，路由未变、fake-IP 存在；失败兜底阶段无已建立公网 443 TCP 样本。
+
+2026-10-12 追加：55b80ad 对照确认 endpoint raw A 失败而原生 Windows DNS 可返回 TUN fake-IP；系统静态代理未配置。已定位 System 解析后备缺口，修复及三阶段实测、两端清理结果见 TD-20261012-05。原 raw DNS 深层错误仍不作猜测，旧 TD-20261011-10 丢失日志不能追溯认定同一根因。
+
+### 解决办法与恢复操作
+
+调查中。固定 aps1 relay 的诊断重试仍在约 31 秒退出，不能据此把故障只归因于默认 relay 列表。增加注册失败后的有限错误类别/OS 错误码、home relay 状态及相同 resolver 的 A/AAAA 计数诊断，不输出上游任意错误文本或代理 URL。23ab327 候选通过原生 CI 后实际上传成功（289.013 秒），签名快照确认私有程序全量 SHA256 与原生产物一致；实际 home_relays=0、aps_dns_a=error=[dns,other]、aps_dns_aaaa=records=0。下一候选区分 NXDOMAIN/无可用响应，并增加有界原生 OS 解析对照；Windows 静态代理读取缺口另记 TD-20261012-04。编排已自动收集签名 stderr 并停止、删除失败 child 私有 runtime；保留 agent 与原 serve，用于远程重试和传送经过原生验证的候选构建。上述为调查阶段保留措施；后续完整验证通过后已发送 finish、取得正常退出/身份保留回执并完成双端清理。
+
+### 验证结果与边界
+
+Windows/Linux CI 38248783869 全部通过，包括新版实际传输探针；这不覆盖校园网 TUN 中的 Windows 系统出口失败。旧 TD-20261011-10 的具体退出机制无法追溯确认，保留其原结论。本轮同在校园网，不称为独立 NAT 验证。
+
+### 防复发措施与后续
+
+增加系统出口故障的脱敏诊断，取得对应网络错误后补充有意义的回归和真实 Windows 兜底验证。agent 有绝对租期，修复和清理须在租期内完成或记录未完成范围。
+
+### 交付记录
+
+[实机编排 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[两平台原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38248783869)；[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
+
+## TD-20261012-01：实机控制编排只保存在临时目录，重启后不能直接续测
+
+- 日期：2026-10-12
+- 状态：入口恢复、原生回归及双端默认/Linux 兜底实测通过；Windows 兜底另记 TD-20261012-02。
+- 影响版本与环境：902c9e5 验证分支；Linux 于本次续测前重启。
+- 关联历史故障：TD-20261011-11 的自主诊断工具；不是 Windows 兜底退出根因的新结论。
+
+### 症状与影响
+
+续测时，旧的 gateway、watcher 和实机编排脚本均不在；没有收集到 Windows 实机 agent 结果，不能据此推进 dev。原 Linux 配对状态仍在，稳定 daemon active、NRestarts 0。
+
+### 触发条件与复现
+
+上一轮实机 watcher 和编排只放在 /tmp；本机重启后该自有目录消失。仓库中的签名控制客户端和原生构建记录仍在。
+
+### 根因与证据
+
+临时运行数据的生命周期短于跨天维护任务。控制协议、原生 CI 和交付信息已持久保存，但组合实机验证入口没有保存到仓库。恢复旧配对连接成功；Windows response.json 与 bootstrap-cleanup.json 均为 404，启动脚本和程序 HEAD 为 200，脚本逐字节与仓库版本一致。恢复时尚无首次启用成功证据，不能把缺少回执归因为 agent 崩溃；后续签名就绪和正常退出已确认，完整结果见 TD-20261012-05。
+
+### 解决办法与恢复操作
+
+将 experiments/twodrive-dev/scripts/verify-live-test-agent.py 保存为实机编排入口，使用独立临时 child/client 身份和已签名控制指令；阶段结果原子保存，失败时保留已收集诊断、回收 child，控制端继续支持远程重试。本地恢复仅下载核对已通过 CI 的 Linux 产物并重启自有 loopback gateway，没有修改配对或稳定服务。
+
+### 验证结果与边界
+
+Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。旧配对实连 US-west relay、初始 RTT 782.8 ms。当前本机为校园网，不将本轮称为手机热点与校园网跨 NAT。本机实际 QUIC 控制双通道 smoke 已执行新版实机入口使用的完整 2 MiB 哈希、MOVE、256 KiB Range、DELETE 404 探针，原服务继续可用、临时 child 和 client 清理、原身份授权字节保留通过；两个既有签名响应回归通过。后续 Windows 首次启用成功、双端默认及 Linux 兜底实测通过；Windows 再次超时另记 TD-20261012-02。2026-10-12 后续完整三阶段均通过，Windows bootstrap 身份授权保留回执与双端自有临时文件清理确认完成，见 TD-20261012-05。
+
+### 防复发措施与后续
+
+实机编排入口纳入版本控制；阶段结果及时保存到指定报告，继续使用已有签名核验，不把过期响应当作在线状态。完成真实双端验证及清理后再推进 dev。
+
+### 交付记录
+
+[入口 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[已核实 dev 推进提交 343b4fa](https://github.com/LumiaBlack51/twodrive/commit/343b4fa93ae9b3cd639f63e4edc4ebcc733143b3)；完整实机结果见 TD-20261012-05。
+
+## TD-20261011-17：临时交付恢复助手按大小写查找 HTTP 头失败
+
+- 日期：2026-10-11
+- 状态：临时工具恢复已验证。
+- 影响版本与环境：临时 restore-agent-delivery.py；不影响原生 TwoDrive 协议。
+- 关联历史故障：TD-20261011-16 的恢复步骤；不是文件写入失败。
+
+### 症状与影响
+
+重新 PUT exe 返回 201，随后 HEAD 返回 200，但临时助手查找 dict['Content-Length'] 抛 KeyError，未继续发送启动脚本。
+
+### 触发条件与复现
+
+urllib HTTPMessage 转为普通 dict 后，HTTP 头的大小写无关语义丢失，助手以固定大小写索引。
+
+### 根因与证据
+
+KeyError 发生在本机恢复脚本第 15 行，写入已成功。需按无关大小写读取，并核对真实响应，不能为恢复检查异常盲目重新 PUT。
+
+### 解决办法与恢复操作
+
+将头字段键统一 lower，先核对已存在的程序 HEAD/元数据，再继续发送尚未存在的小文件。已有 exe 保留。
+
+### 验证结果与边界
+
+实际响应字段为小写 content-length，值 16131072；统一键大小写后 HEAD、前缀与小脚本完整回读通过，交付继续完成。临时助手旧 headers[Content-Length] 在该响应上 KeyError，统一 lower 后读取正确。没有重复写 exe，不把 HEAD 大小或前缀说成完整哈希证明。
+
+### 防复发措施与后续
+
+记录写入成功与后续检查状态，HTTP 头查找保留大小写无关语义。
+
+### 交付记录
+
+临时工具恢复，无产品修复提交。
+
+## TD-20261011-16：交付恢复未先核对完成标志，误清已校验的自有控制包
+
+- 日期：2026-10-11
+- 状态：恢复交付及签名实机启动已确认；最终双端验证和清理通过。
+- 影响版本与环境：本次临时 Python 操作流程；Windows 原程序、身份/授权未改变。
+- 关联历史故障：TD-20261011-15 的并发 502 观察。不是已确认的持久用户数据丢失。
+
+### 症状与影响
+
+执行恢复删除自有 exe/script/manifest 后才核对交付结果，发现结果 complete=true，exe 全量回读 SHA256 已匹配、用时 348.569 秒。有效临时控制包被误清，首次启用推迟。
+
+### 触发条件与复现
+
+长耗时 exe 回读期间独立 PROPFIND 返回 502。恢复据此假定原交付未完成，没有在 DELETE 前重新检查完成标志/文件状态。
+
+### 根因与证据
+
+操作判断将辅助请求失败等同于主传输未完成。已保存结果明确三项负载完成、exe 与脚本 SHA256 一致；目录清理只涉及本次自有控制包。
+
+### 解决办法与恢复操作
+
+重新送同一目录，逐项检查 PUT/HEAD 与小文件回读；执行前 bootstrap 核对 Windows 原生程序 SHA256，启用后再核对服务端签名的实际运行 SHA。不把 HEAD 大小说成全量回读证明。
+
+本地恢复：本机 gateway 已重连，已配对 state 保留；Windows 原 serve 和 state 不重启、不删除。重复传输程序是恢复操作。
+
+### 验证结果与边界
+
+旧交付原本全量回读通过。恢复重新 PUT 201、HEAD 16131072 字节及 1024 字节前缀匹配；启动脚本完整回读 SHA256 匹配，manifest 成功写入，同一目录恢复完成。恢复轮未再次全量回读 exe；bootstrap 将核对 Windows 私有执行副本 SHA，签名 ready 再核对实际运行 SHA。实机启动待执行，没有修改原 Windows 私密 state。
+
+### 防复发措施与后续
+
+不自动重放状态不明的写入；发生传输失败先读取结果/核对自有路径，保留完整交付记录后决定继续或清理。当前回读阶段和执行前本地哈希校验分别记录。
+
+### 交付记录
+
+恢复后的首次签名就绪已确认，控制运行、候选全量执行校验及最终清理见 TD-20261012-05。
+
+## TD-20261011-15：原有控制传输在 Windows 程序交付期间返回 502
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：e3dc0b7 本机持久旧 gateway、原 Windows serve，16 MiB 新控制程序传输。
+- 关联历史故障：TD-20261011-01/02 的临时工具超时及 TD-20261011-10 的 Windows 启动退出；当前 502 不能仅据症状归因于这些故障。
+
+### 症状与影响
+
+传输前原共享 OPTIONS 200、可见项 0；交付时请求没有完成，独立 PROPFIND 返回 502。新控制端尚未在 Windows 启用。
+
+### 触发条件与复现
+
+旧 gateway 长时间连接后传送新 exe，原交付随后成功，exe 全量回读 SHA256 匹配，348.569 秒；发生的是同时辅助 PROPFIND 的 502。新 gateway 重新连接成功，实际 relay usw1/RTT 783.1 ms。
+
+### 根因与证据
+
+未确认，需区分已连接通道失效、对端/网络暂不可达和传输超时。不会把 502 当作磁盘或代理核心修复结论。
+
+### 解决办法与恢复操作
+
+先停止自有未完成交付请求，重新建立已授权通道，再核对/清理自有 bundle 或继续交付。身份/授权保留，不操作稳定服务。
+
+### 验证结果与边界
+
+原生最终 CI 两平台成功；Windows 控制包本轮交付尚未成功，不能让用户运行未核对的程序。
+
+### 防复发措施与后续
+
+保存交付回读 SHA256，控制客户端需检测传输失效并自主重连；诊断当前 502 后记录结果。
+
+### 交付记录
+
+[最终构建 CI 38143055331](https://github.com/LumiaBlack51/twodrive/actions/runs/38143055331)；传输结果待补充。
+
+## TD-20261011-14：新控制客户端未绑定当前请求的签名响应，租期末回执易失效
+
+- 日期：2026-10-11
+- 状态：已修复并通过两平台原生验证；审查发现，未发生实机攻击。
+- 影响版本与环境：c3940ea 的尚未实机启用 test-agent 控制协议。
+- 关联历史故障：TD-20261011-11 的控制工具边界审查；与 Windows 路径错误不同。
+
+### 症状与影响
+
+客户端只以会话与序号判断完成，新客户端若先读到旧的有效签名响应，重用其序号后可能把该旧序号的另一操作回执当作当前结果。报告有效期等于进程租期，收集租期结束后清理回执时会被判过期。
+
+### 触发条件与复现
+
+合成控制响应保留同一会话/序号，替换为旧指令的签名回执；不是实机入侵证据。租期退出需要先停止/回收 child，写回执时可能已超过原到期秒。
+
+### 根因与证据
+
+响应未回显所执行请求的设备签名；序号在单一 agent 内防执行重放，但不能独自证明回执属于当前指令。清理回执有效期与执行授权租期未分离。
+
+### 解决办法与恢复操作
+
+签名报告回显实际请求的 signature，客户端校验请求与回执严格相同；报告有效期增加五分钟收集窗口，绝对 agent/child 租期不延长。原服务/实机未更新，无恢复操作。
+
+### 验证结果与边界
+
+旧 c3940ea 客户端在合成回执用例中实际失败（未抛拒绝错误）；修复后的拒绝与正确回执两项 Python 回归通过。真实 QUIC 控制 smoke 和本机完整生命周期通过，请求签名回显已端到端匹配；lease_expires 与报告 expires 相差 300 秒的集成断言通过。最终 CI 38143055331 两平台严格检查、单元/集成、release 与真实 QUIC 控制均通过；Windows 实际 bootstrap 清理、请求签名回显、租期/回执窗口断言通过。不会把协议审查发现说成实际入侵。
+
+### 防复发措施与后续
+
+保留同会话/序号旧回执拒绝用例，真实 QUIC 控制 smoke 必须匹配当前请求；租期与回执收集窗口分别验证。
+
+### 交付记录
+
+[修正 3dddc00](https://github.com/LumiaBlack51/twodrive/commit/3dddc00eed7bbe73f34c06a705ae542c86933851)；[原生最终 CI 38143055331](https://github.com/LumiaBlack51/twodrive/actions/runs/38143055331)。
+
+## TD-20261011-13：修正路径后的 Windows 控制生命周期仍未通过
+
+- 日期：2026-10-11
+- 状态：已修复并通过两平台原生完整流程。
+- 影响版本与环境：53e4b24，原生 Windows CI 38141818742。
+- 关联历史故障：TD-20261011-12 的路径赋值原生回归已通过；完整生命周期另一次失败，需按新阶段核实。
+
+### 症状与影响
+
+Linux 原生完整流程通过；Windows cargo test 仍失败，未交付实机控制包、未推进 dev。
+
+### 触发条件与复现
+
+完成 ProviderPath 修正后再次执行完整 Windows bootstrap 测试，等待具体日志。
+
+### 根因与证据
+
+已确认相邻机制遗漏：ProviderPath 返回的原生 verbatim 路径能供 Rust/.NET 使用，但 PowerShell 5.1 Join-Path 解析该路径时没有 PSDrive，抛 PSArgumentNullException/drive null。CI 精确定位 bootstrap:16，在读取身份/授权 hash 前失败；尚未进入 Rust ready。不是 TD-20261011-12 原生路径字符串问题复发。
+
+### 解决办法与恢复操作
+
+bootstrap 改用 .NET Path.Combine、File/Directory 与流式 SHA256，避免把有效原生路径再次交给 PowerShell provider 路径拼接；原生回归扩展到实际 hash 函数、旧 Join-Path 失败。实机未更新，没有实机恢复。
+
+### 验证结果与边界
+
+旧 53e4b24 原生生命周期在 Join-Path 处失败。c3940ea 的原生 5.1 实际赋值/流式 hash 回归通过（38142327437）；CI 38142329825 两平台整体成功；Windows 13 项单元、9 项既有集成、2 项控制 CLI 完整 bootstrap/child 回归、严格检查、release 和真实 QUIC 控制 smoke 均通过。
+
+### 防复发措施与后续
+
+按具体阶段保留失败证据，修复和原生验证后再交付。
+
+### 交付记录
+
+[失败 CI 38141818742](https://github.com/LumiaBlack51/twodrive/actions/runs/38141818742)；[修正 c3940ea](https://github.com/LumiaBlack51/twodrive/commit/c3940ea51ea979bc3878f085fc8ad4681d26a45e)、[原生完整 CI 38142329825](https://github.com/LumiaBlack51/twodrive/actions/runs/38142329825)。
+
+## TD-20261011-12：远程控制首次 Windows 原生生命周期回归失败
+
+- 日期：2026-10-11
+- 状态：路径机制与相邻拼接修正已完成原生验证。
+- 影响版本与环境：ee7bdd9/e7f3bbc，原生 Windows CI 38141236619/38141388630 的 cargo test。
+- 关联历史故障：TD-20261011-11 新控制工具验证；不能仅以测试失败认定与 TD-20261011-10 网络退出相同根因。
+
+### 症状与影响
+
+Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付 Windows 实机，dev 未推进。
+
+### 触发条件与复现
+
+第一次执行原生 Windows bootstrap/child 完整生命周期回归。待读取具体失败日志。
+
+### 根因与证据
+
+原生日志显示首次 ready 前退出：`The filename, directory name, or volume label syntax is incorrect. (os error 123)`，35 秒后等待报告断言失败。CI 38141820760 的 Windows PowerShell 5.1 回归确认：Resolve-Path.Path 将 Rust 的 verbatim 状态路径表示为 provider-qualified 字符串，原生 IO 拒绝该字符串；ProviderPath 返回可被原生 IO 使用的真实路径，执行 bootstrap 中的实际赋值语句通过。
+
+### 解决办法与恢复操作
+
+改用 ProviderPath，给状态、queue 和签名报告写入补充阶段上下文；保留原生 verbatim 路径回归与完整 bootstrap 测试。没有实机恢复操作。
+
+### 验证结果与边界
+
+本机完整单元/集成与 QUIC 控制通道通过。旧原生完整生命周期在 ready 前失败；ProviderPath 原生回归通过。随后 Join-Path 的相邻遗漏见 TD-20261011-13。c3940ea 的 CI 38142329825 两平台严格检查、单元/集成、Windows 实际 bootstrap、release 与真实 QUIC 控制 smoke 全部成功。
+
+### 防复发措施与后续
+
+保留首次 bootstrap 完整原生测试，修复后重新验证再交付。
+
+### 交付记录
+
+[失败 CI 38141236619](https://github.com/LumiaBlack51/twodrive/actions/runs/38141236619)、[同源码机制验证 CI 38141388630](https://github.com/LumiaBlack51/twodrive/actions/runs/38141388630)；[修正 53e4b24](https://github.com/LumiaBlack51/twodrive/commit/53e4b24fc8220360ed906deb9ab63f410238b4ab)、[原生路径回归 CI 38141820760](https://github.com/LumiaBlack51/twodrive/actions/runs/38141820760)。
+
+## TD-20261011-11：跨端验证切换失败后未保留 child 退出证据，需反复人工操作
+
+- 日期：2026-10-11
+- 状态：已完成两平台原生及 Windows 实机控制验证、远程候选重试和最终清理。
+- 影响版本与环境：至 7337283 的临时 Windows 验证脚本；旧 serve 仅提供文件传输。
+- 关联历史故障：TD-20261011-07/09/10；07/09 根因已分别验证，10 的核心退出原因仍未确认。
+
+### 症状与影响
+
+用户多次执行脚本和复制日志；最后的 Windows 兜底启动失败没有留下 stderr，阻断自主定位和完整验证。没有推进 dev。
+
+### 触发条件与复现
+
+脚本重启唯一传输端执行分阶段测试；child 退出后 catch 只保存异常类型，finally 删除 runtime 日志。实际 TD-20261011-10 报告未提供核心错误。
+
+### 根因与证据
+
+测试进程与控制传输生命周期耦合；退出错误和日志未进入报告。脚本没有通用的远程重试/诊断机制。这是测试工具缺陷，不据此断言核心网络退出根因。
+
+### 解决办法与恢复操作
+
+用户明确授权实现远程控制。增加 opt-in、绝对租期的 test-agent，通过旧配对共享接收设备签名的 start/snapshot/stop/finish 请求；响应由原 Windows 身份签名，随机会话、序号和有效期防重放。旧 serve 不重启，child 使用独立临时身份、共享与签名指定的临时客户端；保存有限长度 stdout/stderr 和退出码。候选构建复制到私有 runtime，核对签名请求的 SHA256 后执行。Windows 使用独立进程 Job，关闭控制句柄时终止自有子树。
+
+本地恢复：此前三轮 bundle 已删除，原配对状态及旧 serve 保留；首次 bootstrap 是旧版没有执行 API 的技术边界。
+
+### 验证结果与边界
+
+本机 18 项单元、10 项既有集成与 2 项控制 CLI 集成全部通过，严格 Clippy/格式检查通过。实际 child 退出错误保留、失败后重启、重放拒绝、finish 清理及原身份/授权字节不变通过。实际 QUIC/WebDAV 双通道 smoke 也通过：签名指令经过旧服务通道，临时客户端与 child 独立身份读写，停止 child 后旧传输仍可用。最终 CI 38143055331 两平台通过；Windows 13 单元/9 既有集成/2 控制 CLI 集成、实际 PowerShell 5.1 bootstrap、release 真实 QUIC 控制传输/临时客户端 1 MiB 校验与清理全部通过。Windows 实机首次启用待执行。本机自有 3.9 GiB target 已清理，保留完成实机验证所需的原生产物；原稳定 daemon 仍 active/PID 2404/NRestarts 0。提供测试进程管理，不开放监听任意 shell；签名 owner 可授权运行候选构建，候选仍具有启动者的系统权限。没有 Windows 核心兜底成功结论。
+
+### 防复发措施与后续
+
+保留签名/篡改/会话/过期/重放/未知指令回归、实际 child 失败日志捕获与失败后重试、退出清理和原身份/授权字节不变测试。实机取回 TD-20261011-10 退出原因再修复、验证并推进 dev。
+
+2026-10-12 补充：Windows 首次 bootstrap 成功，已收到设备签名就绪回执；测试 child 失败后日志保留、远程重试和候选构建传送均已实际执行，旧 serve 持续可用。复发退出为注册超时，后续调查见 TD-20261012-02；2026-10-12 后续三阶段完整通过，finish 已执行，bootstrap 退出 0、身份授权字节保留、私有 runtime/公开负载删除的回执均已收集；Windows 共享根目录零项、本机测试产物清理完成。脱敏证据见 TD-20261012-05。
+
+### 交付记录
+
+[控制端提交 ee7bdd9](https://github.com/LumiaBlack51/twodrive/commit/ee7bdd9267fb52d4a04d05f1f2c7fadf03b3cc51)；[原生最终 CI 38143055331](https://github.com/LumiaBlack51/twodrive/actions/runs/38143055331)；实机控制结果见 TD-20261012-05 与 [脱敏控制记录](peer-test-control-2026-10-11.json)。
+
+## TD-20261011-10：Windows 默认出口通过后兜底阶段启动失败
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：e3dc0b7 原生核心、7337283 Windows 脚本；用户校园网 TUN 与 Linux 热点 TUN。
+- 关联历史故障：TD-20261011-07/09 的脚本序列化与读取已通过该次实机默认阶段；本条记录后续 Windows 兜底阶段失败。
+
+### 症状与影响
+
+Windows auto_ready 报告正常；双端默认 auto 与 Linux 人为无网卡兜底各完成 2 MiB 全量哈希、MOVE、Range、DELETE。随后 Windows 兜底阶段报告 RuntimeException，尚未完成 Windows 兜底数据验证，dev 未推进。
+
+### 触发条件与复现
+
+同一脚本先停止默认 serve，再以不存在网卡参数启动 auto serve，预期系统出口兜底。固定 next 信号已发送；用户确认具体警告为 `Test server exited during fallback startup.`。
+
+### 根因与证据
+
+根因未确认。启动检查检测到 child 已退出，报告却只保留 error_type，finally 删除了 stderr，缺少核心退出原因。不能以 RuntimeException 或 30 秒注册预算猜测根因。
+
+### 解决办法与恢复操作
+
+待定位。失败报告已收集，四项恢复/清理标志为 true；Linux 删除自有 bundle 后 GET 404、共享根目录可见项为 0，持久身份和配对保留。默认阶段实际路由选择 aps1、初始 RTT 115.1 ms；用户授权增加远程控制，采用旧 serve 保持传输、独立子进程状态与带设备签名的测试指令，取回退出日志后再定位。
+
+### 验证结果与边界
+
+默认和 Linux 兜底阶段已实际通过，Windows 默认公网 TCP 实际采样 94/94 为物理源地址、TUN fake-IP 存在、路由未变化。Windows 兜底尚未通过，不报告整轮成功。
+
+### 防复发措施与后续
+
+补充启动阶段诊断与对应原生回归，获得实际 Windows 兜底结果后才能推进 dev。
+
+### 交付记录
+
+待补充修正和整轮实机记录。
+
+## TD-20261011-09：修正报告字符串后读取正在重定向的 Windows 日志失败
+
+- 日期：2026-10-11
+- 状态：已验证原生活跃日志共享机制，后续实机默认阶段读取与报告成功。
+- 影响版本与环境：验证分支 e3dc0b7 的 verify-network.ps1，用户 Windows PowerShell 实机。
+- 关联历史故障：TD-20261011-07 的报告修正遗漏实际 Start-Process 日志写入共享条件；不是 JSON 内存异常复发。
+
+### 症状与影响
+
+新脚本在 ReadAllLines(auto.stderr) 处报告文件正由另一进程使用；随后 Validation ended 并返回提示符。新版 serve 和网络验证未完成，dev 未推进。
+
+### 触发条件与复现
+
+Start-Process -RedirectStandardError 的日志 writer 仍保持打开时，报告采样读取同一文件。原生 CI 的合成日志写完即关闭，没有覆盖持续写入句柄。
+
+### 根因与证据
+
+已确认：ReadAllLines 的默认共享方式没有允许已经存在的写入访问，导致 Windows sharing violation。原生 CI 用实际活跃 Start-Process 重定向 writer 复现旧函数 IOException/HRESULT 32，新 FileStream 共享方式通过。用户提供原生 MethodInvocationException，明确路径为本轮 auto.stderr；需用实际 Start-Process 活跃重定向的原生对照验证。
+
+### 解决办法与恢复操作
+
+已用显式允许 ReadWrite/Delete 共享的 FileStream/StreamReader 读取纯字符串，保持报告不带 provider 属性。新增活跃 Start-Process 原生回归，待执行。实机失败报告已收集：identity_and_grants_preserved、original_server_restarted、bundle_payloads_removed、temporary_runtime_removed 全为 true；Linux 删除自有报告/control bundle 后 GET 404，root 可见项为 0。身份与授权目录保留。
+
+### 验证结果与边界
+
+此前静态日志原生回归已通过、实机活跃日志条件失败。CI 38138971808 对旧 ReadAllLines 实际复现共享冲突；修复后的 PowerShell 5.1 与 7 在子进程仍存活、重定向 writer 仍打开时，读取与实际 Wait-Stage/Save-Report 均通过，fixture 子进程和目录已清理。Rust 源码与 e3dc0b7 完全相同，沿用 CI 38137498647 原生 binaries，不将脚本专用 CI 说成新的核心构建；校园网实机默认阶段 47 次采样/94 条物理 TCP，报告正常；后续兜底 child 退出另记 TD-20261011-10。
+
+### 防复发措施与后续
+
+原生测试应使用仍在运行的 Start-Process 重定向 child，验证旧读取失败、新读取成功，并停止 child、删除自有测试目录；实机完成后才能推进 dev。
+
+### 交付记录
+
+[修正提交 7337283](https://github.com/LumiaBlack51/twodrive/commit/733728343cb6b99b70a56f668265b00c0ea2cbfa)；[原生活跃 writer CI 38138971808](https://github.com/LumiaBlack51/twodrive/actions/runs/38138971808)；核心构建 [CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
+
+## TD-20261011-08：DNS 并发回归新增后原生 CI 检查失败
+
+- 日期：2026-10-11
+- 状态：已验证两平台严格 Clippy、回归与 release CI。
+- 影响版本与环境：验证分支 254918b，原生 CI 38137377190。
+- 关联历史故障：TD-20261011-06/07 的修复验证；不是用户 serve 内存故障。
+
+### 症状与影响
+
+Linux job 在严格 Clippy 阶段失败，尚未进入 release/实机复测，dev 未推进。
+
+### 触发条件与复现
+
+对验证分支执行双平台原生 CI，具体诊断待读取。
+
+### 根因与证据
+
+提取 prefer_records 后，Backend::query 仅向 FuturesUnordered::push 提供共享引用，原来的 let mut 已不再需要。严格 -D warnings 将 unused_mut 当作错误；Linux 原生日志定位 src/network/dns.rs:59。不是运行期内存或地址发现故障。
+
+### 解决办法与恢复操作
+
+移除多余 mut，保持严格检查；用户设备未重启，无数据恢复操作。
+
+### 验证结果与边界
+
+CI 38137377190 的两平台原先严格 Clippy 失败；修正后的 CI 38137498647 两平台全部通过。Linux 15 单元/10 集成，Windows 10 单元/9 集成，严格检查、release 和 LAN smoke 均通过；原生报告 5.1/7 回归通过。校园网/TUN 实机仍待复测。
+
+### 防复发措施与后续
+
+修正具体检查失败后运行对应双平台检查。
+
+### 交付记录
+
+[失败 CI 38137377190](https://github.com/LumiaBlack51/twodrive/actions/runs/38137377190)；[修正提交 e3dc0b7](https://github.com/LumiaBlack51/twodrive/commit/e3dc0b76a5b5ad274b6ac809003762146d359842)；[通过 CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。
+
+## TD-20261011-07：Windows PowerShell 5.1 验证报告写入内存耗尽
+
+- 日期：2026-10-11
+- 状态：已验证原生 5.1 报告机制；校园网/TUN 实机复测待执行。
+- 影响版本与环境：验证分支 bdab13e 的 verify-network.ps1；用户以 powershell.exe 启动，原生 CI 此前仅用 pwsh 解析语法。
+- 关联历史故障：TD-20261011-06 同轮切换不可达；本条记录独立的测试脚本故障，不将其当成 Rust serve 内存耗尽。
+
+### 症状与影响
+
+用户报告验证窗口警告 System.OutOfMemoryException。auto.stdout 已出现 Serving device，auto.stderr 已出现物理网卡选择；windows-report.json 未生成。脚本最终恢复和清理状态尚未确认，dev 未推进。
+
+### 触发条件与复现
+
+脚本将 Get-Content 返回的网络日志行存入报告，再调用 ConvertTo-Json -Depth 10。用户原生系统运行一次失败，尚未取得完整异常栈。
+
+### 根因与证据
+
+已确认脚本的报告数据边界缺陷：PowerShell 5.1 的日志字符串带 PSDrive/PSProvider 等扩展属性，深层 JSON 序列化递归展开文件系统对象。[PowerShell #6388](https://github.com/PowerShell/PowerShell/issues/6388)记录相同 Get-Content / Depth 10 路径；[官方文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/convertto-json?view=powershell-7.6)说明新版字符串序列化与旧版不同。原生 5.1 已执行旧 Wait-Stage/Save-Report（将 JSON 深度限到 3，避免 OOM），稳定违反“network_messages 只能为纯字符串”的断言；新实际函数以原深度 10 成功写入紧凑报告。
+
+### 解决办法与恢复操作
+
+已改用纯 .NET 日志字符串生成报告，并增加 powershell.exe 实际 Wait-Stage/Save-Report 运行测试，原生 CI 待执行。Linux 本轮验证客户端已停止。用户后续提供异常栈，明确 Save-Report 第 49 行 ConvertTo-Json 失败且已返回提示符；fresh 已配对 Linux 网关重新连通 Windows，原 bundle 的 exe、脚本与报告均 GET 404，root 仅有本轮 bundle。Windows 用户只读复查确认 TemporaryRuntimePresent=false、ServerCount=1；Linux 已删除空的自有 bundle，GET 404、root 可见项为 0，持久身份目录保留。
+
+### 验证结果与边界
+
+CI 38137498647 的 Windows 原生运行步骤已通过：旧 5.1 报告有界失败，新 5.1 与 pwsh 实际 Wait-Stage/Save-Report 测试成功，验证单行、多行、空与不存在日志。网络 API 使用隔离 fixture，未操作真实代理或服务；该测试证明序列化机制，校园网/TUN 实机复测待执行。
+
+### 防复发措施与后续
+
+用隔离合成日志验证实际 Wait-Stage/Save-Report 的紧凑 JSON 与纯字符串字段，包含缺少/单行/多行日志；原生 CI 同时使用 5.1 与 pwsh。报告不保存 provider 对象或凭据。
+
+### 交付记录
+
+[修复提交 254918b](https://github.com/LumiaBlack51/twodrive/commit/254918b5c53e427335c5ae1f743ab54787e7ad4d)；[通过原生 CI 38137498647](https://github.com/LumiaBlack51/twodrive/actions/runs/38137498647)。未推进 dev、未发布。
+
+## TD-20261011-06：Windows 实机切换新版 serve 后已配对客户端无法访问共享
+
+- 日期：2026-10-11
+- 状态：调查中 / 根因未确认。
+- 影响版本与环境：验证分支 `bdab13e` 的原生 release；Windows 校园网 TUN、Linux 热点 FlClash TUN。
+- 关联历史故障：TD-20261011-03 的 Windows 实机验证；TD-20261011-04 涉及地址发现负响应，但尚不能认为根因相同。
+
+### 症状与影响
+
+通过旧 Windows serve 完成 15 MiB 新程序和脚本 PUT/GET 哈希校验后，用户确认启动临时 Windows 验证脚本。Linux 网关先无邀请连通旧 serve，切换期间随后 GET windows-report.json 持续返回 502，尚未取得新版 serve 的报告。没有推进 dev。
+
+### 触发条件与复现
+
+同一持久身份和授权，从旧 Windows serve 切换到自动物理出口的新 serve，未更新客户端已有地址提示。当前只观察到该次真实切换；用户日志确认新版已出现 Serving device，物理接口已选定。随后脚本发生内存异常，另记 TD-20261011-07。
+
+### 根因与证据
+
+已发现 DNS 响应选择缺陷，待回归与实机确认其修复效果。2026-10-11 19:44 从热点物理源地址查询同一公共设备 TXT：1.1.1.1 在约 25 ms 返回 NXDOMAIN（SOA MINIMUM=0），8.8.8.8 在约 315 ms 返回新加坡 relay 的 NOERROR/TXT、TTL 30。已有提示为美西 relay。Backend::query 接受第一个有效结果，快速空响应会取消尚未完成的有效记录查询，无法发现切换后的新 relay。TD-20261011-04 正确区分负响应与出口故障，但遗漏并发正/负响应冲突；不能以重新触发系统兜底代替修正有效 DNS 结果选择。脚本报告故障另记 TD-20261011-07，两者均需处理。
+
+### 解决办法与恢复操作
+
+DNS 并发选择改为优先非空的有效答案；空响应等待其余有界候选，均无记录时仍返回正常负响应，TTL 取最小值；全部请求失败仍报出口失败。新增确定顺序的 fast_negative_does_not_hide_later_positive_dns_record 与 negative_dns_remains_valid_when_no_server_has_records，原生两平台已通过；同一回归临时还原旧 first-valid 选择循环时，两平台均因漏掉有效记录稳定失败，退出后自动恢复源码。临时 Windows 脚本退出后 fresh 客户端已重新连通；脚本修复另记 TD-20261011-07。未改全局路由或代理。
+
+### 验证结果与边界
+
+修复后的原生 CI 38137498647 已通过（Linux 15 单元/10 集成、Windows 10 单元/9 集成及 release/LAN smoke），旧 DNS 选择实际失败与新选择通过对照成立。旧 serve 的程序传送通过；新版 Windows 双端 TUN 实机验证尚未通过，不将原生 CI 当作这次网络验证。
+
+### 防复发措施与后续
+
+确定机制后补充相关回归与实机复测；保留失败阶段和恢复结果。
+
+### 交付记录
+
+[构建提交 bdab13e](https://github.com/LumiaBlack51/twodrive/commit/bdab13ec0d3a2804b93c55498c73385075ed5df7)；[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276)。待补充实机记录。
+
+## TD-20261011-05：自动物理出口的 Windows 原生 CI 未通过
+
+- 日期：2026-10-11
+- 状态：已验证修正后的 Windows 原生测试、release 和双进程 smoke；用户 Windows TUN 实机待执行。
+- 影响版本与环境：验证分支 `1ae7b8f`；GitHub Windows 原生 CI 38134766370。
+- 关联历史故障：TD-20261011-03 的 Windows 验证；已阅读 TD-20260916-03 的原生 CLI 历史和 TD-20261011-04，不凭相同 CI 失败认定同一根因。
+
+### 症状与影响
+
+Windows matrix job 的两项新网络测试失败；编译和严格 Clippy 成功。未交付新版程序、未重启用户 Windows serve，也未推进 dev。
+
+### 触发条件与复现
+
+对验证分支 workflow_dispatch 原生构建，cargo test 的 8 项单元测试中 6 项通过、2 项失败：Winsock 接口读取和连接器受控回退。
+
+### 根因与证据
+
+原生读取实得索引 14，测试错误期望 network-order 的 234881024。[Microsoft 文档](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options)说明 IP_UNICAST_IF 的设置参数为 network-order，而读取返回 host-order；有效设置的生产代码无需改字节序。另一测试把 u32::MAX 当作不存在接口索引，Windows 的 IPv4 接口索引实际只编码 24 位；原生 loopback 连接成功，不能将这个越界设置当作稳定故障注入。该证据不证明校园网或用户 Windows 的实际出口缺陷。
+
+### 解决办法与恢复操作
+
+读取测试改为检查 host-order 的真实索引；Windows 约束函数明确拒绝 0（未指定）和 IPv4 大于 24 位的非法索引，使同一回退测试在进入 OS 之前得到确定失败，并覆盖两种非法索引。正常 IPv4 设置继续采用 network-order。用户设备和稳定服务未进行恢复操作。
+
+### 验证结果与边界
+
+修正前 Windows 原生测试已实际失败；[修正后的原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276) 完整通过，Windows 8 项单元、9 项集成、严格 Clippy、PowerShell 脚本解析、static-CRT release 构建以及独立两进程 2,097,105 字节 GET/PUT/MOVE/DELETE smoke 通过。Linux 的 13 项单元、10 项集成、严格 Clippy、release/LAN smoke 同轮通过。原生 CI 没有用户的校园网和 TUN，不能替代用户实机结果。
+
+### 防复发措施与后续
+
+定位实际失败机制后补充回归，原生 CI 与真实两端验证通过后才能推进 dev。
+
+### 交付记录
+
+[验证提交 1ae7b8f](https://github.com/LumiaBlack51/twodrive/commit/1ae7b8f064511d67c1e88be2ee82ef9b0bfa783c)；[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38134766370)。尚未提交到 dev，未发布。
+
+[修正提交 bdab13e](https://github.com/LumiaBlack51/twodrive/commit/bdab13ec0d3a2804b93c55498c73385075ed5df7)；[通过 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38135147276)。验证分支尚未推进 dev。
+
+## TD-20261011-04：物理 DNS 将 NXDOMAIN 错当出口失败
+
+- 日期：2026-10-11
+- 状态：已验证回归与真实 Linux/Windows 默认模式复测。
+- 影响版本与环境：TD-20261011-03 尚未提交的自动物理出口实现，Linux 热点与 FlClash TUN。
+- 关联历史故障：TD-20261011-03；这是新 DNS 实现中的响应分类缺陷。
+
+### 症状与影响
+
+默认 auto 的真实双机 2 MiB PUT/GET/MOVE/Range/DELETE 校验全部通过，观察到公网 TCP 使用物理网卡，但设备发现多次报告 DNS TXT 的 system/proxy fallback。该轮不能报告为所有组件均绕过代理。
+
+### 触发条件与复现
+
+公共递归 DNS 对设备发现 TXT 返回 NXDOMAIN。物理源地址上的 dig 查询两个独立公共 nameserver 均得到正常 NXDOMAIN 响应，耗时约 20/329 ms；未泄露私钥或邀请。
+
+### 根因与证据
+
+network/dns.rs 的 validate_response 仅接受 RCODE::NoError，将匹配事务、问题的 NameError 当作无响应，Resolver 因此启动系统 DNS 兜底。有效的无记录结果不代表物理出口失败。对端 TXT 尚无记录的具体原因未确认；已有邀请地址提示仍可建立 relay 连接。
+
+### 解决办法与恢复操作
+
+匹配事务/问题的 NXDOMAIN 与 NODATA 返回空记录，按 [RFC 2308](https://www.rfc-editor.org/rfc/rfc2308) 取 SOA TTL/MINIMUM 较小值作负缓存，缺少 SOA 或 MINIMUM=0 不缓存。空地址结果只在某个地址查询确实失败时允许 DNS 兜底；超时、SERVFAIL、非法响应仍可失败。未调整全局代理或路由。
+
+### 验证结果与边界
+
+同一新增 valid_nxdomain_is_not_a_physical_route_failure 在修复前实际失败（DNS response unusable），修复后通过，同时验证错误事务/问题、SERVFAIL 仍失败，以及负缓存缺少 SOA/MINIMUM=0 时 TTL=0。实验默认与 features mount 的 13 项单元、9 项集成测试均通过，两种配置的严格 Clippy 通过。旧实现的真实 auto 结果保存在[出口验证记录](peer-direct-egress-2026-10-11.json)，保留该轮 TXT 兜底证据。修正后的真实默认 auto 再次完成 2 MiB PUT/GET 哈希、MOVE、256 KiB Range、DELETE，61 次网络/socket 采样未见变化，所见公网 TCP 均约束 wlo1，整轮没有 system/proxy 兜底提示；共享目录为空，两个本轮文件名均 GET 404。该验证不建立对端 TXT 发布成功或 UDP 直连的结论。
+
+### 防复发措施与后续
+
+验证有效 NXDOMAIN 返回空记录，事务/问题错误及 SERVFAIL 继续失败；必须保留失败/修复后的对照与真实复测。
+
+### 交付记录
+
+尚未提交、未发布。
+
+## TD-20261011-03：dev 在 TUN 代理下未统一选择物理出口
+
+- 日期：2026-10-11
+- 状态：已验证 Linux 物理出口、真实双机数据与自动兜底回归；Windows 原生出口未验证。
+- 影响版本与环境：dev `355287f` 的 WebDAV/QUIC 实验；Linux FlClash TUN 与真实 Windows 对端。
+- 关联历史故障：TD-20261011-02 的路由补查确认代理与美西 relay 路径；本次是用户要求修正出口选择，不是其测试脚本超时复发。
+
+### 症状与影响
+
+TwoDrive 可传输并校验数据，但本机策略路由将其 relay 流量送入 TUN，当前代理规则进一步经 VPS 转发；实际所选 relay 在 NA-west，RTT 中位数约 502 ms。用户要求在虚拟网卡存在时自动绕过代理，避免将该路径误当原生 NAT 打洞。
+
+### 触发条件与复现
+
+物理 Wi-Fi 已连接手机热点，同时 FlClash 的自动路由和 fake-IP DNS 开启。现有 dev endpoint 使用默认系统 DNS 与 socket 出口；此前只读路由检查及 15 次真实对端 OPTIONS 已确认所选 relay。
+
+### 根因与证据
+
+已确认应用缺少覆盖 DNS、UDP 和 relay TCP 的统一直连出口策略。实验的 WebDAV 客户端已使用 no_proxy，但该设置只关闭显式 HTTP 代理，不改变系统策略路由。锁定 iroh 1.3.0 支持 UDP 地址绑定，relay TCP 内部仍调用未绑定的 TcpStream::connect。采用进程内带随机认证的回环 CONNECT 连接器，将 relay TLS 透明转发到物理接口绑定的 TCP socket；定制 Resolver 通过物理 DNS socket 查询 A/AAAA/TXT，UDP 绑定物理源地址，地址发布使用相同连接器及原设备签名。物理接口判断依据 OS 与 netdev 元数据，排除 TUN、回环、down 和 fake-IP 地址。不能将源地址绑定等同于绕过所有系统透明拦截。
+
+### 解决办法与恢复操作
+
+已实现仅作用于 dev serve/connect 的 --network-route auto/direct/system，默认 auto；用户明确选择允许代理兜底并提示。DNS、TCP、签名发布和 endpoint 初始化/注册失败可报告 system/proxy fallback；首次 peer 传输失败先关闭 endpoint、以同一持久身份重建系统出口，在发送认证前重试。邀请失败或授权拒绝不触发这项重试。direct 关闭自动兜底，Linux 若接口约束被拒绝则失败；auto 可退为源地址约束并明确提示限制。TLS 证书验证、QUIC 设备认证、单次邀请协议保持。
+
+只在本机启动了隔离 dev 网关，保留既有配对身份；未调整全局代理、路由或稳定服务，也未替换 Windows exe。所有测试文件仅为本轮拥有的合成文件，操作结束删去，Windows 对外可见共享列表为空。本机 dev 进程退出，配对状态仍仅 594 字节；清理独立 experiments/twodrive-dev/target 的全部可再生构建缓存（包括既有缓存），cargo clean 实际删除 15997 项、11.7 GiB。稳定 daemon 仍 active、PID 2404、NRestarts=0；保留源码与脱敏报告。
+
+### 验证结果与边界
+
+新增 12 项网络回归覆盖：物理网卡筛选、fake-IP 拒绝、TCP/DNS 源地址、IPv6-only 的回环访问、DNS 事务/问题/CNAME/负响应及 TCP 截断重试、连接器认证/关闭、auto 与 direct 回退差异、地址发布签名/防篡改和 TLS 必需。受控同一 TCP listener 的旧未绑定连接产生 127.0.0.1，新连接产生指定的 127.0.0.2，证明旧源地址行为违反新出口约束。12 项网络与原 model 共 13 项单元测试、9 项集成（包括一次性邀请、真实本机 QUIC、撤销既有连接）通过，fmt、默认与 features mount 严格 Clippy 均通过；两种配置的同一 22 项测试均通过，不含真实 OneDrive。
+
+真实 Linux→Windows 验证：保留 FlClash TUN 与热点连接，direct 禁止兜底时完成 2 MiB PUT/GET 全量 SHA-256、MOVE、256 KiB Range、DELETE；22 次网络/socket 采样未见路由变化，所见公网 TCP 均带物理 wlo1 接口约束。auto 首轮传输也通过，但 TXT 负响应被误判为出口失败，已另记 TD-20261011-04，不将此轮称为全组件绕过代理。修正后最终默认 auto 再次完成相同校验和清理，61 次采样未见网络变化，所见公网 TCP 均约束 wlo1，无系统/代理兜底提示。初始所选 US-west relay RTT 为 760.9 ms，2 MiB 上传 48.606 秒、读回 9.150 秒，不能据此宣称绕过代理改善速度；[脱敏实测记录](peer-direct-egress-2026-10-11.json)保留全部轮次。
+
+边界：两轮配对时所选路径均为加密 relay，未持续观察 QUIC 路径或建立 UDP peer 直连证据；Windows 使用旧 exe，未验证新增 Windows 原生构建/IP_UNICAST_IF/TUN 行为。iroh UDP 只绑定物理源地址，物理接口按启动时快照选择；网络变化后的重新选择需重启 dev。SO_BINDTODEVICE/IP_UNICAST_IF 无法保证绕过强制 VPN、WFP、透明网关；未保证所有虚拟适配器识别或任意 SOCKS 兜底。策略不覆盖外部 WebDAV 挂载和稳定 OneDrive。周期采样也不能排除采样间的变化。
+
+### 防复发措施与后续
+
+保留物理出口与受控回退回归，保证所有相关 HTTP/TLS 组件接入相同出口，凭据仅留内存、Debug 脱敏、连接器随 endpoint 退出关闭。保留旧代理路径证据与每轮实际结果；后续需 Windows 原生编译和 Windows TUN 实测，不能仅凭 Linux 成功扩大平台承诺。
+
+### 交付记录
+
+Windows 原生验证准备（2026-10-11）：增加 Winsock 接口约束读取回归、Windows/Linux 共用的自动回退回归，以及指定物理网卡的诊断参数。实机脚本沿用原身份与授权，受控重启测试 serve，并在结束或超时后恢复旧程序、清理自身临时负载；脚本不接受任意远程命令。原生 CI 和 Windows 实机验证结果待补充。先在临时验证分支构建，验证完成前不推进 dev。
+
+尚未提交、未发布；[脱敏实测记录](peer-direct-egress-2026-10-11.json)。
+
+## TD-20261011-02：热点复测的 64 MiB 上传触发临时脚本超时
+
+- 日期：2026-10-11
+- 状态：已验证临时脚本的发送期限修正；未确认生产客户端传输缺陷。
+- 影响版本与环境：dev `355287f` 的 CI release 客户端与临时 Python HTTP 测试脚本；真实 Windows/Linux 双机。
+- 关联历史故障：TD-20261007-02 同为验证期限不足，但该次涉及 FUSE 60 秒恢复周期，本次是 Python 大请求体发送预算，根因不同；TD-20261011-01 是另一项临时诊断工具缺陷。
+
+### 症状与影响
+
+用户重新连接热点后，15 次认证 OPTIONS 成功且观察路径为 relay，无邀请重连成功；随后 64 MiB 临时文件上传报 URLError，未完成读回校验。网络监测采样 189 次，未发现活动 Wi-Fi 连接或路由变化。测试脚本 finally 删除本次临时文件，复查共享目录为空，未触碰服务器私有身份状态。
+
+### 触发条件与复现
+
+临时 Python 脚本以 `urllib.request.urlopen(..., timeout=40)` 发送 64 MiB 合成文件，第一次复测在发送阶段报 URLError。之前 16 MiB 上传在约 32 秒完成，该预算对大文件不足。
+
+### 根因与证据
+
+已确认是临时脚本的 40 秒请求体发送预算不足。Python 标准库 `HTTPConnection.send` 对 bytes 请求体调用一次 socket.sendall；`AbstractHTTPHandler.do_open` 仅将 request 阶段的 OSError 包装为 URLError，随后 getresponse 在该内层捕获之外。实测错误为 `URLError: <urlopen error timed out>`。将测试预算提高至 240 秒并保持 64 MiB 请求体与生产代码不变后，记录到单次请求体发送实际耗时 64.587 秒，完整上传耗时 68.943 秒，读回哈希一致。这个实际发送耗时超过原预算，解释了第一次失败；两轮网络监测均未发现本机连接/路由变化。
+
+### 解决办法与恢复操作
+
+仅提高临时验证脚本的 HTTP socket 期限至 240 秒，并记录大请求体发送耗时；没有改变校验条件或生产程序。失败与成功两轮均在 finally 删除自己创建的文件并停止本机测试网关。服务器原子上传对象的 Drop 清理未提交临时路径；WebDAV 目录列表隐藏其保留前缀，故列表为空的直接证据范围是对外可见共享项。
+
+### 验证结果与边界
+
+旧 40 秒预算的真实双机复测失败；240 秒预算的真实双机复测成功完成 64 MiB PUT/GET 全量 SHA-256 比对、MOVE、1 MiB Range 读回及 DELETE，两个临时文件名均 GET 404，共享目录 PROPFIND 返回 0 个可见子项。复测约 226.847 秒，420 次采样未发现活动 Wi-Fi 连接标识、链路状态、全部路由表或策略路由规则变化；15 次独立认证 OPTIONS 的路径观察仍为 relay。详细实际结果见[脱敏验证记录](peer-cross-network-2026-10-11.json)。
+
+这是临时工具的旧预算失败、新预算通过对照，未改动生产程序；不表示 UDP 直连通过，也不证明所有网络吞吐下 240 秒足够。此前数据校验保留，历史固定网络条件仍不确定。按用户要求追加只读路由检查：本机 FlClash TUN 策略路由接管 IPv4，当前代理配置与已保存选项将 relay 送往 Hysteria2 VPS；独立 15 次请求实际所选 relay 位于 NA-west，RTT 中位数约 502 ms。因此本轮不属于绕过代理的原生 NAT 穿透验证；没有修改网络配置。
+
+### 防复发措施与后续
+
+跨网络大文件验证要根据文件大小与已测吞吐设置有界发送预算，并区分请求体发送、响应和后台提交的期限；记录实际发送耗时及 finally 清理结果。保留本次失败/成功对照，测试完成删除临时工具和数据。没有已确认的生产缺陷，未新增生产回归用例。
+
+### 交付记录
+
+本次尚未提交、未发布；[脱敏验证记录](peer-cross-network-2026-10-11.json)包含两次真实尝试及清理范围。
+
+## TD-20261011-01：跨网络验证的临时路径探针收到空 HTTP 响应
+
+- 日期：2026-10-11
+- 状态：已验证临时诊断程序的请求生命周期修正；未确认 TwoDrive 生产代码缺陷。
+- 影响版本与环境：dev `355287f` 的协议库与独立临时 Rust 诊断辅助程序；真实 Linux/Windows 双机。用户随后报告热点曾断开并自动回落校园网，因此此前整段测试的固定网络条件无法确认。
+- 关联历史故障：TD-20261007-02 同为验证工具边界问题，但本次是手工 QUIC/HTTP 探针，不认定同源。
+
+### 症状与影响
+
+现有 release 客户端已通过 64 MiB 读取、真实 FUSE 字节比对，以及 16 MiB 临时文件上传、读回、移动和删除。随后独立路径探针的设备身份认证成功、初始路径为 relay，但第一条 OPTIONS 的 HTTP 响应为空，探针退出，未完成持续路径观察。
+
+### 触发条件与复现
+
+共享测试数据清理后，使用保留的本机设备身份新建 QUIC 连接，认证后手工写入完整 OPTIONS 请求、调用发送流 finish，再读取响应。旧辅助程序在身份认证成功后得到空响应；移除提前 finish 后，同一设备、相同 OPTIONS 请求连续 15 次成功。
+
+### 根因与证据
+
+已定位为辅助程序在等待 HTTP 响应前过早关闭 QUIC 发送流。认证帧返回 accepted 后，旧程序调用 finish，产生 EOF；实验的 `peer::serve` 使用 Hyper HTTP/1 默认的 `half_close(false)`。锁定的 Hyper 1.11.1 在 `mid_message_detect_eof` 中发现响应处理中 EOF 时关闭读端并返回 incomplete，符合空响应现象。仅移除辅助程序的提前 finish 后，15 次 OPTIONS 全部成功，观察持续约 48 秒且所选路径均为 relay。没有证据把该诊断工具问题归因于 NAT 或设备授权失效。
+
+### 解决办法与恢复操作
+
+辅助程序保持请求发送端打开直到收到响应，沿用服务端 HTTP 策略；未修改 TwoDrive 生产代码。
+
+本地恢复操作另述：原本机测试 FUSE 挂载已正常卸载，原 release 客户端已退出。Windows 经用户确认的 7 项合成测试数据已删除，共享目录当时复查为空；私有设备身份与授权状态按用户要求保留。用户重新连接热点后进行受网络监测的独立复测，后续临时数据及工具的最终清理结果见脱敏记录。
+
+### 验证结果与边界
+
+真实 Windows/Linux release 客户端此前完成 64 MiB 远程下载与真实 FUSE 哈希比对、16 MiB 上传/读回/移动/删除；这些结果保留为双机数据正确性证据。因用户报告网络回落，不把此前整段测试称为稳定的热点与校园网跨 NAT 验证。旧临时探针失败，修正后实际 15 次认证 OPTIONS 通过；属于真实双机诊断工具对照，没有新增生产代码回归测试。
+
+重新连接后的持续路径观察、64 MiB 读写复测、网络稳定监测与最终清理详见[脱敏验证记录](peer-cross-network-2026-10-11.json)。relay 可达不等于 UDP 穿透成功；没有真实 OneDrive 测试，没有修改原有用户服务或共享目录以外的 Windows 状态。
+
+### 防复发措施与后续
+
+手工 HTTP/QUIC 探针应遵循服务端的半关闭策略，先验证请求/响应生命周期再统计路径变化；本条记录保留旧程序失败与修正后通过的实际对照。固定网络测试要在操作期间监测活动 Wi-Fi 连接标识及路由，事后单次查看不能排除中途回落。测试结束清理辅助程序、下载包及挂载缓存，仅保留必要的设备配对状态与脱敏记录。
+
+### 交付记录
+
+本次尚未提交、未发布。临时诊断程序不安装到稳定 TwoDrive，也不进入 Windows 开发包；[脱敏验证记录](peer-cross-network-2026-10-11.json)保存实际范围与结果。
+
+## TD-20261007-03：整合树 Windows 原生 peer 测试失败
+
+- 日期：2026-10-07
+- 状态：已验证 Windows 原生测试编译与执行修复；Linux/Windows peer 全流程通过。
+- 影响版本与环境：dev 805ceba；GitHub windows-latest，Peer native builds 37593664900。
+- 关联历史故障：与 TD-20260916-WIN-AUTH-TEST 同为测试缺少平台限定；本次是较新 main 新增的 known-folder 夹具，不是旧 OAuth 修复回归。TD-20261006-04 是生产依赖隔离，与本次编译目标不同。
+
+### 症状与影响
+
+Windows 的 cargo test -p twodrive-peer -p twodrive-core -p twodrive-backend --locked 在测试编译阶段失败；Linux 全工作区测试通过。该 job 未交付 Windows peer 资产；并行 Windows Full/Lite 构建仍在执行。未改动用户安装、配置或真实云端。
+
+### 触发条件与复现
+
+合并 Windows PR #9 和 peer-control 后首次原生 CI；运行包含 core 单元测试的 Windows 命令即可触发。Windows 预览历史流程只测试 Windows 引擎/后端，没有编译 core 的 cfg(test) 目标；peer-control 历史基线尚无该夹具。
+
+### 根因与证据
+
+known_folders.rs:229 的 tests 模块无条件导入 std::os::unix::fs::symlink；Windows 报 E0433 cannot find unix in os。该夹具由 main 的 6f3c40a 加入，检查 Unix/XDG 根目录和符号链接。生产 core 可编译；不是 P2P 握手或 QUIC 加密机制故障。
+
+### 解决办法与恢复操作
+
+仅为该 Unix 夹具及其 symlink 导入添加 cfg(unix)。保留不依赖 Unix 系统调用的 XDG 解析测试和所有其他 core/后端/peer Windows 测试，不绕过整套原生验证。生产路径未改动；没有执行用户环境恢复操作。
+
+### 验证结果与边界
+
+旧树 805ceba 在原生 CI 明确编译失败。修正后本地 backend/core/peer 94 项默认测试通过，原 Unix 夹具仍在 Linux 执行；fmt 和严格 Clippy 通过。c73fece 原生 Windows 93 项默认测试通过（仅该 Unix 夹具未编译），额外更新进程测试通过；Linux 151 项默认工作区测试和额外更新进程测试通过。两平台 peer release、自检和资产上传均通过；Windows DPAPI 往返、私有身份持久化及系统 DLL 检查通过。均使用合成状态，未验证真实 OneDrive 或异地设备握手。
+
+### 防复发措施与后续
+
+保留 Windows core 单元测试编译与执行在 peer CI 中；这是此次可复现构建缺陷的回归门槛。新增平台夹具必须使用对应 cfg，不能只验证生产 library 或上层引擎测试。
+
+### 交付记录
+
+[整合提交 805ceba](https://github.com/LumiaBlack51/twodrive/commit/805ceba6616efd6d77014736881ad1e9d74a6528)，[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37593664900/job/112700935062)；[修复 c73fece](https://github.com/LumiaBlack51/twodrive/commit/c73fece6b8e9215b562ea88317a31f9f5723cf7e)，[成功原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594656006)。peer 资产 [Windows](https://github.com/LumiaBlack51/twodrive/actions/runs/37594656006/artifacts/11469772936) / [Linux](https://github.com/LumiaBlack51/twodrive/actions/runs/37594656006/artifacts/11470636670)。未发布 Release 或替换用户安装。
+
+
+## TD-20261007-02：dev 合并后的隔离 FUSE 上传冒烟超时
+
+- 日期：2026-10-07
+- 状态：已定位并验证冒烟等待边界；保留既有 60 秒重试语义。
+- 影响版本与环境：未提交的 Windows PR #9 + peer-control + dev 整合树，Linux 临时目录与真实 FUSE。
+- 关联历史故障：TD-20261006-02/03 是 WebDAV 上传/ETag 适配；本次仅确认挂载上传超时，不据症状判定同源。
+
+### 症状与影响
+
+双 CLI LAN 直连的 GET/PUT/MOVE/DELETE 阶段已完成，挂载读取也已完成；创建 new-folder/written.txt 并 fsync 后，等待服务器字节一致超过 45 秒。测试数据是临时合成内容；未操作用户安装、账户、云端或现有挂载。
+
+### 触发条件与复现
+
+cargo build 实验 --features mount 后，scripts/smoke.py --network lan --mount 首次运行超时（exit 1）。原脚本退出清理临时目录，正常终止进程时未输出失败日志，尚无后台错误证据。
+
+### 根因与证据
+
+不是已确认的合并回归。恢复留档后再次以 45 秒截止运行仍失败：父目录已在服务器创建且本地 metadata 操作已清空；子文件保留在本地 dirty 缓存，没有后台传输错误。`recover_dirty_record` 在父目录操作未完成时返回 false，worker 本轮结束；`mount_backend` 的周期恢复每 60 秒重新排队。两文件与原 dev 71c31e0 完全相同。将该测试等待范围覆盖完整重试周期后，真实挂载在 59.8 秒确认服务器内容，符合该机制。
+
+### 解决办法与恢复操作
+
+修正测试截止时间：挂载保存及依赖操作允许 90 秒覆盖已有 60 秒恢复周期；增加失败日志和显式 --keep-state 保留一次性证据。没有改变引擎调度，也没有把后台尚未完成的本地保存显示为成功上传。仅正常退出并卸载该测试自己的挂载，未改动真实服务。
+
+### 验证结果与边界
+
+本轮 151 项主工作区默认 Rust 测试、10 项 dev 测试、严格 Clippy/格式、19 Nautilus 和 4 Settings 测试通过；额外 peer 更新子进程和引擎 IPC 通过。原 45 秒冒烟两次失败；修正测试边界后真实 FUSE + QUIC LAN 冒烟通过读取、完整字节保存/后台上传、目录移动与删除（保存耗时实测 59.8 秒）。独立只读冒烟通过，内核写入返回 EROFS，服务器 PUT 被拒绝。不能声称立即上传，不能将本机实验当作异地 NAT 或真实 OneDrive 端到端。
+
+### 防复发措施与后续
+
+保留真实挂载字节比对、失败日志/状态选项，以及包含实际恢复周期的截止时间。该验证修正不改善现有子文件等待延迟；若后续优化父目录完成后的子项唤醒，须另做调度机制回归。
+
+### 交付记录
+
+[整合提交 805ceba](https://github.com/LumiaBlack51/twodrive/commit/805ceba6616efd6d77014736881ad1e9d74a6528)，最终运行代码 [c73fece](https://github.com/LumiaBlack51/twodrive/commit/c73fece6b8e9215b562ea88317a31f9f5723cf7e)。[WebDAV/QUIC 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594655979) Linux/Windows 全部成功：Linux 10、Windows 8 项测试及 2,097,105 字节双进程 LAN 比对通过；CI 不运行 FUSE，实际挂载结果为本条所述本地验证。未发布 Release 或替换用户安装。
+
+
+## TD-20261007-01：dev 多分支合并工具截断工作区 manifest
+
+- 日期：2026-10-07
+- 状态：已验证 Linux/Windows 合并 manifest、编译、协议与组合包回归。
+- 影响版本与环境：未提交的 dev + Windows PR #9 + peer-control 合并树；仅隔离 worktree。
+- 关联历史故障：TD-20261006-04 是 Unix 平台依赖问题；本次是合并工具机制，不属同源。
+
+### 症状与影响
+
+合并冲突消解后的 cargo metadata 报 Cargo.toml 第 8 行 unclosed array。尚未编译或交付该中间树；原 main 工作目录、安装、服务和用户数据未改动。
+
+### 触发条件与复现
+
+合并 codex/peer-control 时，临时 Python helper 对多行 Git 冲突块使用 DOTALL 正则，起止标记中的 .* 也可跨行匹配。工作区 members 尾部及后续字段被误吞；manifest 检查立即失败（退出 101）。
+
+### 根因与证据
+
+此问题属于本轮合并操作错误。起止标记应限制到单行，不能贪婪匹配后续完整内容。不是源 Windows 或 peer 实现本身的 Cargo 语法错误。
+
+### 解决办法与恢复操作
+
+从已核实的 Windows 合并父提交恢复完整 Cargo.toml、核心 manifest 和较新的 OAuth 实现；明确加入 peer member。Cargo.lock 按父提交的完整 package 段合并，并保留既有锁定版本，再由 Cargo 重新核对实际依赖。Gitignore 同时保留 Windows 产物与 peer 秘钥排除规则。恢复操作仅作用于本轮合并文件，无用户配置/文件恢复。
+
+### 验证结果与边界
+
+恢复后 cargo metadata --no-deps --offline 成功解析；离线更新合并依赖图后 --locked 编译通过。主工作区 151 项默认 Rust 测试通过（6 项 FUSE 和 1 项更新进程默认忽略），另显式执行更新进程测试通过；dev 的 1 项兼容性 + 9 项协议测试、两工作区 fmt/严格 Clippy、19 Nautilus、4 Settings 通过。Linux 独立引擎进程的 IPC/单实例/重启/字节比对通过。
+
+最终 c73fece 原生 Linux/Windows 的三条整合 CI 全部成功：Windows core/backend/peer 93 项、额外更新进程、Windows 引擎 11 项、Flutter 12 项、analyze/release、命名管道 IPC、Full/Lite 中同一工具哈希及实际打包 QUIC 双进程传输通过。Windows dev 8 项协议测试通过。下载最终组合资产后，独立验证 Full 25 / Lite 9 文件的 manifest 长度/哈希、两 ZIP 校验值与内容、四个工具跨版一致。真实云端、异地 NAT、用户设备和 CFAPI 未验证，6 项既有 FUSE ignored 未在本轮执行。
+
+### 防复发措施与后续
+
+保留源父提交恢复边界，manifest 使用标准 TOML 解析校验；冲突标记按单行限制，不通过文本截取拼接 package 半段。提交前运行格式、严格 Clippy、两工作区测试和原生 CI，并保留所有已有故障条目。
+
+### 交付记录
+
+Windows 来源 5120cf7（[PR #9，已合并到 dev](https://github.com/LumiaBlack51/twodrive/pull/9)），peer 来源 dd0686b，原 dev 71c31e0；Windows 合并 d3c9e32，peer/包整合 [805ceba](https://github.com/LumiaBlack51/twodrive/commit/805ceba6616efd6d77014736881ad1e9d74a6528)，平台测试限定 [c73fece](https://github.com/LumiaBlack51/twodrive/commit/c73fece6b8e9215b562ea88317a31f9f5723cf7e)。[Windows 组合包 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594661999)、[peer CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594656006)、[WebDAV/QUIC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594655979) 均成功。已核验[组合资产](https://github.com/LumiaBlack51/twodrive/actions/runs/37594661999/artifacts/11469933545)来源为 c73fece；Full ZIP SHA-256 `49c2ab6540228984745233bbed51b9235f38a1148c880c12566318d0c68b6552`，Lite ZIP `0b4663b87ab01e72c23836350e11df4263c170139cb44d3ad541ded7c992835e`。仅记录更新在构建后提交，不改变可执行文件的源码/锁文件/构建脚本；资产内文档是该构建的快照。未合并 main、发布 Release 或替换用户安装。
+
+
+2026-10-13 交付补记：该条固定下载反馈的三项既有提交已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，并包含于 [0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。包内 Nautilus 25项回归通过；旧调查结论和验证边界保留。
+
+## TD-20261007-PR-WSL：提交前 fetch 的宿主调用超时
+
+- 状态：重试成功；一次 WSL 调用返回 Wsl/Service/WSAETIMEDOUT，根因未确认。
+- 影响：首次远端基线检查未完成，不计通过；无应用/凭据/云端数据变化。
+- 处理：重新通过 WSL 执行有界 git fetch，仅更新远端跟踪引用，成功取得 main bdacfb9。
+- 验证：随后 Git 查询、workspace 测试 127 passed/6 ignored、Clippy 均成功。
+- 边界/后续：不归因为 TwoDrive 缺陷；保留超时事实，网络操作继续使用有界等待。
+
+提交检查补记：git diff --cached --check 发现此前未跟踪证据中的 CRLF、终端尾部空格及 EOF 空行；仅规范文本空白后重跑，保留日志内容与所有成功/失败结论。旧 git diff --check 未包含未跟踪文件，不能代表这些文件此前已通过暂存检查。
+
+TD-20261007-PR-WSL 补记：创建 PR 后一次新 WSL 调用再次在启动阶段超时；后续核对工作树干净、HEAD 174a12b，确认该次没有文档写入或提交。重试读取 PR 状态成功；宿主间歇启动超时根因仍未定位，不影响已创建 PR。
+## TD-20261006-04：dev Windows 原生编译检查失败
+
+- 日期：2026-10-06
+- 状态：已验证（原生 Linux/Windows 编译、协议测试与双进程 CLI）。
+- 影响版本与环境：dev 提交 `0222663`，GitHub windows-latest，静态 CRT 编译参数。
+- 关联历史故障：TD-20261006-02/03 属于 Linux 协议/文件适配问题；当前未认定同源。
+
+### 症状与影响
+
+Windows fmt 通过，Clippy/编译步骤失败，后续测试与产物构建被跳过；尚未交付 Windows 可用性。
+
+### 触发条件与复现
+
+[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37469772524/job/112289915114) 首次编译。同次 Linux CI fmt/Clippy/测试、release 构建、双 CLI 进程传输与资产上传全部通过。
+
+### 根因与证据
+
+`twodrive-core/src/credentials.rs:2` 无条件导入 `std::os::unix::fs::PermissionsExt`，Windows 原生编译报 E0433；第 34 行 `Permissions::from_mode` 报 E0599。实验模块无条件依赖稳定核心/后端，导致本来仅用于 Linux 的凭据代码也参与 Windows 编译。错误发生在实验协议代码编译前，与 QUIC/NAT/加密不属同一机制。
+
+### 解决办法与恢复操作
+
+稳定核心、后端及 FUSE 依赖仅在 Linux 启用；实验内新增可移植元数据和最小存储接口，WebDAV 客户端与协议测试通过统一 `model` 引用。Linux 仍重导出原接口，Windows 不引入稳定 OAuth/数据库实现。未改动稳定源码、用户安装或真实目录，无额外本地恢复。
+
+### 验证结果与边界
+
+旧 Windows CI 明确失败，未运行协议测试或构建产物。修正后本机 Linux 新增元数据兼容性测试与 9 项协议集成测试全部通过，fmt/Clippy 警告视错误通过；`cargo tree --target x86_64-pc-windows-msvc --locked` 核对无稳定核心/后端/FUSE/SQLite 依赖。
+
+[a15be05 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37471312984) 已全部成功：Linux 1 项元数据兼容性测试 + 9 项协议测试，Windows 8 项协议测试；两平台 fmt、Clippy 警告视错误、release 构建、双 CLI 进程 GET/PUT/MOVE/DELETE 与 2,097,105 字节比对、产物上传通过。Windows 使用静态 CRT。原失败分支不能编译，修正后同一原生流程成功，验证了依赖隔离机制。
+
+**边界**：Windows 未执行 Unix 权限、软链接与 FIFO 的专用测试，也未验证用户特定 ACL、Explorer WebDAV 客户端或 Windows FUSE 挂载。CI 冒烟各自在单个 runner 内启动两进程，不能据此声称两台异地 NAT 验证。Linux/公共中继与稳定基线范围见 TD-20261006-03。
+
+### 防复发措施与后续
+
+保留原生 Windows 编译、协议测试、release 构建与双 CLI 进程 GET/PUT/MOVE/DELETE 冒烟；保留 `portable_metadata_matches_the_linux_contract`，不通过修改稳定代码绕过隔离边界。保留平台矩阵，源码改动后实际核对 CI 结果。
+
+### 交付记录
+
+源码 [0222663](https://github.com/LumiaBlack51/twodrive/commit/022266391500e1293f722bccb9d333479c7c3cbf)，草稿 [PR #8](https://github.com/LumiaBlack51/twodrive/pull/8)；隔离修复 [a15be05](https://github.com/LumiaBlack51/twodrive/commit/a15be05fe8c038f4ac4556a72a2b0a649c5ec38f)；[成功 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37471312984)，资产 [Linux](https://github.com/LumiaBlack51/twodrive/actions/runs/37471312984/artifacts/11416947772) / [Windows](https://github.com/LumiaBlack51/twodrive/actions/runs/37471312984/artifacts/11417581314)。资产对应已验证源码，不作为稳定 Release。
+
+## TD-20261006-03：dev 条件覆盖与根目录文件 PUT 被错误拒绝
+
+- 日期：2026-10-06
+- 状态：已验证（本机 WebDAV、QUIC 和隔离 FUSE）；真实异地 NAT 与外部厂商服务未验证。
+- 影响版本与环境：未提交 `dev` 实验 `twodrive-dev 0.1.0`，Linux 临时目录；稳定 TwoDrive 不受影响。
+- 关联历史故障：TD-20261006-02 首轮问题修正后暴露；新的 ETag/根目录同步问题属于新增适配器的不同机制。
+
+### 症状与影响
+
+有效 ETag 覆盖返回 HTTP 412；位于共享根目录的文件 PUT 返回 HTTP 404。后者在原子替换后失败，可能已提交内容；不能将错误响应等同于远端未写入。测试未操作用户文件。
+
+### 触发条件与复现
+
+`webdav_contract_unicode_versions_moves_and_snapshot_deletions` 在条件覆盖时失败；`streaming_download_cancellation_and_full_file_upload` 创建 `/large.bin` 时失败。嵌套路径的字节数组 PUT 与本机 QUIC 读写已经通过，当时 8 项测试为 6 通过、2 失败。
+
+### 根因与证据
+
+- dav-server 0.11 的 PROPFIND `getetag` 直接输出元数据裸值，HTTP 条件检查使用带引号 ETag；客户端直接复用 XML 值造成不匹配。保留已带引号/弱标记形式，只给裸值补 HTTP 引号，并要求覆盖使用单个带引号的强 ETag，防止弱/星号/无效条件被服务忽略。
+- `Path::parent()` 对根目录相对文件名返回空路径。提交后调用 capability `open_with("")` 返回 ENOENT，映射成 HTTP 404；不是 HTTP File body framing 或原文件缺失。改为对空父路径使用 `.`。
+
+### 解决办法与恢复操作
+
+修正 ETag 语法与父目录句柄选择。未修改稳定引擎、真实配置或安装服务；仅使用测试目录，无额外本地恢复。
+
+### 验证结果与边界
+
+- 两项测试在修正前分别失败（412/404），修正后通过。5 MiB 文件流上传/下载字节一致，下载取消有实际回调；旧 ETag/未带版本的覆盖被拒绝，正确版本可覆盖，后续 MOVE/DELETE 与快照删除检测通过。
+- `invalid_conditional_tokens_fail_before_network_io` 覆盖弱标记、星号、裸值、多个 token 和换行；拒绝发生在网络操作前。
+- 最终 9 项实验集成测试全部通过，fmt、Clippy 警告视错误通过。两独立 CLI 进程的 LAN、公网基础设施默认模式和强制公共中继模式均通过 GET/PUT/MOVE/DELETE，2,097,105 字节比对一致；强制中继输出已核实为 relay。
+- 隔离真实 FUSE + QUIC 测试通过读取、持久保存/后台上传、目录移动和删除；另验证默认只读挂载返回 EROFS、服务器拒绝 PUT。
+- 稳定工作区 101 项 Rust 默认测试、19 项 Nautilus 和 4 项 Settings 测试通过；原有 6 项环境相关 FUSE 测试仍默认忽略，本次新实验挂载冒烟与它们是不同验证。
+- **边界**：两端进程均在本机，公共中继是实际外部基础设施，但未证明两台异地 NAT 机器打洞；未测试全部 WebDAV 厂商、真实 OneDrive 端到端、完整桌面 GUI、断点上传或双向目录镜像。Windows 原生编译、协议与产物结果另见 TD-20261006-04，未将 CI 配置当作验证成功。
+
+### 防复发措施与后续
+
+保留真实协议与磁盘内容测试、条件写语法检查、独立缓存绑定和完整快照失败时不生成删除结果的约束。路径 ID 随移动变化，WebDAV 刷新语义及外部服务的原子性边界见 [设计](dev-webdav-peer-design.md) 与 [实验指南](../experiments/twodrive-dev/README.zh-CN.md)。
+
+### 交付记录
+
+实现与修复已提交 [0222663](https://github.com/LumiaBlack51/twodrive/commit/022266391500e1293f722bccb9d333479c7c3cbf)，草稿 [PR #8](https://github.com/LumiaBlack51/twodrive/pull/8)。Windows 原生结果见 TD-20261006-04；不合并或发布到稳定 main。
+
+## TD-20261006-02：dev WebDAV 适配器首轮端到端读写失败
+
+- 日期：2026-10-06
+- 状态：已验证（Linux 临时目录）；后续独立机制见 TD-20261006-03。
+- 影响版本与环境：`dev` 分支新增 `twodrive-dev 0.1.0` 实验；未影响稳定程序。
+- 关联历史故障：无相同实现；[provider 边界记录](refactor-2026-09-16.md) 涉及共享接口，失败在新增适配器。
+
+### 症状与影响
+
+首轮 PUT 返回 HTTP 500，上传上限较小时单资源 PROPFIND 返回 HTTP 502，4 项读写测试失败。已确认 PUT 错误可发生在原子替换之后；原有数据均为临时测试文件。
+
+### 触发条件与复现
+
+初始 8 项集成测试：4 通过、4 失败。普通、Unicode、流式 PUT 和真实本机 QUIC 转发均失败；设置 64 字节上传上限后，174 字节 PROPFIND XML 也被拒绝。
+
+### 根因与证据
+
+- cap-std 的 Linux 目录能力可能使用 O_PATH。复制能力句柄后直接 fsync 返回 EBADF（脱敏诊断为 errno 9），此时文件已同步、已 rename；HTTP 500 并不说明写入未发生。
+- 把上传上限应用到全部方法的请求 body，误拒绝 PROPFIND XML；该错误被 DAV 库转为 HTTP 502。
+- 本轮源码检查另发现普通文件检查原位于 open 之后，根目录中的 FIFO 可阻塞读取。直接命名管道回归覆盖该路径，增加 open 前类型检查及 Unix O_NONBLOCK，之后再检查句柄类型，防止本机替换竞态使网络读取阻塞。
+
+### 解决办法与恢复操作
+
+以目录能力重新打开可读父目录句柄并同步，保持访问范围约束；文件体上限只用于 PUT，XML 采用独立 64 KiB 上限。Content-Length 和实际流长度超限返回 413，中断/超限写入删除临时文件，保留原内容；命名管道与设备不作为普通文件打开。未操作真实账户、用户目录、系统服务或安装包。
+
+### 验证结果与边界
+
+- 修正前 PUT/小上限元数据测试失败（500/502），修正后通过。`interrupted_and_oversized_put_preserve_original_content` 核对原内容与临时文件清理；元数据读取不受 64 字节上传上限影响。
+- `capability_scope_rejects_symlink_escapes_and_special_files` 覆盖外部目录/文件软链接、设备软链接、命名管道、`..` 和保留临时文件名。临时移除普通文件检查和非阻塞打开后，旧机制的单项回归在编译完成并进入测试后超过 12 秒，被隔离测试超时终止（退出 124）；恢复保护后该项通过。
+- 权限、过期/单次/并发邀请、真实 QUIC 未授权拒绝和现有连接撤销测试通过。验证为临时磁盘与本机设备，未覆盖所有文件系统的断电恢复、磁盘故障或 Windows ACL 部署。
+
+### 防复发措施与后续
+
+保留文件提交后响应、上传错误不破坏原内容、独立 XML 限制与 capability 范围回归；无法声称所有 500/502 错误永久消失。其他新机制和完整测试范围见 TD-20261006-03。
+
+### 交付记录
+
+实现与修复已提交 [0222663](https://github.com/LumiaBlack51/twodrive/commit/022266391500e1293f722bccb9d333479c7c3cbf)，草稿 [PR #8](https://github.com/LumiaBlack51/twodrive/pull/8)；[dev 设计](dev-webdav-peer-design.md)。
+
 ## TD-20261007-01：仅云端文件选择始终保留后缺少下载等待标志
 
 - 日期：2026-10-07
@@ -145,6 +1972,374 @@
 - 已合并 [PR #7](https://github.com/LumiaBlack51/twodrive/pull/7)，合并提交/发布标签指向 [ae50648](https://github.com/LumiaBlack51/twodrive/commit/ae50648a4d08ae14f7a2041d3ab5210ff220430f)。合并树与已验证源代码/文档树一致。
 - [Release v0.2.11-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.11-1) 已发布 amd64 deb 和 .deb.sha256；GitHub 两项资产 SHA-256 均与本地一致。deb SHA-256：`2904803b76277bb4d4305b3f2435b6a8419bdfcb91369da2c9bdf0fba234b7cf`。
 - 包内故障记录为构建时验证快照；本次交付补记只更新已核实的发布链接与证据表述，不更改发布二进制。新包未安装到本机，真实服务保持原进程运行。
+
+## TD-20260917-DELTA-PENDING-DELETE：跨刷新删除非空目录可能遗留目录
+
+- 日期：2026-09-17；状态：已修复并完成确定性回归；影响本轮未发布的索引实现。
+- 关联：folder-move-sync-2026-09-11.md 涉及目录顺序，但不是本次只读索引根因。
+### 症状与触发条件
+目录删除标记先到，子项在后续 delta 才删除；首次刷新为保护子项保留目录。
+### 根因与证据
+审阅发现首次提交后清除了暂存删除标记，后续子项删除时无法识别待删目录。
+没有证据表明真实账户发生过这种顺序。
+### 解决办法与恢复操作
+在持久条目中保留删除标记，每次提交所有移动/删除后清理无子项的已删除条目。
+无真实云端修改，无本地账户恢复操作。
+### 验证结果与边界
+跨两次 delta 的目录/子项删除回归已验证旧代码失败（exit 101）、修复后通过（exit 0）。
+游标写入失败事务回滚也通过；证据见 windows-evidence/metadata-cache。
+真实 rename/move/delete 未执行，遵守只读验证约束。
+### 防复发与交付
+保留跨批次删除回归及事务回滚测试；未提交、未发布。
+
+## TD-20260917-RETRY-AFTER：共用 HTTP 重试器提前重试长限流
+
+- 状态：代码审阅确认机制，修复后验证中。
+- 触发：Graph/OAuth 返回 Retry-After 大于 30 秒；既有辅助函数将其截为 30 秒。
+- 证据：原 `retry_after_seconds_are_honored_with_a_small_cap` 明确断言 120 秒变为 30 秒。没有声称当前真实账户发生过限流。
+- 影响：现有刷新复用该重试器，可能早于服务端允许的时间重试；与登录增量无凭据丢失关系。
+- 修复：保留完整秒数及 HTTP 日期；超出单次重试预算时停止自动重试而非缩短等待。保留结构化 HTTP 状态/延迟，不包含响应正文；浏览端持有共享等待截止时间，后续查询也不能绕过刷新限流。授权网络故障保持网络/超时分类。
+- 测试：合成 HTTP 刷新返回 429/120 秒，两次查询只发出一次刷新请求，保存的凭据仍在；HTTP 日期解析、原 120 秒断言已更新。完整平台结果见 windows-progress.md。
+- 本地恢复：无；未改真实权限、云端文件或既有登录。
+
+最终补记：TD-20260916-BROWSE-DEV、TD-20260916-BROWSE-CANCEL、TD-20260917-RETRY-AFTER 已完成本轮修复后重跑；Windows Rust 42、Linux Rust 115、Flutter 11 通过，静态检查通过，6 项 FUSE ignored 未执行。当前真实账户只读根/子目录实测通过；真实异常注入及真实多页未执行。构建与证据见 windows-progress.md 2026-09-17 交付节，不将 mock HTTP 结果称为真实异常恢复验证。
+
+
+## TD-20260917-INDEX-DOWNLOAD-DEV: Native milestone compilation and verification
+
+- Date: 2026-09-17.
+- Status: development checks being rerun; no released or running account data affected.
+- Environment: uncommitted Windows 0.2.10 metadata/cache milestone.
+- Related history: TD-20260916-BROWSE-DEV (verification workflow only).
+
+### Symptoms and reproduction
+
+Initial cargo check rejected four methods private to the new engine child module.
+The first warnings-denied Clippy run rejected two cloned single-element slices in new tests.
+
+### Root cause and evidence
+
+Rust child-module method visibility does not expose private methods to the parent;
+compiler E0624 identified the four calls. Clippy identified cloned_ref_to_slice_refs.
+
+### Fix and recovery
+
+Use pub(super) for the four engine entry points and std::slice::from_ref in tests.
+No local account recovery, cloud mutation, or existing preview replacement occurred.
+
+### Verification and limits
+
+Native cargo check passed after visibility fixes; deterministic readonly HTTP tests passed.
+Full final verification remains in progress and will be recorded in windows-progress.md.
+These are development failures, not evidence of real Graph failure or recovery.
+
+### Prevention and delivery
+
+Keep native check, all-target Clippy and deterministic tests in milestone validation.
+Uncommitted; no release or remote publication.
+
+
+## TD-20260917-INDEX-UI-ENCODING: New UI strings lost in PowerShell stdin
+
+- Date: 2026-09-17; status: fixed, widget verification passed.
+- Affected environment: uncommitted new index UI only; no cloud data impact.
+- Related incident: TD-20260916-W02; a different encoding boundary (PowerShell to Python stdin).
+
+### Symptoms and reproduction
+
+Reading newly generated Dart source showed question marks replacing Chinese labels;
+Flutter analyze could not detect this semantic text loss.
+
+### Root cause and evidence
+
+PowerShell's default pipe encoding replaced non-ASCII Python source before execution.
+The Dart source itself contained literal question marks.
+
+### Fix and local recovery
+
+Replaced only the new affected strings with UTF-8 patches. Added a widget test asserting
+real labels and IPC refresh/download/open commands. No account recovery was needed.
+
+### Verification and limits
+
+The index widget and full Flutter suite passed after correction. Native UI verification
+is tracked in windows-progress.md. No real Graph fault is inferred from this issue.
+
+### Prevention and delivery
+
+Use direct UTF-8 patches or ASCII-only helper scripts; inspect visible UI labels.
+Uncommitted, no release. Development Clippy also found collapsible_if and test-module
+ordering; both were corrected and warnings-denied native Clippy passed.
+
+
+## TD-20260917-PACKAGING-PS51: Release packaging requires unavailable Path API
+
+- Date: 2026-09-17; status: fixed, new-directory package rerun pending.
+- Environment: Windows PowerShell 5.1, native Windows build mirror script.
+- Related: TD-20260916-W01; different root cause, packaging after successful compilation.
+
+### Symptoms and reproduction
+
+Full Rust/Flutter release compilation succeeded; manifest generation failed because
+System.IO.Path.GetRelativePath does not exist in this PowerShell/.NET Framework.
+The failed artifact directory is retained and is not a delivered package.
+
+### Root cause and evidence
+
+build-windows.ps1 called a newer .NET API under the system PowerShell runtime.
+
+### Fix and recovery
+
+Derive each enumerated child file path relative to the known package prefix using
+Substring; no external paths are enumerated. Expand packaging verification to full
+Flutter analyze/test. Build again in a new output directory, preserving known-good previews.
+
+### Verification, prevention and delivery
+
+Rerun status and per-file manifest/hash verification are recorded in windows-progress.md.
+No installer, cloud mutation or publication. Keep native packaging in release validation.
+Uncommitted; release link not applicable.
+
+
+## TD-20260917-INDEX-SIZE: Invalid file size could be treated as zero
+
+- Date: 2026-09-17; status: corrected and deterministic regression passed.
+- Environment: new uncommitted read-only metadata parser.
+- Related history: folder-move-sync-2026-09-11.md negative size handling; same input
+  class in a newly introduced parser, not a regression in the Linux parser.
+
+### Symptoms, trigger and root cause
+
+Code review found as_u64().unwrap_or(0) accepted missing/negative file sizes as zero.
+This could create an empty cache candidate. No real account occurrence was observed.
+
+### Fix and recovery
+
+Require a nonnegative integer size for supported live file items; folder aggregate sizes
+remain non-authoritative. No local recovery or real cloud operation was needed.
+
+### Verification and prevention
+
+invalid_file_size_is_never_an_empty_cache_candidate passes; final native/Linux suites
+pass. Real invalid Graph responses were not induced. Preserve strict file-size checks.
+
+### Delivery
+
+Uncommitted; evidence and limits in windows-progress.md.
+
+## TD-20260917-INDEX-SUMMARY: Full overview used obsolete cache counters
+
+- Date: 2026-09-17; status: fixed and native UI verified.
+- Environment: initial new index/cache preview; previous browsing architecture retained.
+- Related history: TD-20260916-W03 concerned disconnected state, not these counters.
+
+### Symptoms and trigger
+
+After a real small file reached cached in the index, Full overview still showed 0 B
+because it read the legacy mock files collection rather than the new persisted cloud view.
+
+### Root cause and fix
+
+The new file page used cloud state, while overview retained its previous data source.
+Add engine-computed file_count/cached_bytes to CloudView and use these for real-mode
+summary. Account status explicitly describes read-only indexing/download cache.
+
+### Verification and boundary
+
+Native Full first showed 46 files and 1.1 KiB, then 2.2 KiB after the second 1,132-byte
+real download; Lite/IPC returned 46 files and 2,264 cached bytes. Final Full UI bytes match
+the inspected build; full Flutter suite/analyze and final release build pass.
+No cloud metadata/content mutation, no local account repair, no CFAPI claim.
+
+### Prevention and delivery
+
+Keep summary and file-page state sourced from CloudView; maintain native shared-state
+acceptance and widget tests. Uncommitted; no release.
+
+### 2026-09-17 final development verification addendum
+
+INDEX-DOWNLOAD-DEV, INDEX-UI-ENCODING, PACKAGING-PS51 and DELTA-PENDING-DELETE
+fixes passed final verification: Windows Rust 85, Linux Rust 127, Flutter 12, Nautilus 19;
+Clippy warnings denied, fmt, analyze, Full/Lite release and artifact hash verification pass.
+Six ignored FUSE tests remain unexecuted. CRLF copied into WSL initially failed diff
+whitespace checks; changed text was normalized to LF and checks rerun successfully.
+A helper UNC path inspection failed (WinError 64); no files were changed by that failed
+inspection, and subsequent comparison/copy used WSL-local Python with explicit paths.
+See windows-progress.md and windows-evidence/metadata-cache/results.json for real-account
+results and remaining large-file acceptance blockage. No failures/skips count as passes.
+
+
+## TD-20260916-W03：文件页没有明确显示断连且重连遗留错误提示
+
+- 日期：2026-09-16
+- 状态：修复；3 项 Flutter 状态回归通过；最终原生界面断连/重连复验通过
+- 影响版本与环境：本地 Windows Full 开发预览，未发布
+- 关联历史故障：无
+
+### 症状与影响
+
+实机终止隔离测试后台后，文件列表被清空且按钮禁用，但页面只说没有文件，
+没有明确说明断连。检查客户端发现成功重连的 snapshot 不会清除此前传输错误。
+定时读取还会短暂显示“等待后台确认”，引起布局抖动。
+
+### 触发条件与复现
+
+Full 文件页连接隔离 Mock，终止本轮创建的 engine，再启动同一 state。
+截图证据显示初版文件页的断连说明不足。未接触日常账户。
+
+### 根因与证据
+
+错误条仅放在概览 status()；files() 对 null snapshot 和空文件列表用同一个提示。
+客户端仅在非 snapshot 成功时清 error。busy 同时用于轮询和用户命令。
+
+### 解决办法与恢复操作
+
+所有管理页显示连接状态/排队数与错误；断连使用独立说明并禁用操作；
+成功重连清除 transport error；pendingMutation 区分读轮询与写请求。
+仅重启一次性测试后台；没有修改实际同步状态。
+
+### 验证结果与边界
+
+Flutter 3 项回归验证断连清快照并禁操作、重连清错误、暂停等待后台确认、
+不匹配响应 ID 拒绝应用。实机暂停与 UI->IPC->排队链路已验证；
+最终修正版截图见本轮进度追加记录。CFAPI 和真实 Graph 未验证。
+
+### 防复发措施与后续
+
+apps/full/test/engine_client_test.dart 纳入打包脚本；界面不得乐观显示写操作成功。
+
+### 交付记录
+
+本地隔离分支，无 Release；见 [Windows 进度](windows-progress.md)。
+
+## TD-20260916-W01：Windows Full 依赖解析成功但原生编译失败
+
+- 日期：2026-09-16
+- 状态：已定位并在本机原生 Release 构建验证修复；CI 未执行
+- 影响版本与环境：Windows 新开发预览；Flutter 3.41.7、Dart 3.11.5
+- 关联历史故障：无；不是既有 Linux 用户故障
+
+### 症状与影响
+
+flutter analyze lib 通过，但 flutter build windows --release 失败。
+未安装、未发布该失败产物，无真实账户或文件受影响。
+
+### 触发条件与复现
+
+pubspec 使用 fluent_ui ^4.12.0，解析到 4.16.1；原生编译报
+ScrollCacheExtent 不存在、ignorePointer/onReorderItem 参数不存在。
+
+### 根因与证据
+
+4.16.1 源码使用了本机 Flutter 没有的 API；仅分析应用 lib 不会完整编译
+依赖。构建日志明确指向 pub 缓存中的 fluent_ui-4.16.1。
+另发现 Windows Pub 联网 TLS 错误，阻碍获取兼容依赖；不是同一根因。
+
+### 解决办法与恢复操作
+
+固定 fluent_ui 4.12.0，提交 pubspec.lock；该版本官方元数据要求 Flutter >=3.32。
+本机 Windows Pub TLS 失败时，用 WSL 官方 pub.dev HTTPS 下载归档，
+对照官方 archive_sha256 核验后补充开发缓存，使用离线锁定解析。
+未关闭 TLS、未升级 Flutter、未修改用户日常应用安装。
+缓存是构建工具依赖，非 TwoDrive 用户状态。
+
+### 验证结果与边界
+
+同一 Flutter 上旧依赖原生 build 失败，固定后 release exe 构建成功。
+增加双发行版脚本：必须检查 flutter build 和工具退出码，不能以 analyze
+成功替代。CI 配置尚未运行，多架构未验证。
+
+### 防复发措施与后续
+
+锁定 Flutter 和依赖，CI 原生编译 Full；跟随未来 Flutter 升级时有意更新。
+完整验证见 [Windows 进度](windows-progress.md)。
+
+### 交付记录
+
+本地隔离分支；未推送、未 Release；提交记录待本轮检查结束补记。
+
+## TD-20260916-W02：原生 IPC 测试误用 Windows 默认文本编码
+
+- 日期：2026-09-16
+- 状态：修复并原生重跑通过
+- 影响版本与环境：新测试脚本、中文 Windows Python 3.13，非引擎数据故障
+- 关联历史故障：无
+
+### 症状与影响
+
+测试脚本输出 PASS，同时 stderr reader 线程出现 GBK UnicodeDecodeError。
+该次输出不能作为干净验收证据。
+
+### 触发条件与复现
+
+subprocess.run(text=True) 未指定编码，读到 Rust UTF-8 本地化 OS 错误。
+连接前/关闭后 IPC 失败属于本测试预期路径。
+
+### 根因与证据
+
+Python traceback 位于 subprocess readerthread；引擎 JSON/错误为 UTF-8，
+Windows Python 默认编码为 GBK。并非管道消息截断或同步成功丢失。
+
+### 解决办法与恢复操作
+
+测试子进程显式 encoding="utf-8"；仅修改测试读取层，无本地账户恢复操作。
+
+### 验证结果与边界
+
+重跑原生 IPC 全流程无解码异常，上传/下载字节一致，断连与设置保留通过。
+其它地区语言环境未全部测试；协议规范固定 UTF-8。
+
+### 防复发措施与后续
+
+全部 Windows IPC 自动化脚本显式编码；CI 保留原生测试。
+没有将旧次带异常的 PASS 计为验收。
+
+### 交付记录
+
+本地隔离分支；未发布；证据见 [Windows 进度](windows-progress.md)。
+## TD-20260916-UI：Flutter 默认测试仍引用已移除的 MyApp
+
+- 状态：已修复；完整 Flutter 6 项测试通过，静态分析无问题。
+- 触发条件：前端重设计时检查完整 Flutter 测试入口。
+- 根因与证据：`apps/full/test/widget_test.dart` 仍为默认计数器测试，构造不存在的 `MyApp`；实际入口为 `TwoDrive`。与此前 FUSE 故障无关。
+- 解决办法：替换为真实界面的托盘/管理中心布局、导航、暂停确认与断连禁用测试，测试使用注入的隔离数据。
+- 本地恢复：无。验证边界：不涉及真实 OneDrive、原生托盘窗口行为或 CFAPI。
+- 防复发：后续前端修改运行完整 `flutter test` 与 `flutter analyze`。
+
+## TD-20260916-WIN-AUTH-TEST：后端测试无条件引用 Unix 权限 API
+
+- 日期：2026-09-16
+- 状态：已定位，修复验证中。
+- 影响版本与环境：0.2.10 Windows 原生后端测试编译；不影响已有运行程序。
+- 关联历史故障：与 Flutter 默认测试故障无相同根因。
+- 症状与复现：执行 cargo test -p twodrive-windows -p twodrive-backend --locked，报 std::os::unix 不存在和 Permissions.mode 不存在。
+- 根因与证据：onedrive/tests.rs 无条件导入 PermissionsExt 并检查 Unix mode。
+- 解决办法：仅在 Unix 上编译 mode 检查，Windows 继续执行实际加密存储和读取往返测试。
+- 本地恢复：无；未删除账户或数据。
+- 验证边界：测试结果待补；模拟令牌不代表真实 Microsoft 登录成功。
+- 防复发：Windows 后端测试加入本次验证命令。
+
+验证补记：Windows 后端 24 项与 Windows 引擎 6 项测试均通过；Clippy 无警告。Unix 权限断言仅在 Unix 编译，Windows 加密存储往返通过。真实 Microsoft 登录与云端同步不属于本条测试结论。
+
+## TD-20260916-BROWSE-DEV：浏览开发验证受文件占用和编码影响
+
+- 状态：原因确认，验证重跑中。
+- 触发：真实目录探测从 target/debug 启动引擎后运行 cargo test；另一个编辑辅助脚本使用 Python 默认文本编码。
+- 症状/证据：Windows 无法删除正在运行的 twodrive-engine.exe（os error 5）；Python read_text 报 GBK UnicodeDecodeError。
+- 根因：验证程序占用重建目标；中文源码与 Windows 默认编码不匹配。编码机制与 TD-20260916-W02 相邻，但此次是编辑辅助脚本，不是 IPC 输出。
+- 处理：运行引擎移到独立 browse-development-runtime 副本；编辑脚本显式 UTF-8。保留既有产物/登录凭据，不修改云端。
+- 验证边界：失败运行不计通过；随后结果见 windows-progress.md。新增构建验证都从独立产物运行，不再占用 target。
+
+## TD-20260916-BROWSE-CANCEL：空查询身份仍被客户端接收
+
+- 状态：确定性回归发现并修复，完整重跑中。
+- 触发：取消查询/注销立即清除 queryId 后，传输返回 query_id=null 的目录对象。
+- 根因/证据：原客户端仅判断 incoming.query_id != queryId，null == null 时仍接收；新增 cloud_browse_test 的取消/注销测试首次失败，出现不该恢复的条目。
+- 修复：没有非空活动 queryId 时不接收任何目录数据。引擎另以取消标记、登录状态、查询 ID 三重检查阻止迟到 worker 发布。
+- 验证：新增快速切换、取消、注销、分页去重测试；结果补入 windows-progress.md。测试用合成目录，未退出当前真实账户。
+- 恢复操作：无。防复发：保留该回归；完整 Flutter 测试与 Rust 迟到完成测试纳入本阶段检查。
+
+验证补记（2026-09-17）：取消空查询修复后客户端回归通过。新增 widget 测试首次因测试 fixture 的 Map.addAll 泛型不匹配失败，改为显式 Map<String,dynamic> 后完整 11 项通过；这不是生产 JSON 解析故障。Dart format 暴露三个缺花括号的 lint（两处新代码、一处已有测试），首轮构建因此被静态检查拦截；已加花括号，重新打包，首次失败日志独立保留。
 
 ## TD-20260924-02：Nautilus 偶发等待对话框的 48 小时监测
 
@@ -366,6 +2561,270 @@ Papers 修复：在查询确认批注属于当前列表后才修改后端/撤销
 - 已合并 [PR #3](https://github.com/LumiaBlack51/twodrive/pull/3)，合并提交：[37234e4](https://github.com/LumiaBlack51/twodrive/commit/37234e49a982190dbe01f72608c69c783ee8e864)。合并树与已测试构建输入一致。
 - Release：[TwoDrive 0.2.10-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.10-1)，已发布 amd64 deb 及 sha256 文件；GitHub 报告的两项资产 SHA-256 均与本地一致。
 - 安装包中的故障记录为发布前验证快照；本次补记仅更新交付链接，不修改发布二进制。
+
+## TD-20260916-08：peer 升版暴露更新测试固定候选版本
+
+- 日期：2026-09-16
+- 状态：已验证本地及 Windows 原生完整测试和更新进程夹具。
+- 影响版本与环境：0.1.1 构建期间的更新单测/健康夹具；不是生产反回滚逻辑故障。
+- 关联历史故障：TD-20260916-07 升版验证中发现；与 Graph 故障机制不同。
+
+### 症状与影响
+
+完整 Rust 测试有两项失败：update must be a newer stable version。
+
+### 触发条件与复现
+
+把 peer 版本从 0.1.0 升至 0.1.1 后执行 cargo test --workspace --locked。
+
+### 根因与证据
+
+测试固定以 0.1.1 作为新版本，已不高于当前版本；生产反回滚检查正确拒绝。原生健康夹具同样写死版本。
+
+### 解决办法与恢复操作
+
+测试候选及原生夹具按编译版本 patch + 1 构造，第二次升级为 patch + 2。生产更新检查不改。无本地恢复操作。
+
+### 验证结果与边界
+
+旧测试在 0.1.1 实际失败；修复后完整 Rust 测试通过；本地及 Windows 原生夹具验证通过。此项不属于真实 GitHub 自动升级验证。
+
+### 防复发措施与后续
+
+候选版本应相对编译版本生成；保留不递增版本拒绝及回滚水位断言。
+
+### 交付记录
+
+随本次控制通道修复提交 c2776f1；见 TD-20260916-07 的交付链接。
+
+## TD-20260916-07：真实 Graph permanentDelete 拒绝导致 peer 轮询失败
+
+- 日期：2026-09-16
+- 状态：已验证 Linux 真实 Graph 控制对象读写删除修复；Windows/Linux 双机握手待重新验证。
+- 影响版本与环境：codex/peer-control cc472ea，peer 0.1.0，用户 Windows/Linux 同账号真实联调；修复版本 0.1.1。
+- 关联历史故障：TD-20260916-06 为分页编码问题。本次已观测失败在删除阶段，为另一根因；之前 mock 和原生 CI 没有覆盖真实 Graph 删除能力。
+
+### 症状与影响
+
+用户 Windows 登录成功后持续 poll failed，Linux ping 仅入本地队列，未完成真实握手。Linux 同账号真实探针复现删除失败；原程序隐藏错误阶段。
+
+### 触发条件与复现
+
+使用既有隔离 peer 登录状态访问 AppFolder。真实 approot、namespace、devices/list 均 200；新建 diagnostics bucket 201，探针 PUT 201，GET 200 且内容一致；旧空 POST permanentDelete 返回 411。显式 Content-Length: 0 后返回 400 invalidRequest，脱敏消息为固定文本 API not found。轮询实际收件箱也复现 400。没有读取或删除用户普通文件。
+
+### 根因与证据
+
+1. reqwest 空 POST 不自动发送 Content-Length；真实 Graph 前端拒绝为 411。新增回环 HTTP 测试在旧构造上失败（header 为 None），修复后为 0，通过。
+2. 本账号使用文档 drive-ID 路由仍返回 API not found。不能把微软文档列出接口当成当前账号支持证据；具体服务端原因/Windows 原始失败阶段不能仅由 Linux 结果推断。
+3. 原 runtime 把读取失败当成无效信封并继续删除，网络故障时可能丢消息。新增回归在旧逻辑上失败（delete 被调用），修复后保留对象重试。
+
+### 解决办法与恢复操作
+
+- 控制通道空 POST 显式携带 Content-Length: 0。仅 permanentDelete 的 400 + invalidRequest + 精确 API not found 回退到普通 DELETE；本进程记忆不可用能力并提示进入回收站。401/403、其它 400、限流及 5xx 不回退，不清空回收站。
+- 控制 HTTP 错误使用类型化诊断，操作名、数字状态、固定允许列表错误码和固定 hint；不输出 URL、ID、响应正文、token 或任意服务端文本。可开启逐操作成功日志。doctor 报配置 AppFolder/过期状态/refresh 是否存在（不是已授权 scope 的证明），只校验自建唯一探针。
+- 发现阶段记录读取错误；收件箱读取失败保留消息，下次重试，不计为协议拒绝。
+
+本地恢复：暂停下载目录中的 Linux peer PID 344856/344857；稳定 daemon PID 204605 及挂载未改动。使用原隔离 peer auth 做真实探针，未重新登录或更换用户设备身份。最初两次失败探针遗留的两项对象已校验测试内容后普通删除；未清空回收站。
+
+### 验证结果与边界
+
+- 真实账号 doctor 修复后：PUT 201、GET 200 内容一致、permanentDelete 400 触发明确能力回退、DELETE 204、随后 LIST 200 且本次对象不存在。
+- 空 POST 和读取失败保留消息两项已证明旧代码失败、修复后通过。固定错误码脱敏及严格回退条件单测通过；本地 114 项默认 Rust 测试、19 项 Python 测试通过。格式与 Clippy 通过；Windows 原生 72 项默认测试及额外更新进程测试通过，Linux CI 114 项默认及额外更新进程测试通过。
+- Python 初次读取重定向内容曾发生网络 timeout；Rust doctor 读回成功。不据此推断 Windows 网络状况。
+- 本机两个临时隔离身份通过真实 Graph 完成互相 Authenticated、双向 PING/PONG round trip verified；临时云端 presence/收件箱及本地测试身份/token 已清理。它们运行于同一 Linux 主机，不是 Windows/Linux 双机实测。
+- 下载目录 0.1.1 发布版再次运行 doctor 全部通过，其中 permanentDelete 直接返回 204。**更正边界**：400 API not found 是当时的真实响应，不能推断该账号永久不支持此 API；程序仍优先永久删除，仅对精确能力响应作本进程回退。
+- **边界**：以上是 Linux 对真实 Microsoft Graph，不是 mock；仍不等于 Windows/Linux 真机握手与 ping/pong。Windows 需替换新 exe 运行 doctor、互信后验证。普通删除进入回收站，不保证永久清除。
+
+### 防复发措施与后续
+
+保留 empty_permanent_delete_post_has_explicit_zero_content_length、only_explicit_api_not_found_allows_recycle_fallback、diagnostic_never_echoes_untrusted_error_fields、failed_mailbox_read_is_not_deleted_or_counted_as_rejected。新云端功能须增加真实账号探针，不能仅以 mock/CI 宣称支持。说明和重测命令见 [双机指南](peer-quickstart.zh-CN.md)。
+
+### 交付记录
+
+修复提交：[c2776f1](https://github.com/LumiaBlack51/twodrive/commit/c2776f10148ee6b90dd65b13023281e04537ece6)。[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35074280918) Windows/Linux 均成功；Windows release exe 原生版本、健康、自身份持久化及系统 DLL 依赖检查通过。Linux 发布版 SHA-256：`8f03fba31b94a3a59f7f58e7e3466b4a07d88f6e91be49775319b21057786d2e`，已替换本地下载目录 peer，并保留 0.1.0 备份。未发布 GitHub Release；稳定 TwoDrive 不发布、不安装、不重启。
+
+
+- Windows exe：7662080 bytes，SHA-256 `84b33e056bc417c574b6016ec3d72376f264e38680ce9f36c8170fe5b14187b0`；与下载 CI SHA256SUMS 一致，PE AMD64 已核对。CI artifact ID 10436929068。
+- 本地手动替换包：`dist/peer-0.1.1/twodrive-peer-0.1.1-windows-x86_64.zip`，亦已复制到本地下载目录。ZIP SHA-256 `c50ec246e014018964182a75546fbe9bf42b8c06363554596fa4bc6829b3ec30`。包内 exe 是上述未修改的 CI 原件；没有自动更新签名 manifest、令牌或私钥。
+- 原用户 Linux 身份短时运行 40 秒：poll/read 错误均 0，6 次 permanentDelete 204；未观察到原 Windows 对端认证。已停止测试 peer 进程，等待两端替换/重启；稳定 daemon PID 204605、启动时间 14:18:36 CST 不变。
+- 后续记录提交仅补充验证/交付，不改变已构建可执行文件输入。尚未执行 Windows 用户设备真实 doctor/双机 ping；不得把原生 CI 或本机双进程当作这项完成。
+
+## TD-20260916-06：控制通道分页校验拒绝等价的 OneDrive ID 编码
+
+- 日期：2026-09-16
+- 状态：已验证单元机制：旧代码失败、新代码通过，Linux/Windows 最终 CI 通过；真实 Graph 分页未验证。
+- 影响版本与环境：peer 控制 provider，至 fb05bcb；既有文件系统分页未改动。
+- 关联历史故障：TD-20260916-02 的不可信 URL 约束新增时边界遗漏，不是同一信任根因。
+
+### 症状与影响
+
+构造合法等价 nextLink 时，包含 `!` 的 ID 与 `%21` 编码的预期路径不相等，严格字符串校验会拒绝后续页。实际账号返回形式未核实。
+
+### 触发条件与复现
+
+预期路径包含 `ABC%21123`，nextLink 同一位置为 `ABC!123`。新增 pagination_accepts_equivalent_onedrive_id_encoding 在修复前失败。
+
+### 根因与证据
+
+校验要求正确的 HTTPS Graph 来源和相同资源，但直接比较转义后的路径字符串，混淆编码差异与跨资源访问。
+
+### 解决办法与恢复操作
+
+已逐路径段解码后比较，同时保留段边界、HTTPS、主机、端口、凭据、fragment 限制；不放宽到任意 Graph URL。无需用户数据恢复。
+
+### 验证结果与边界
+
+旧代码测试失败；修复后等价编码、错误来源及资源逃逸测试通过，Clippy 和格式检查通过。模拟 URL，不是实际 Graph 分页抓包。
+
+### 防复发措施与后续
+
+保留等价编码和不同资源拒绝用例，不能只验证恶意 nextLink。
+
+### 交付记录
+
+[修复提交 31ca30e](https://github.com/LumiaBlack51/twodrive/commit/31ca30e0433fbbf733930e14a88315058d472ec1)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。
+
+## TD-20260916-05：peer 篡改测试可能没有实际改变随机密文
+
+- 日期：2026-09-16
+- 状态：已修复测试反例构造；这是审计发现的测试缺陷，不是已确认的协议绕过。
+- 影响版本与环境：peer 实验分支 0.1.0 测试代码，至 389bed8。
+- 关联历史故障：审查 TD-20260916-04 的 CI 失败期间发现；其实际失败来自 daemon 时间窗，两者根因不同。
+
+### 症状与影响
+
+原篡改测试把密文首字节替换为 ff；随机首字节本来为 ff 时没有篡改，约 1/256 概率错误要求合法消息被拒绝。
+
+### 触发条件与复现
+
+静态反例：首字节为 ff 时 replace_range(..2, "ff") 保持输入不变。没有将此前任何 CI 失败归因于这一机制。
+
+### 根因与证据
+
+替换为固定值不能保证改变随机输入。协议正常接收未改动的有效消息并非安全漏洞。
+
+### 解决办法与恢复操作
+
+把首个十六进制字符改成与原值不同的字符，并断言新旧密文确实不相等。没有生产代码或本地恢复操作。
+
+### 验证结果与边界
+
+本地篡改、会话、目标和过期测试重跑通过，Clippy/格式检查通过；Windows 原生同项测试也已通过。没有真实云端攻击测试。
+
+### 防复发措施与后续
+
+保留 assert_ne!，篡改类测试必须先确保构造的输入不同于有效原件。
+
+### 交付记录
+
+[修复提交 fb05bcb](https://github.com/LumiaBlack51/twodrive/commit/fb05bcb943b086fc2413ab049fc5cbd17c2e94c3)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。
+
+## TD-20260916-04：CI 中既有 known-folder 持久化测试的短观察窗失败
+
+- 日期：2026-09-16
+- 状态：已验证测试调度依赖修复：本地与最终 Linux CI 通过；生产回归尚无证据。
+- 影响版本与环境：重构前继承的 daemon 测试；peer CI 35068052022 的 Linux runner。
+- 关联历史故障：[响应与恢复](responsiveness-recovery-2026-09-08.md)描述需要保留的逐任务持久化行为；[历史调查](background-download-investigation-2026-09-08.md)曾记录另一项并发测试波动，不能据此认定相同根因。
+
+### 症状与影响
+
+completed_known_folder_job_is_persisted_while_slower_job_runs 在 CI 断言失败，本地完整套件此前通过。失败发生在旧 daemon 测试，不是 Windows peer 编译或握手失败。
+
+### 触发条件与复现
+
+测试只轮询 25 次、每次 20ms，模拟快/慢上传分别休眠 100/800ms。注入额外 600ms worker 启动延迟后，旧测试稳定在 0.51 秒失败，尚未进入生产上传处理。
+
+### 根因与证据
+
+原 CI 日志只证明 500ms 内未观察到目标状态，不能分辨启动调度慢与中间状态被漏采样。生产上传实现本阶段没有修改；具体 CI 调度轨迹无法还原。应使用可控的慢任务完成屏障，而非依赖两次定时休眠之间恰好采样。
+
+### 解决办法与恢复操作
+
+仅改测试：慢上传等待释放信号，主线程观察快结果持久化后再允许慢任务结束，并始终释放/回收工作线程。生产 daemon 不变，无本地恢复操作。
+
+### 验证结果与边界
+
+同样的 600ms 模拟启动延迟下，旧测试失败；新屏障版本在 1.55 秒内通过，且断言仍要求慢任务未完成时快结果已经持久化。最终原生 CI 通过。属于测试确定性验证，不代表真实 OneDrive 上传性能。
+
+### 防复发措施与后续
+
+保留“慢任务仍未结束时快结果已持久化”的断言，避免简单放宽断言或只重跑掩盖问题。
+
+### 交付记录
+
+[CI 35068052022](https://github.com/LumiaBlack51/twodrive/actions/runs/35068052022)，[修复提交 fb05bcb](https://github.com/LumiaBlack51/twodrive/commit/fb05bcb943b086fc2413ab049fc5cbd17c2e94c3)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。
+
+## TD-20260916-03：peer 健康检查无法写入相对输出文件
+
+- 日期：2026-09-16
+- 状态：已验证：本地与 Windows 原生 CLI 回归及 release 自检通过。
+- 影响版本与环境：实验 peer 0.1.0，截至 7f357bd；不影响现用 TwoDrive 实例。
+- 关联历史故障：无；不是 TD-20260916-02 的协议信任问题。
+
+### 症状与影响
+
+原生 CI 在运行 release exe 的 `health-check --output health.json` 时退出失败；构建本身和绝对路径的原生更新子进程测试通过。阻断 artifact 交付检查，未造成已有文件丢失。
+
+### 触发条件与复现
+
+在空的隔离当前目录执行上述命令，输出使用不带父目录的相对文件名。本地新增 CLI 回归测试在旧函数上稳定失败，退出码 1。
+
+### 根因与证据
+
+Path::parent 对单文件名返回空路径；原子写入尝试在空路径创建临时文件，而不是当前目录。core 新增的私密文件写入辅助函数存在相同边界，虽然 peer 的实际 token 路径使用绝对父目录。
+
+### 解决办法与恢复操作
+
+已将空父目录规范为 `.`，保持同目录原子替换和 Unix 目录 fsync。没有用户数据恢复操作。
+
+### 验证结果与边界
+
+`release_health_command_writes_relative_output_without_state_side_effects` 在修复前失败，修复后通过；格式、Clippy 和 diff 检查通过。Windows 原生同一 CLI 回归及 release 自检通过。测试不访问 OneDrive，不代表真实登录通过。
+
+### 防复发措施与后续
+
+保留真实 CLI 子进程测试，验证生成预期健康结果且不创建 peer 运行状态。原生 CI 在上传产物前执行 release 健康检查。
+
+### 交付记录
+
+触发 CI：[35067546462](https://github.com/LumiaBlack51/twodrive/actions/runs/35067546462)。[修复提交 69fb3d9](https://github.com/LumiaBlack51/twodrive/commit/69fb3d94c797867f8d702daf7801d6f73e04000f)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。artifact 摘要见 [交付记录](peer-implementation.md#verified-delivery)。
+
+## TD-20260916-02：relay-lab 原型的云端信任与控制重放边界不足
+
+- 日期：2026-09-16
+- 状态：已验证新 peer 的本地及原生 CI 安全机制；真实 OneDrive 端到端未验证。
+- 影响版本与环境：用户提供的独立 twodrive-relay-lab 0.1.0 原型；不据此认定稳定 TwoDrive 存在相同攻击面。
+- 关联历史故障：无；与 FUSE 权限和本地创建记录故障无关。
+
+### 症状与影响
+
+原型把同一 OneDrive 中自签名 manifest 列表作为 trusted_senders；可写云端的主体能添加自有密钥，再发送可被接受的加密消息。加密不等于验证物理设备归属。原型没有设备控制握手与会话重放状态，不能直接当作控制协议使用。
+
+### 触发条件与复现
+
+审计 identity.rs 的 manifest 自签名验证、graph.rs::list_manifests 和 crypto.rs::verify_payload 调用链，确认信任列表完全来源于云端。新协议用未知自签名设备、重复信封、过期信封、错误会话/目标作为合成回归输入。旧原型复制到隔离临时目录后，新增两项安全要求测试；均可重复失败（云端注入身份被接收、同一信封两次解密均被接收）。原始工作区原型未修改，也未在真实云端进行攻击测试。
+
+### 根因与证据
+
+云端发现与本地授权未区分；消息签名未覆盖目标、信封 ID 和有效期等外层路由字段。详细分析见 [peer audit](peer-implementation.md)。Windows 兼容性检查还发现已有 core credential 和 provider upload persistence 导入 Unix 专用 API，原样依赖无法编译 Windows peer；这属于此前 Linux-only 代码的移植边界。
+
+### 解决办法与恢复操作
+
+复用 provider/OAuth，不导入原型的重复认证实现。新协议增加本地指纹信任、完整上下文签名、随机会话、挑战握手、重放窗和输入上限。Windows 使用 DPAPI，Unix 保持 token 格式兼容并原子写入。更新发布密钥独立于设备身份和云端。
+
+本地恢复操作：无。仅在独立 worktree 和测试临时目录构建运行，未操作稳定服务和已有用户数据。
+
+### 验证结果与边界
+
+初轮 peer 7 项、core 31 项 Linux 测试通过，包括未知设备拒绝、双向握手与 ping/pong、重放/过期/会话拒绝，以及正常更新、错误签名、损坏文件、健康检查失败回退。最终 110 项默认 Rust 测试、19 项 Python 测试、6 项实际隔离 FUSE 测试、独立 daemon smoke 通过。Windows 原生 CI 的 68 项默认测试及额外原生更新进程测试通过。测试为模拟，非真实 OneDrive 端到端。已在原型副本运行 audited_cloud_manifest_is_not_local_authorization 和 audited_control_replay_must_be_rejected，两项均因预期的安全边界缺失而失败；新 peer 的对应未知身份和重放拒绝测试通过。两套实现协议不同，这不是将同一测试直接移植到旧生产版本。
+
+### 防复发措施与后续
+
+协议层测试固定 cloud discovery != local trust；后续传输仅提供不可信字节。保持独立发布根、反回滚检查和不覆盖当前 exe 的更新事务。更多故障及最终验证将在交付前补记。
+
+### 交付记录
+
+实验分支 codex/peer-control；[构建提交 31ca30e](https://github.com/LumiaBlack51/twodrive/commit/31ca30e0433fbbf733930e14a88315058d472ec1)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。产物摘要见 [交付记录](peer-implementation.md#verified-delivery)。未发布或替换稳定 TwoDrive。
 
 ## TD-20260915-01：新建目录中解压文件报 I/O 错误
 

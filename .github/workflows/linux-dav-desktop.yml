@@ -1,0 +1,128 @@
+name: TwoDrive desktop
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    paths:
+      - 'apps/dav/**'
+      - 'experiments/twodrive-dev/**'
+      - 'crates/**'
+      - 'scripts/*dav-desktop.py'
+      - 'scripts/test-desktop-windows-ui.py'
+      - 'scripts/test-dav-tray-x11.py'
+      - '.github/workflows/linux-dav-desktop.yml'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Native platform to validate
+        type: choice
+        options: [all, linux, windows]
+        default: all
+permissions:
+  contents: read
+jobs:
+  linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native desktop prerequisites
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev fuse3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/twodrive-dev -> target
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.8'
+          channel: stable
+          cache: true
+      - name: Rust checks
+        working-directory: experiments/twodrive-dev
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --features mount --all-targets -- -D warnings
+          python3 scripts/test-provider-old-paths.py
+          cargo test --locked --features mount
+          cargo build --locked --release --features mount --bins
+      - name: Desktop IPC and WebDAV operations
+        run: python3 scripts/test-dav-desktop.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
+      - name: Tray positioning regression
+        run: |
+          clang++ -std=c++17 -Wall -Wextra -Werror apps/dav/linux/runner/tray_geometry_test.cc -o /tmp/tray-geometry-test
+          /tmp/tray-geometry-test
+      - name: Flutter checks and native build
+        working-directory: apps/dav
+        run: |
+          flutter pub get --enforce-lockfile
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze
+          flutter test
+          flutter build linux --release
+      - name: Assemble portable directory
+        run: |
+          cp experiments/twodrive-dev/target/release/twodrive-dev experiments/twodrive-dev/target/release/twodrive-dav-engine apps/dav/build/linux/x64/release/bundle/
+          tar -C apps/dav/build/linux/x64/release -cJf twodrive-development-linux-x64.tar.xz bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twodrive-development-linux-x64
+          path: twodrive-development-linux-x64.tar.xz
+          if-no-files-found: error
+
+  windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/twodrive-dev -> target
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.8'
+          channel: stable
+          cache: true
+      - name: Portable desktop engine
+        working-directory: experiments/twodrive-dev
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test-provider-old-paths.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release --bins
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows IPC, file transfer, backups and autostart isolation
+        run: python scripts/test-dav-desktop.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
+      - name: Flutter checks and native Windows build
+        working-directory: apps/dav
+        run: |
+          flutter pub get --enforce-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter analyze
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Assemble portable Windows directory
+        run: |
+          Copy-Item experiments/twodrive-dev/target/release/twodrive-dev.exe,experiments/twodrive-dev/target/release/twodrive-dav-engine.exe apps/dav/build/windows/x64/runner/Release/
+          Copy-Item scripts/install-desktop-windows.ps1 apps/dav/build/windows/x64/runner/Release/
+      - name: Windows native tray smoke
+        run: python scripts/test-desktop-windows-ui.py apps/dav/build/windows/x64/runner/Release/twodrive_dav.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: twodrive-development-windows-x64
+          path: apps/dav/build/windows/x64/runner/Release/
+          if-no-files-found: error
