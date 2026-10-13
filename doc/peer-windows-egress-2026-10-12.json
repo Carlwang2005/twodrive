@@ -1,115 +1,12 @@
 {
+  "validation_status": "passed",
+  "final_source_commit": "1a484376ba4cc5a45ce8c9909832482245974eac",
   "date": "2026-10-12",
   "network_context": "Linux campus Wi-Fi with FlClash TUN; Windows campus Wi-Fi with TUN previously confirmed; independent NAT not established",
   "independent_nat_established": false,
   "baseline_native_ci": 38248783869,
   "controller_ready_sha256": "8dc3cff67a83982509c595bc8178f0d583096d9b27616e01550ffdbc288ded9d",
   "original_linux_client_state_preserved": true,
-  "stages": [
-    {
-      "name": "both_auto",
-      "passed": true,
-      "data": {
-        "bytes": 2097152,
-        "sha256": "1e075c8d478ad21844e33e830a695ef03a4d2488b69ee275bd8947618bb1be1e",
-        "put_seconds": 1.213,
-        "get_seconds": 5.473,
-        "full_hash": true,
-        "move": true,
-        "range_bytes": 262144,
-        "delete_404": true
-      },
-      "linux_network": {
-        "samples": 10,
-        "public_tcp_samples": 17,
-        "physical_bound_tcp_samples": 17,
-        "nonphysical_tcp_samples": 0,
-        "route_unchanged": true,
-        "proxy_fake_ip_present": true
-      },
-      "selected_path": [
-        "Selected path: relay:https://aps1-1.relay.n0.iroh.link./ RTT: 92.5 ms"
-      ],
-      "linux_network_messages": [
-        "network: route=physical interface=wlo1 fallback=reported-system/proxy"
-      ],
-      "windows_network": {
-        "nonphysical_tcp_samples": 0,
-        "physical_tcp_samples": 14,
-        "proxy_fake_ip_present": true,
-        "public_tcp_samples": 14,
-        "route_unchanged": true,
-        "samples": 7
-      },
-      "windows_network_messages": [
-        "network: route=physical interface={A413DAC6-7B2C-4D3D-ADB0-31CB2CC4EAB5} fallback=reported-system/proxy"
-      ],
-      "windows_failure_exit_code": null
-    },
-    {
-      "name": "linux_fallback",
-      "passed": true,
-      "data": {
-        "bytes": 2097152,
-        "sha256": "1e075c8d478ad21844e33e830a695ef03a4d2488b69ee275bd8947618bb1be1e",
-        "put_seconds": 4.448,
-        "get_seconds": 5.103,
-        "full_hash": true,
-        "move": true,
-        "range_bytes": 262144,
-        "delete_404": true
-      },
-      "linux_network": {
-        "samples": 19,
-        "public_tcp_samples": 71,
-        "physical_bound_tcp_samples": 0,
-        "nonphysical_tcp_samples": 71,
-        "route_unchanged": true,
-        "proxy_fake_ip_present": true
-      },
-      "selected_path": [
-        "Selected path: relay:https://aps1-1.relay.n0.iroh.link./ RTT: 1094.1 ms"
-      ],
-      "linux_network_messages": [
-        "network: route=system/proxy fallback; physical setup or relay registration failed",
-        "network: route=system/proxy; physical bypass disabled"
-      ],
-      "windows_network": {
-        "nonphysical_tcp_samples": 0,
-        "physical_tcp_samples": 30,
-        "proxy_fake_ip_present": true,
-        "public_tcp_samples": 30,
-        "route_unchanged": true,
-        "samples": 15
-      },
-      "windows_network_messages": [
-        "network: route=physical interface={A413DAC6-7B2C-4D3D-ADB0-31CB2CC4EAB5} fallback=reported-system/proxy"
-      ],
-      "windows_failure_exit_code": null
-    },
-    {
-      "name": "windows_fallback",
-      "passed": false,
-      "data": null,
-      "linux_network": null,
-      "selected_path": [],
-      "linux_network_messages": [],
-      "windows_network": {
-        "nonphysical_tcp_samples": 0,
-        "physical_tcp_samples": 0,
-        "proxy_fake_ip_present": true,
-        "public_tcp_samples": 0,
-        "route_unchanged": true,
-        "samples": 20
-      },
-      "windows_network_messages": [
-        "network: route=system/proxy fallback; physical setup or relay registration failed",
-        "network: route=system/proxy; physical bypass disabled",
-        "Error: relay registration timed out; check outbound connectivity or use --no-relay for LAN testing"
-      ],
-      "windows_failure_exit_code": 1
-    }
-  ],
   "diagnostic_candidate": {
     "ci_run_id": 38250184130,
     "source_commit": "23ab32734dcf5a149d8d99ac6258aae471afc4d4",
@@ -143,7 +40,7 @@
     "local_probe_state_dirs_removed": true,
     "local_control_gateway_stopped": true
   },
-  "dev_promoted": false,
+  "dev_promoted": true,
   "system_proxy_diagnostic": {
     "candidate": {
       "ci_run_id": 38253177181,
@@ -354,5 +251,118 @@
       "static HTTP proxy parsers tested natively, configured static proxy not exercised on these devices",
       "PAC/WPAD/SOCKS not implemented; TXT retains existing resolver"
     ]
-  }
+  },
+  "dev_promotion_commit": "343b4fa93ae9b3cd639f63e4edc4ebcc733143b3",
+  "dev_ci": {
+    "webdav_peer_run_id": 38258670629,
+    "peer_native_run_id": 38258670478,
+    "windows_dual_preview_run_id": 38258670638,
+    "status": "success",
+    "verified_date": "2026-10-13"
+  },
+  "baseline_stages": [
+    {
+      "name": "both_auto",
+      "passed": true,
+      "data": {
+        "bytes": 2097152,
+        "sha256": "1e075c8d478ad21844e33e830a695ef03a4d2488b69ee275bd8947618bb1be1e",
+        "put_seconds": 1.213,
+        "get_seconds": 5.473,
+        "full_hash": true,
+        "move": true,
+        "range_bytes": 262144,
+        "delete_404": true
+      },
+      "linux_network": {
+        "samples": 10,
+        "public_tcp_samples": 17,
+        "physical_bound_tcp_samples": 17,
+        "nonphysical_tcp_samples": 0,
+        "route_unchanged": true,
+        "proxy_fake_ip_present": true
+      },
+      "selected_path": [
+        "Selected path: relay:https://aps1-1.relay.n0.iroh.link./ RTT: 92.5 ms"
+      ],
+      "linux_network_messages": [
+        "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+      ],
+      "windows_network": {
+        "nonphysical_tcp_samples": 0,
+        "physical_tcp_samples": 14,
+        "proxy_fake_ip_present": true,
+        "public_tcp_samples": 14,
+        "route_unchanged": true,
+        "samples": 7
+      },
+      "windows_network_messages": [
+        "network: route=physical interface={A413DAC6-7B2C-4D3D-ADB0-31CB2CC4EAB5} fallback=reported-system/proxy"
+      ],
+      "windows_failure_exit_code": null
+    },
+    {
+      "name": "linux_fallback",
+      "passed": true,
+      "data": {
+        "bytes": 2097152,
+        "sha256": "1e075c8d478ad21844e33e830a695ef03a4d2488b69ee275bd8947618bb1be1e",
+        "put_seconds": 4.448,
+        "get_seconds": 5.103,
+        "full_hash": true,
+        "move": true,
+        "range_bytes": 262144,
+        "delete_404": true
+      },
+      "linux_network": {
+        "samples": 19,
+        "public_tcp_samples": 71,
+        "physical_bound_tcp_samples": 0,
+        "nonphysical_tcp_samples": 71,
+        "route_unchanged": true,
+        "proxy_fake_ip_present": true
+      },
+      "selected_path": [
+        "Selected path: relay:https://aps1-1.relay.n0.iroh.link./ RTT: 1094.1 ms"
+      ],
+      "linux_network_messages": [
+        "network: route=system/proxy fallback; physical setup or relay registration failed",
+        "network: route=system/proxy; physical bypass disabled"
+      ],
+      "windows_network": {
+        "nonphysical_tcp_samples": 0,
+        "physical_tcp_samples": 30,
+        "proxy_fake_ip_present": true,
+        "public_tcp_samples": 30,
+        "route_unchanged": true,
+        "samples": 15
+      },
+      "windows_network_messages": [
+        "network: route=physical interface={A413DAC6-7B2C-4D3D-ADB0-31CB2CC4EAB5} fallback=reported-system/proxy"
+      ],
+      "windows_failure_exit_code": null
+    },
+    {
+      "name": "windows_fallback",
+      "passed": false,
+      "data": null,
+      "linux_network": null,
+      "selected_path": [],
+      "linux_network_messages": [],
+      "windows_network": {
+        "nonphysical_tcp_samples": 0,
+        "physical_tcp_samples": 0,
+        "proxy_fake_ip_present": true,
+        "public_tcp_samples": 0,
+        "route_unchanged": true,
+        "samples": 20
+      },
+      "windows_network_messages": [
+        "network: route=system/proxy fallback; physical setup or relay registration failed",
+        "network: route=system/proxy; physical bypass disabled",
+        "Error: relay registration timed out; check outbound connectivity or use --no-relay for LAN testing"
+      ],
+      "windows_failure_exit_code": 1
+    }
+  ]
 }

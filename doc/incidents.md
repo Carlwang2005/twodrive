@@ -184,6 +184,8 @@ Windows 兜底约 32 秒注册超时，不能完成文件探针；默认物理�
 
 ### 交付记录
 
+[已核实 dev 推进提交 343b4fa](https://github.com/LumiaBlack51/twodrive/commit/343b4fa93ae9b3cd639f63e4edc4ebcc733143b3)。2026-10-13 补齐：该提交的 [WebDAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670629)、[Peer 原生](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670478)与 [Windows 双预览](https://github.com/LumiaBlack51/twodrive/actions/runs/38258670638)均已成功完成，未因本地会话中断而取消。
+
 [诊断候选 55b80ad](https://github.com/LumiaBlack51/twodrive/commit/55b80ad649cad7447e9e1a904b602d035d55bd88)；[原生 CI 38253177181](https://github.com/LumiaBlack51/twodrive/actions/runs/38253177181)；[修复 1a48437](https://github.com/LumiaBlack51/twodrive/commit/1a484376ba4cc5a45ce8c9909832482245974eac)；[两平台原生 CI 38256439762](https://github.com/LumiaBlack51/twodrive/actions/runs/38256439762)；[脱敏实机验证与清理记录](peer-windows-egress-2026-10-12.json)。
 
 ## TD-20261012-04：Windows 系统代理设置没有进入自动兜底配置
@@ -326,7 +328,7 @@ Linux 原生产物归档及二进制 SHA256 与 CI 38143055331 记录一致。�
 
 ### 交付记录
 
-待补充。
+[入口 f1657e5](https://github.com/LumiaBlack51/twodrive/commit/f1657e5070be4d0568a950177bab641d40209e8d)；[已核实 dev 推进提交 343b4fa](https://github.com/LumiaBlack51/twodrive/commit/343b4fa93ae9b3cd639f63e4edc4ebcc733143b3)；完整实机结果见 TD-20261012-05。
 
 ## TD-20261011-17：临时交付恢复助手按大小写查找 HTTP 头失败
 
@@ -366,7 +368,7 @@ KeyError 发生在本机恢复脚本第 15 行，写入已成功。需按无关�
 ## TD-20261011-16：交付恢复未先核对完成标志，误清已校验的自有控制包
 
 - 日期：2026-10-11
-- 状态：恢复交付已完成；实机首次启动待执行。
+- 状态：恢复交付及签名实机启动已确认；最终双端验证和清理通过。
 - 影响版本与环境：本次临时 Python 操作流程；Windows 原程序、身份/授权未改变。
 - 关联历史故障：TD-20261011-15 的并发 502 观察。不是已确认的持久用户数据丢失。
 
@@ -398,7 +400,7 @@ KeyError 发生在本机恢复脚本第 15 行，写入已成功。需按无关�
 
 ### 交付记录
 
-待补充恢复与实机结果。
+恢复后的首次签名就绪已确认，控制运行、候选全量执行校验及最终清理见 TD-20261012-05。
 
 ## TD-20261011-15：原有控制传输在 Windows 程序交付期间返回 502
 
@@ -543,7 +545,7 @@ Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付
 ## TD-20261011-11：跨端验证切换失败后未保留 child 退出证据，需反复人工操作
 
 - 日期：2026-10-11
-- 状态：控制机制已通过两平台原生验证，Windows 实机首次启用待执行。
+- 状态：已完成两平台原生及 Windows 实机控制验证、远程候选重试和最终清理。
 - 影响版本与环境：至 7337283 的临时 Windows 验证脚本；旧 serve 仅提供文件传输。
 - 关联历史故障：TD-20261011-07/09/10；07/09 根因已分别验证，10 的核心退出原因仍未确认。
 
@@ -577,7 +579,7 @@ Windows 严格编译检查通过，但 cargo test 失败；控制端尚未交付
 
 ### 交付记录
 
-[控制端提交 ee7bdd9](https://github.com/LumiaBlack51/twodrive/commit/ee7bdd9267fb52d4a04d05f1f2c7fadf03b3cc51)；[原生最终 CI 38143055331](https://github.com/LumiaBlack51/twodrive/actions/runs/38143055331)；实机控制结果待补充。
+[控制端提交 ee7bdd9](https://github.com/LumiaBlack51/twodrive/commit/ee7bdd9267fb52d4a04d05f1f2c7fadf03b3cc51)；[原生最终 CI 38143055331](https://github.com/LumiaBlack51/twodrive/actions/runs/38143055331)；实机控制结果见 TD-20261012-05 与 [脱敏控制记录](peer-test-control-2026-10-11.json)。
 
 ## TD-20261011-10：Windows 默认出口通过后兜底阶段启动失败
 
