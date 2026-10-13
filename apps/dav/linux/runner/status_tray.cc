@@ -63,7 +63,8 @@ gboolean position_mapped_panel(gpointer data) {
   tray->reposition = 0;
   if (tray->panel && gtk_widget_get_visible(GTK_WIDGET(tray->window))) {
     const auto bounds = tray->anchor.panel();
-    gdk_window_move(gtk_widget_get_window(GTK_WIDGET(tray->window)), bounds.x, bounds.y);
+    gdk_window_move_resize(gtk_widget_get_window(GTK_WIDGET(tray->window)),
+        bounds.x, bounds.y, bounds.width, bounds.height);
   }
   return G_SOURCE_REMOVE;
 }

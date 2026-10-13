@@ -326,7 +326,205 @@
       "pointer_anchor_verified": true,
       "host_event_root": "icon-local center"
     },
-    "earlier_position_boundary_correction": "Earlier stable synthetic event coordinates did not verify the GNOME clone position; the later regression verifies the live pointer anchor and mapped window coordinates."
+    "earlier_position_boundary_correction": "Earlier stable synthetic event coordinates did not verify the GNOME clone position; the later regression verifies the live pointer anchor and mapped window coordinates.",
+    "installed_full_rectangle_regression": {
+      "single_click_roundtrips": [
+        {
+          "expected": "IsViewable",
+          "ms": 54,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 44,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 28,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        }
+      ],
+      "settling_ms": 400,
+      "stable": true,
+      "pointer_anchor_verified": true,
+      "host_event_root": "icon-local center"
+    },
+    "isolated_full_rectangle_regression": {
+      "single_click_roundtrips": [
+        {
+          "expected": "IsViewable",
+          "ms": 36,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 32,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 31,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        }
+      ],
+      "settling_ms": 400,
+      "stable": true,
+      "pointer_anchor_verified": true,
+      "host_event_root": "icon-local center"
+    },
+    "full_rectangle_regression_old_failed": true,
+    "installed_size": "780x1140 physical pixels / 390x570 logical pixels"
   },
   "autostart_enabled": false,
   "stable_daemon_restarted": false,
@@ -334,7 +532,9 @@
     "OneDrive and Google Drive provider integration not implemented in this frontend",
     "Wayland and other desktop hosts not verified",
     "initial Windows HTTP 502 deeper cause unconfirmed",
-    "recovery intent reconstructed in isolated state; no machine power-loss test"
+    "recovery intent reconstructed in isolated state; no machine power-loss test",
+    "Physical Windows GUI not tested; Windows native CI uses owned windows and notification messages",
+    "Multiple monitors and hardware mouse input not covered by native fixture"
   ],
   "deployment": {
     "installed": true,
@@ -351,5 +551,18 @@
     "native_linux_release_build": true,
     "regression_old_initialization_failed": true,
     "regression_old_small_layout_failed": true
+  },
+  "ci": {
+    "shared_flutter_windows_and_backend": {
+      "commit": "7632033f0f60dbfee3c381d426493d697b33d8a1",
+      "runs": [
+        38351595568,
+        38351595592,
+        38351595588,
+        38351595574
+      ],
+      "conclusion": "success"
+    },
+    "linux_final_native_rectangle": "pending final CI"
   }
 }

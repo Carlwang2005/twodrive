@@ -79,7 +79,7 @@ selected peer route policy.
 ## Verification (2026-10-13)
 
 - Rust: 28 unit, 11 integration and 2 signed-control tests; strict Clippy and format.
-- Flutter: 7 model/widget tests, analyzer and native release build.
+- Flutter: 9 model/widget tests, analyzer and native release build.
 - Local real FUSE: existing-mount ownership, file round trip, clean-cache release,
   pending writes retained while paused and uploaded after resume.
 - Actual paired Windows: 2097356-byte SHA-256 round trip, upload/download, MOVE,
@@ -96,7 +96,7 @@ selected peer route policy.
 Automated desktop checks use disposable local/remote UUID directories and never
 print credentials or private listings. The recovery test reconstructs a durable
 committed-upload intent in isolated state; it is not a whole-machine power-loss test.
-See [incidents TD-20261013-01 through 07](incidents.md) for old/fixed evidence and
+See [incidents TD-20261013-01 through 14](incidents.md) for old/fixed evidence and
 remaining boundaries. Yesterday's Windows native proxy fallback validation is
 separately recorded in [its report](peer-windows-egress-2026-10-12.json).
 
@@ -104,8 +104,12 @@ The source includes Linux desktop CI and a portable bundle artifact. The install
 Development runtime connected to the real Windows gateway (PROPFIND 207); the
 tray panel displayed TwoDrive / Windows and “文件已就绪”, with no synthetic backup
 success. Autostart remained absent. Sanitized checks are stored in the
-[validation report](linux-desktop-validation-2026-10-13.json). CI and final cleanup
-results will be appended after completion. No stable
+[validation report](linux-desktop-validation-2026-10-13.json). The installed and isolated Linux native fixtures now also compare the settled
+window with the live pointer and workarea, accounting for GNOME icon-local event
+coordinates and the mapped window rectangle. Installed opening took 28–54ms,
+closing 4ms, with a stable 390×570 logical rectangle at 2× scaling. These are
+synthetic host events, not hardware input or multi-monitor acceptance. Final CI
+and cleanup results will be appended after completion. No stable
 release is replaced by this Development build.
 
 ## Windows desktop
@@ -113,7 +117,11 @@ release is replaced by this Development build.
 The same Flutter UI and IPC engine now have a native Windows runner, cloud tray,
 per-user paths, owned process jobs and opt-in startup entry. Windows CI builds the
 portable directory and exercises local WebDAV file operations and folder backups.
-Validation is in progress; no claim of physical Windows GUI acceptance yet.
+Windows native CI passed shared engine checks, nine Flutter tests, release build,
+background tray toggles, outside-focus dismissal and Escape. The fixture uses
+owned windows and notification messages; physical Windows GUI acceptance is not
+claimed. The earlier first-activation access violation was reproduced before
+window-manager taskbar initialization and absent afterward.
 
 Extract the complete portable directory and run `twodrive_dav.exe`, or run its
 `install-desktop-windows.ps1` to install in LocalAppData and create a Start Menu

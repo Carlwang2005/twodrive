@@ -12,10 +12,17 @@ on:
       - 'scripts/test-dav-tray-x11.py'
       - '.github/workflows/linux-dav-desktop.yml'
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Native platform to validate
+        type: choice
+        options: [all, linux, windows]
+        default: all
 permissions:
   contents: read
 jobs:
   linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +71,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
     runs-on: windows-latest
     env:
       RUSTFLAGS: '-C target-feature=+crt-static'
