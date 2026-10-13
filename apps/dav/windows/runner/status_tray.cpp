@@ -72,6 +72,8 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
         SetWindowLongPtrW(window_, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
         SetWindowPos(window_, HWND_TOPMOST, left, top, width, height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         SetForegroundWindow(window_);
+        // An already active window need not receive another WM_ACTIVATE.
+        focused_ = GetForegroundWindow() == window_;
         Trace("panel shown");
       } else {
         SetWindowLongPtrW(window_, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);

@@ -46,6 +46,41 @@
 
 
 
+## TD-20261013-11：Windows 面板已有焦点时失焦关闭状态可能未启用
+
+- 日期：2026-10-13
+- 状态：已定位状态缺口，原生边界回归待运行。
+- 影响版本与环境：b3ccfda 的 Windows native tray；不涉及 Linux 宿主单击机制。
+- 关联历史故障：TD-20261013-07/09 的原生交互边界。
+
+### 症状与影响
+
+审查发现 panel 调用先将 focused_ 清为 false，随后只依赖新的 WM_ACTIVATE 来启用失焦关闭。如果窗口在恢复/调整时已经是前台窗口，SetForegroundWindow 不需要再次发送激活事件，可能使外部点击无法收起。尚未在用户 Windows 桌面观察到此条件。
+
+### 触发条件与复现
+
+面板复用已有前台窗口时，焦点事件可能发生在 panel 调用之前。原有烟测只验证通知消息切换，没有覆盖外部窗口取得焦点。
+
+### 根因与证据
+
+窗口的实际前台状态与 focused_ 记录可能不一致；源码缺少显示完成后的实际前台状态查询。需要原生外部焦点转移测试补足边界，不以合成单击通过代替它。
+
+### 解决办法与恢复操作
+
+显示面板并请求前台后，以 GetForegroundWindow 核对当前状态；保留后续 WM_ACTIVATE 处理。测试创建自有临时焦点窗口验证失焦收起，并验证 Escape 通知收起。无用户配置恢复操作。
+
+### 验证结果与边界
+
+原生复验待运行；此前六次消息切换测试不覆盖此状态条件。测试仅操作 CI 内自有窗口，不使用私人账号或硬件鼠标输入；旧版本未单独复跑该边界。
+
+### 防复发措施与后续
+
+保留单击、窗口稳定、外部焦点转移和 Escape 的独立断言，不依赖点击前后总会产生新的激活事件。
+
+### 交付记录
+
+待补充。
+
 ## TD-20261013-10：管理窗口在较小尺寸和错误提示下布局溢出
 
 - 日期：2026-10-13
@@ -79,12 +114,12 @@ Flutter widget 测试在默认窗口尺寸启动客户端，缺失的隔离测�
 
 ### 交付记录
 
-待补充。
+[修复 b3ccfda](https://github.com/LumiaBlack51/twodrive/commit/b3ccfda5d792a6d24c5ddf5a0d449e5d005ed94d)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-09：Windows 原生托盘切换烟测失败
 
 - 日期：2026-10-13
-- 状态：调查中 / 根因未确认。
+- 状态：已验证 Windows 原生后台启动及六次托盘消息切换。
 - 影响版本与环境：8aefcb6，Windows 原生 CI，Flutter 3.41.8。
 - 关联历史故障：TD-20261013-07；Linux 宿主双击机制已另行修复，本条尚不能归为相同根因。
 
@@ -98,7 +133,7 @@ Flutter widget 测试在默认窗口尺寸启动客户端，缺失的隔离测�
 
 ### 根因与证据
 
-已确认源码中的初始化缺口：window_manager 0.5.1 的 Windows WaitUntilReadyToShow 才创建 taskbar_ COM 接口，ensureInitialized 只保存窗口句柄；应用未调用前者，showPanel 的 setSkipTaskbar 会解引用空 taskbar_。原生失败日志仍待验证是否对应此路径。[失败任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38347237158/job/115131358658)。需要区分托盘尚未就绪、Dart 回调异常、窗口操作和焦点引起的收起；启动后的异步 hide 与无条件窗口恢复调用也是待排除路径。
+已确认源码中的初始化缺口：window_manager 0.5.1 的 Windows WaitUntilReadyToShow 才创建 taskbar_ COM 接口，ensureInitialized 只保存窗口句柄；应用未调用前者，showPanel 的 setSkipTaskbar 会解引用空 taskbar_。带诊断的旧代码复验确认 configure 与第一条 activate 已收到，随后进程以 3221225477（0xC0000005，访问违例）退出，尚未进入 native panel；与空接口路径一致。修复 b3ccfda 的 Windows 原生同一烟测通过，确认初始化遗漏对应首次激活访问违例。[失败任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38347237158/job/115131358658)。需要区分托盘尚未就绪、Dart 回调异常、窗口操作和焦点引起的收起；启动后的异步 hide 与无条件窗口恢复调用也是待排除路径。
 
 ### 解决办法与恢复操作
 
@@ -106,7 +141,7 @@ Flutter widget 测试在默认窗口尺寸启动客户端，缺失的隔离测�
 
 ### 验证结果与边界
 
-初始化顺序的 widget 回归在删除初始化步骤后失败，修复后通过；全部 9 项 Flutter 测试通过。带诊断的原生 CI 和修复后的 Windows GUI 复验进行中。不把模拟 Shell 通知消息视为用户 Windows 桌面物理点击验证。
+初始化顺序的 widget 回归在删除初始化步骤后失败，修复后通过；全部 9 项 Flutter 测试通过。带诊断的 [旧代码原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38349552109/job/115138569071) 在第 1 次展开访问违例退出；修复后的 [Windows GUI 原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38349916841/job/115139721893) 的托盘烟测步骤通过，覆盖后台隐藏、三轮展开/收起、稳定后可见性和位置。不把模拟 Shell 通知消息视为用户 Windows 桌面物理点击验证。
 
 ### 防复发措施与后续
 
@@ -114,12 +149,12 @@ Flutter widget 测试在默认窗口尺寸启动客户端，缺失的隔离测�
 
 ### 交付记录
 
-待补充。
+[修复 b3ccfda](https://github.com/LumiaBlack51/twodrive/commit/b3ccfda5d792a6d24c5ddf5a0d449e5d005ed94d)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-08：Windows 专用备份分支未通过严格 Clippy
 
 - 日期：2026-10-13
-- 状态：已定位待原生复验。
+- 状态：已验证 Windows 原生严格 Clippy；GUI 故障另记 TD-20261013-09。
 - 影响版本与环境：d168d34，Windows CI Rust 1.99，新增桌面引擎；Linux 条件编译不会检查此分支。
 - 关联历史故障：TD-20261013-07 的 Windows 适配验证，不是网络故障。
 
@@ -141,7 +176,7 @@ desktop_backup::is_link 的 Windows 条件块末尾多余 return 触发 needless
 
 ### 验证结果与边界
 
-旧 Windows 检查失败；修正后原生 CI 进行中。此变更是平台条件编译检查覆盖问题，没有虚构文件传输故障或额外单元测试。
+旧 Windows 检查失败；8aefcb6 的 Windows 原生 Clippy、Rust 和 IPC/备份步骤通过，随后 GUI 烟测失败另记 TD-20261013-09。[原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38347237158/job/115131358658)。此变更是平台条件编译检查覆盖问题，没有虚构文件传输故障或额外单元测试。
 
 ### 防复发措施与后续
 
@@ -149,7 +184,7 @@ desktop_backup::is_link 的 Windows 条件块末尾多余 return 触发 needless
 
 ### 交付记录
 
-待补充。
+[修复 8aefcb6](https://github.com/LumiaBlack51/twodrive/commit/8aefcb64cf8d9897889612eeee0946d3b32bbff1)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-07：托盘收起迟滞及前端平台依赖暴露
 
@@ -188,7 +223,7 @@ desktop_backup::is_link 的 Windows 条件块末尾多余 return 触发 needless
 
 ### 交付记录
 
-待补充。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-06：托盘状态面板随鼠标位置改变而漂移
 
@@ -211,7 +246,7 @@ StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME �
 
 ### 解决办法与恢复操作
 
-计划在收到激活事件时保存锚点，小范围重复点击复用同一锚点；面板展开只读取锚点，优先放在图标上方并约束在工作区。没有收到有效坐标时才在事件接收时获取一次指针。安装程序只为本应用选择可定位的 X11 后端，保留用户显式覆盖。
+在收到激活事件时保存锚点，小范围重复点击复用同一锚点；面板展开只读取锚点，优先放在图标上方并约束在工作区。没有收到有效坐标时才在事件接收时获取一次指针。安装程序只为本应用选择可定位的 X11 后端，保留用户显式覆盖。
 
 ### 验证结果与边界
 
@@ -223,7 +258,8 @@ StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME �
 
 ### 交付记录
 
-待补充；[StatusNotifierItem 规范](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-item.html)。
+[修复 8aefcb6](https://github.com/LumiaBlack51/twodrive/commit/8aefcb64cf8d9897889612eeee0946d3b32bbff1)；[桌面交付与验证](linux-dav-desktop.md)。
+位置规范：[StatusNotifierItem](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-item.html)。
 
 ## TD-20261013-05：真实 Windows 备份验证中出现一次 WebDAV 502
 
@@ -262,12 +298,12 @@ StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME �
 
 ### 交付记录
 
-待补充。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-04：桌面客户端代理策略不可选，托盘交互和备份入口缺失
 
 - 日期：2026-10-13
-- 状态：已通过自动测试与本机原生检查；部署检查进行中。
+- 状态：已验证本机原生部署、实际 Windows WebDAV 连接与隔离功能回归。
 - 影响版本与环境：本次尚未提交的新 Linux 桌面前端；不涉及稳定版 OneDrive 守护进程。
 - 关联历史故障：TD-20261013-03 是退出路径缺陷；本条记录不同的产品功能和托盘点击机制。
 
@@ -289,7 +325,7 @@ StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME �
 
 ### 验证结果与边界
 
-待补充原生托盘、备份、Windows 往返测试。新界面只显示已实现的 TwoDrive 和 WebDAV 账号，不宣称已支持 Google Drive 或新增 OneDrive 登录。文件夹备份不传播本地删除。
+结果见下方验证补充及桌面验证报告。新界面只显示已实现的 TwoDrive 和 WebDAV 账号，不宣称已支持 Google Drive 或新增 OneDrive 登录。文件夹备份不传播本地删除。
 
 ### 防复发措施与后续
 
@@ -301,7 +337,7 @@ StatusNotifierItem 的 Activate 坐标用于提示窗口位置；本机 GNOME �
 
 ### 交付记录
 
-待提交；详见 [桌面客户端](linux-dav-desktop.md)。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-03：Linux Flutter 窗口退出触发图形上下文断言
 
@@ -340,7 +376,7 @@ window_manager 的 Linux destroy 直接调用 gtk_window_close。Flutter 自带 
 
 ### 交付记录
 
-待提交，详见 [Linux DAV 客户端](linux-dav-desktop.md)。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-02：DAV 前端的连接配置与失败传输缺少目标绑定
 
@@ -379,7 +415,7 @@ window_manager 的 Linux destroy 直接调用 gtk_window_close。Flutter 自带 
 
 ### 交付记录
 
-待提交，详见 [Linux DAV 客户端](linux-dav-desktop.md)。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261013-01：新 DAV 桌面客户端的挂载就绪检测缺少既有挂载检查
 
@@ -418,7 +454,7 @@ window_manager 的 Linux destroy 直接调用 gtk_window_close。Flutter 自带 
 
 ### 交付记录
 
-待提交。实现与最终验证见 [Linux DAV 客户端](linux-dav-desktop.md)。
+[修复 6752762](https://github.com/LumiaBlack51/twodrive/commit/6752762381eb0e1aedea54c16ca13333f147ec44)；[桌面交付与验证](linux-dav-desktop.md)。
 
 ## TD-20261012-08：系统 DNS 后备预算与中继外层超时相同
 

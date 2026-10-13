@@ -159,7 +159,75 @@
     "event_test_boundary": "Synthetic EnterNotify/primary press/release through the GTK tray window, matching GNOME forwarding; not hardware pointer injection.",
     "gnome_host": "GTK XEmbed compatibility for the host that reserves SNI activation for double click",
     "position_stable": true,
-    "window_manager_settling_checked_ms": 400
+    "window_manager_settling_checked_ms": 400,
+    "latest_installed_event_roundtrips": [
+      {
+        "expected": "IsViewable",
+        "ms": 54,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 2,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      },
+      {
+        "expected": "IsViewable",
+        "ms": 33,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 5,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      },
+      {
+        "expected": "IsViewable",
+        "ms": 33,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 6,
+        "geometry": {
+          "Absolute upper-left X": "110",
+          "Absolute upper-left Y": "130",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      }
+    ]
   },
   "autostart_enabled": false,
   "stable_daemon_restarted": false,
@@ -177,5 +245,12 @@
     "autostart_enabled": false,
     "stable_daemon_pid": 2306,
     "stable_daemon_restarts": 0
+  },
+  "flutter": {
+    "analyzer": true,
+    "tests": 9,
+    "native_linux_release_build": true,
+    "regression_old_initialization_failed": true,
+    "regression_old_small_layout_failed": true
   }
 }
