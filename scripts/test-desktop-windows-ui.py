@@ -17,6 +17,8 @@ u = c.WinDLL('user32', use_last_error=True)
 u.FindWindowW.argtypes = [w.LPCWSTR, w.LPCWSTR]
 u.FindWindowW.restype = w.HWND
 u.IsWindowVisible.argtypes = [w.HWND]
+u.GetPropW.argtypes = [w.HWND, w.LPCWSTR]
+u.GetPropW.restype = w.HANDLE
 u.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
 u.GetWindowRect.argtypes = [w.HWND, c.POINTER(w.RECT)]
 u.GetWindowThreadProcessId.argtypes = [w.HWND, c.POINTER(w.DWORD)]
@@ -26,7 +28,8 @@ with tempfile.TemporaryDirectory(prefix='td-ui-') as directory:
     exe = Path(sys.argv[1]).resolve()
     with (root/'stderr.log').open('w', encoding='utf-8') as log:
         proc = subprocess.Popen([str(exe), '--background', '--state', str(root/'state')],
-            cwd=exe.parent, stdout=log, stderr=log)
+            cwd=exe.parent, stdout=log, stderr=log,
+            env={**os.environ, 'TWODRIVE_TRAY_TRACE_FILE': str(root/'native.log')})
         try:
             deadline = time.monotonic()+30
             while True:
@@ -34,26 +37,35 @@ with tempfile.TemporaryDirectory(prefix='td-ui-') as directory:
                 owner = w.DWORD()
                 if hwnd:
                     u.GetWindowThreadProcessId(hwnd, c.byref(owner))
-                if owner.value == proc.pid and (root/'state/run.lock').exists(): break
+                if owner.value == proc.pid and (root/'state/run.lock').exists() and u.GetPropW(hwnd, 'TwoDrive.TrayReady'): break
                 assert proc.poll() is None, 'desktop process exited during startup'
                 assert time.monotonic() < deadline, 'desktop did not initialize'
                 time.sleep(.1)
             time.sleep(1)
             assert not u.IsWindowVisible(hwnd), 'background startup showed a window'
             positions=[]
-            for visible in [True, False]*3:
+            for cycle, visible in enumerate([True, False]*3, 1):
                 time.sleep(.3)
                 started=time.monotonic()
                 assert u.PostMessageW(hwnd, 0x8000+41, 0, 0x400), 'tray notification delivery failed'
                 while bool(u.IsWindowVisible(hwnd)) != visible:
-                    assert time.monotonic()-started<3, 'tray did not toggle'
+                    assert time.monotonic()-started<3, f'tray did not toggle: event={cycle}, expected_visible={visible}, process_exit={proc.poll()}'
                     time.sleep(.01)
+                time.sleep(.4)
+                assert bool(u.IsWindowVisible(hwnd)) == visible, f'visibility changed after settling: event={cycle}'
                 if visible:
                     rect=w.RECT();u.GetWindowRect(hwnd,c.byref(rect))
                     positions.append([rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top])
             assert positions[0]==positions[1]==positions[2], 'tray panel drifted'
             print(json.dumps({'native_tray_toggle':True,'background_hidden':True,'stable_position':True,
                 'boundary':'Shell notification message simulation; no hardware input or cloud profile'}))
+        except BaseException:
+            log.flush()
+            for name in ['native.log', 'stderr.log']:
+                path = root/name
+                if path.exists():
+                    print(f'{name}:\n{path.read_text(encoding="utf-8", errors="replace")[-12000:]}', flush=True)
+            raise
         finally:
             # This verifies window interaction. Graceful menu quit is a separate manual check.
             proc.terminate()

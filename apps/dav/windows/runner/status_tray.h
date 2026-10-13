@@ -15,6 +15,7 @@ class StatusTray {
  private:
   void Activate();
   void Dismiss();
+  void Trace(const char* event);
   HWND window_;
   NOTIFYICONDATAW icon_{};
   HICON image_ = nullptr;

@@ -1,6 +1,7 @@
 #include "status_tray.h"
 #include <flutter/standard_method_codec.h>
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 namespace {
@@ -23,6 +24,7 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
   channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "twodrive/status_tray", &flutter::StandardMethodCodec::GetInstance());
   channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    Trace(call.method_name().c_str());
     using flutter::EncodableValue;
     using flutter::EncodableMap;
     const auto* args = std::get_if<EncodableMap>(call.arguments());
@@ -41,6 +43,7 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
         DestroyIcon(next); result->Error("tray", "cannot register tray icon"); return;
       }
       added_ = true;
+      SetPropW(window_, L"TwoDrive.TrayReady", reinterpret_cast<HANDLE>(1));
       icon_.uVersion = NOTIFYICON_VERSION_4;
       Shell_NotifyIconW(NIM_SETVERSION, &icon_);
       if (image_) DestroyIcon(image_);
@@ -69,6 +72,7 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
         SetWindowLongPtrW(window_, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
         SetWindowPos(window_, HWND_TOPMOST, left, top, width, height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         SetForegroundWindow(window_);
+        Trace("panel shown");
       } else {
         SetWindowLongPtrW(window_, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
         SetWindowPos(window_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE);
@@ -81,16 +85,29 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
   });
 }
 StatusTray::~StatusTray() {
+  RemovePropW(window_, L"TwoDrive.TrayReady");
   if (added_) Shell_NotifyIconW(NIM_DELETE, &icon_);
   if (image_) DestroyIcon(image_);
 }
+void StatusTray::Trace(const char* event) {
+  wchar_t path[32768];
+  DWORD length = GetEnvironmentVariableW(L"TWODRIVE_TRAY_TRACE_FILE", path, 32768);
+  if (length == 0 || length >= 32768) return;
+  FILE* file = nullptr;
+  if (_wfopen_s(&file, path, L"a") != 0 || !file) return;
+  fprintf(file, "%llu %s panel=%d visible=%d focused=%d error=%lu\n",
+      GetTickCount64(), event, panel_, IsWindowVisible(window_), focused_, GetLastError());
+  fclose(file);
+}
 void StatusTray::Dismiss() {
+  Trace("dismiss requested");
   if (panel_ && IsWindowVisible(window_)) {
     dismissed_ = GetTickCount64();
     ShowWindow(window_, SW_HIDE);
   }
 }
 void StatusTray::Activate() {
+  Trace("activate");
   if (panel_ && (IsWindowVisible(window_) || GetTickCount64() - dismissed_ < 250)) {
     Dismiss(); return;
   }
@@ -114,6 +131,7 @@ std::optional<LRESULT> StatusTray::Message(UINT message, WPARAM wparam, LPARAM l
     return 0;
   }
   if (message == WM_ACTIVATE) {
+    Trace(LOWORD(wparam) == WA_INACTIVE ? "focus out" : "focus in");
     if (LOWORD(wparam) == WA_INACTIVE) { if (focused_) Dismiss(); focused_ = false; }
     else focused_ = true;
   }

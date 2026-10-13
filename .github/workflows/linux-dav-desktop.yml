@@ -8,6 +8,8 @@ on:
       - 'experiments/twodrive-dev/**'
       - 'crates/**'
       - 'scripts/*dav-desktop.py'
+      - 'scripts/test-desktop-windows-ui.py'
+      - 'scripts/test-dav-tray-x11.py'
       - '.github/workflows/linux-dav-desktop.yml'
   workflow_dispatch:
 permissions:
@@ -108,6 +110,7 @@ jobs:
       - name: Windows native tray smoke
         run: python scripts/test-desktop-windows-ui.py apps/dav/build/windows/x64/runner/Release/twodrive_dav.exe
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: twodrive-development-windows-x64
           path: apps/dav/build/windows/x64/runner/Release/
