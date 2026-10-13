@@ -8,7 +8,7 @@ use std::{
     path::Path,
     process::Command,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -48,7 +48,7 @@ pub fn connect(
     p: &Profile,
     args: &Args,
     cancel: &AtomicBool,
-    network: Arc<Mutex<Vec<String>>>,
+    network: Arc<twodrive_dev::network::Diagnostics>,
 ) -> anyhow::Result<Connection> {
     let peer = State::new(p.option("peer_state").into())?;
     let remote: iroh::EndpointAddr = peer.read("remote.json")?;

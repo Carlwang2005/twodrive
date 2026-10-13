@@ -103,7 +103,7 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 
 ### 解决办法与恢复操作
 
-成功连接后的 route_fallback 用独立 warning 状态，新增黄色三角感叹号 SVG 与 Windows ICO；托盘面板和工作区显示相同警告。真实连接/同步错误优先，断开后不保留兜底警告。UI 消费结构化布尔状态，不根据任意日志文本判断严重程度。未更改代理配置或运行中的安装。
+成功连接后的 route_fallback 用独立 warning 状态，新增黄色三角感叹号 SVG 与 Windows ICO；托盘面板和工作区显示相同警告。真实连接/同步错误优先，断开后不保留兜底警告。UI 消费结构化布尔状态，不根据任意日志文本判断严重程度。兜底标志独立于24条诊断环，避免日志轮转丢失；每次连接使用独立诊断对象，旧进程残留输出不污染新连接。未更改代理配置或运行中的安装。
 
 ### 验证结果与边界
 
@@ -144,17 +144,17 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 - 提供者适配器拥有认证、连接、路由、账户绑定、保护目录与不透明 worker recipe；私有 session 文件绑定提供者和 profile revision，worker 恢复不依赖 DAV URL 参数。原扁平 profiles、mount/backup binding 保持兼容。
 - Flutter StorageClient、动态 schema 表单、提供者标签与逐项能力来自 IPC。新增提供者无需更改通用文件/备份/mount 服务或前端 provider kind 分支。未知提供者不能静默作为 DAV 连接。
 - 备份歧义提交恢复先按路径查元数据，再通过提供者 ID 下载比对哈希；冲突保留意图及远端内容。条件上传能力不足时不提供上传/备份/读写挂载。
-- 已合并先前遗漏的 codex/pin-download-feedback 三项提交，并保留双方故障记录；其他远端功能分支已在 dev 的祖先中。main 的已合并内容将同步合入以对齐历史。
+- 已合并先前遗漏的 codex/pin-download-feedback 三项提交，并保留双方故障记录；其他远端功能分支已在 dev 的祖先中。main 的已合并内容已在56248a7同步合入，以对齐历史。
 
 **本地恢复操作**：在独立工作区开发。未修改原工作区未提交调查、真实配置、私人文件、运行服务或已安装客户端；本轮仅用临时测试数据。
 
 ### 验证结果与边界
 
-- Development Rust 48 项通过：28 库测试、4 引擎单元测试、11 集成、3 非 DAV 契约与2签名控制。严格 Clippy 与格式通过。
+- Development Rust 49 项通过：29 库测试、4 引擎单元测试、11 集成、3 非 DAV 契约与2签名控制。严格 Clippy 与格式通过。
 - 旧表达式回归在隔离源码副本分别恢复 desktop 和 backup 的 path-as-ID 调用，两项行为测试编译成功并在不透明 ID 断言失败；正常代码通过。这是对旧机制的受控回退，非原始完整旧树已支持非 DAV。
 - 13 项 Flutter 测试、analyzer 和 Linux release 构建通过。新提供者表单测试只用自定义 bucket 字段，无 DAV/peer 字段；能力分别控制上传/新建/重命名/删除/备份。
 - 完整根工作区151项默认 Rust、25项 Nautilus、4项 Settings 回归通过；根工作区格式和严格 Clippy 通过，7项环境相关测试仍默认忽略。
-- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；真实 FUSE、CLI 进程烟测、原生 Windows 和发布资产验证待补充。
+- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；本地真实 FUSE + loopback WebDAV 的 CLI 进程烟测已通过（文件读写、挂载所有权、缓存释放、暂停/恢复、备份创建/更新/歧义提交恢复/冲突保护、只读和默认关闭的隔离自启动）；最终产物复验与原生 Windows CI 待补充。
 - **边界**：非 DAV 是隔离内存替身，不代表真实 OneDrive、Google Drive 新 OAuth 集成或端到端验证；本轮未使用实际账户。当前配对适配器内部仍通过 loopback DAV gateway 访问设备，这是适配器的实现细节，不再是前端/通用服务合同。新提供者仍需自行实现并注册适配器和服务契约测试。
 
 ### 防复发措施与后续
@@ -163,7 +163,8 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 
 ### 交付记录
 
-调查起始提交 8c43805、遗漏修复合并237c87c（本地已存在；远端交付待完成）。修复源码、PR、Release、资产摘要待实际产生后补充。
+- 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已创建。
+- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。最终CI、Release与资产待补充。
 
 ## TD-20261013-14：映射后仅移动窗口保留了错误的缓存尺寸
 

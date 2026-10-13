@@ -21,6 +21,7 @@ use std::{
 use twodrive_core::{Database, FileState};
 use twodrive_dev::{
     model::{CloudBackend, MetadataEntry},
+    network::Diagnostics,
     profile::Profile,
     provider::Backend,
     state::State,
@@ -135,17 +136,13 @@ fn spawn(mut command: Command) -> anyhow::Result<Process> {
         job,
     ))
 }
-fn drain_errors(process: &mut Process, network: Arc<Mutex<Vec<String>>>) {
+fn drain_errors(process: &mut Process, network: Arc<Diagnostics>) {
     if let Some(stderr) = process.0.stderr.take() {
         thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 // Only the network layer's credential-free diagnostics enter the UI.
                 if line.starts_with("network:") {
-                    let mut lines = network.lock().unwrap();
-                    if lines.len() >= 24 {
-                        lines.remove(0);
-                    }
-                    lines.push(line.chars().take(512).collect());
+                    network.record(&line);
                 }
             }
         });
@@ -161,7 +158,7 @@ struct App {
     gateway: Option<Process>,
     mounted: Option<Process>,
     backup: Option<Process>,
-    network: Arc<Mutex<Vec<String>>>,
+    network: Arc<Diagnostics>,
 }
 impl App {
     fn profile(&self, id: &str) -> anyhow::Result<Profile> {
@@ -242,13 +239,13 @@ impl App {
         self.backend = None;
         self.gateway.take();
         self.connected = None;
-        self.network.lock().unwrap().clear();
+        self.network = Arc::default();
         Ok(())
     }
     fn connect(&mut self, id: &str, cancel: &AtomicBool) -> anyhow::Result<Value> {
         self.disconnect()?;
         let p = self.profile(id)?;
-        self.network.lock().unwrap().clear();
+        self.network = Arc::default();
         let connection = providers::connect(&p, &self.args, cancel, self.network.clone())?;
         let entries = connection.backend.list_directory("/")?;
         self.state.save(
@@ -364,9 +361,9 @@ impl App {
             .backup
             .as_mut()
             .is_some_and(|p| p.0.try_wait().ok().flatten().is_some());
-        let network = self.network.lock().unwrap().clone();
+        let network = self.network.snapshot();
         Ok(
-            json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":network.iter().any(|s| s.contains("route=system/proxy fallback")),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
+            json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":self.network.fallback(),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
             "cache":cache,"network":network,
@@ -700,7 +697,7 @@ pub fn run() -> anyhow::Result<()> {
         gateway: None,
         mounted: None,
         backup: None,
-        network: Arc::new(Mutex::new(Vec::new())),
+        network: Arc::default(),
     };
     if let Some(id) = &app.args.backup_worker {
         let p = app.profile(id)?;

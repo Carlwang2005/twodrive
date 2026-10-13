@@ -5,7 +5,7 @@ use anyhow::{Context, ensure};
 use serde_json::{Value, json};
 use std::{
     path::Path,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, atomic::AtomicBool},
 };
 use twodrive_dev::{profile::Profile, provider::Backend};
 
@@ -117,7 +117,7 @@ pub fn connect(
     p: &Profile,
     args: &Args,
     cancel: &AtomicBool,
-    network: Arc<Mutex<Vec<String>>>,
+    network: Arc<twodrive_dev::network::Diagnostics>,
 ) -> anyhow::Result<Connection> {
     validate(p)?;
     match p.kind.as_str() {

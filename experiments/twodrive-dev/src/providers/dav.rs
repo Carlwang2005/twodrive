@@ -2,7 +2,7 @@ use super::Connection;
 use anyhow::ensure;
 use serde_json::{Value, json};
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicBool, Ordering},
 };
 use twodrive_dev::{
@@ -41,7 +41,7 @@ pub fn restore(p: &Profile, recipe: &Value) -> anyhow::Result<Backend> {
 pub fn connect(
     p: &Profile,
     cancel: &AtomicBool,
-    network: Arc<Mutex<Vec<String>>>,
+    network: Arc<twodrive_dev::network::Diagnostics>,
 ) -> anyhow::Result<Connection> {
     ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
     let initial = if p.network_route == "system" {
@@ -64,19 +64,13 @@ pub fn connect(
         Err(e) if p.network_route == "auto" && e.downcast_ref::<DavError>().is_none() => {
             ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
             let b = probe("system")?;
-            network
-                .lock()
-                .unwrap()
-                .push("network: route=system/proxy fallback; physical probe failed".into());
+            network.record("network: route=system/proxy fallback; physical probe failed");
             (b, "system")
         }
         Err(e) => return Err(e),
     };
     ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
-    network
-        .lock()
-        .unwrap()
-        .push(format!("network: WebDAV route={route}"));
+    network.record(&format!("network: WebDAV route={route}"));
     Ok(Connection {
         backend,
         binding: format!("dav:{}:{}", p.option("url"), p.option("username")),
