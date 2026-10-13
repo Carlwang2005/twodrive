@@ -2378,7 +2378,7 @@ Windows Python 默认编码为 GBK。并非管道消息截断或同步成功丢�
 
 本地诊断脚本及说明已保存于仓库工作区，服务安装在当前用户目录；尚未提交、发布或生成安装包。
 
-2026-10-13 提交前补记：按用户要求将此前未提交的调查、监测脚本与说明纳入本仓库。脚本原样保留，本轮8项隔离检查通过：SQLite目录/文件权限、拒绝公开目录/数据库、48小时清理与进程不存在状态、注入慢响应后的恢复记录、30秒异常采样限流、非法间隔在创建状态前拒绝，以及只写临时数据库的本机只读探测。慢响应/错误/恢复用注入结果验证，未复现实际卡顿；不改原有“根因未确认”结论。本轮未安装或重启监测服务、未打开用户诊断数据库、未操作真实云端。提交和 dev 合并链接待实际产生后补充。
+2026-10-13 提交前补记：按用户要求将此前未提交的调查、监测脚本与说明纳入本仓库。脚本原样保留，本轮8项隔离检查通过：SQLite目录/文件权限、拒绝公开目录/数据库、48小时清理与进程不存在状态、注入慢响应后的恢复记录、30秒异常采样限流、非法间隔在创建状态前拒绝，以及只写临时数据库的本机只读探测。慢响应/错误/恢复用注入结果验证，未复现实际卡顿；不改原有“根因未确认”结论。本轮未安装或重启监测服务、未打开用户诊断数据库、未操作真实云端。已提交 [34dbb83](https://github.com/LumiaBlack51/twodrive/commit/34dbb838ca623a95f2401a7e9777d307e0c040a2) 并通过 [PR #12](https://github.com/LumiaBlack51/twodrive/pull/12) 合入 dev；合并提交 [2e9e523](https://github.com/LumiaBlack51/twodrive/commit/2e9e5239a77f8c84c29a70542576e0556eebac98)。
 
 ## TD-20260924-01：弱网时 Nautilus 无响应及 PDF 保存结果不明确
 
@@ -2825,6 +2825,8 @@ Path::parent 对单文件名返回空路径；原子写入尝试在空路径创�
 ### 交付记录
 
 实验分支 codex/peer-control；[构建提交 31ca30e](https://github.com/LumiaBlack51/twodrive/commit/31ca30e0433fbbf733930e14a88315058d472ec1)；[最终 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/35068850290)。产物摘要见 [交付记录](peer-implementation.md#verified-delivery)。未发布或替换稳定 TwoDrive。
+
+2026-10-13 原型归档补记：原始 relay-lab 的15个文件（98,438字节）以原字节保存到 [TwoDrive-relay-lab](../TwoDrive-relay-lab/README.md)，并随[PR #12](https://github.com/LumiaBlack51/twodrive/pull/12) 合入 dev。另加归档说明和本地状态忽略规则，未启用历史CI模板/发布脚本，未接入工作区成员或生产依赖。该操作保存历史审计参考，不修复原型的信任、重放或并发配额缺口，也不扩大原有验证结论。
 
 ## TD-20260915-01：新建目录中解压文件报 I/O 错误
 

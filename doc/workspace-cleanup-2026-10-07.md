@@ -99,4 +99,4 @@ git worktree add ../twodrive-refactor codex/provider-boundaries
 
 本记录描述2026-10-07的清理事实；上文“尚未提交”和当时的分支/进程状态不代表当前状态。用户现已要求提交遗漏资料并合入 dev。清理记录、Nautilus调查和诊断脚本现一起纳入版本管理，原始 relay-lab 的15个文件保持原字节归档于 [TwoDrive-relay-lab](../TwoDrive-relay-lab/README.md)，另加归档用途与已知边界说明。实验源码不接入工作区成员、桌面、daemon 或 peer，历史发布脚本和 CI 模板未执行/启用。
 
-本次提交留档没有再次清理构建产物或回退包，也没有更新安装、服务、挂载和用户运行状态。当前功能代码及发布交付见 [2026-10-13提供者记录](provider-boundaries-2026-10-13.md)；原有清理证据和验证边界保留。提交与 dev 合并链接待实际产生后补充。
+本次提交留档没有再次清理构建产物或回退包，也没有更新安装、服务、挂载和用户运行状态。当前功能代码及发布交付见 [2026-10-13提供者记录](provider-boundaries-2026-10-13.md)；原有清理证据和验证边界保留。已提交 [34dbb83](https://github.com/LumiaBlack51/twodrive/commit/34dbb838ca623a95f2401a7e9777d307e0c040a2) 并通过 [PR #12](https://github.com/LumiaBlack51/twodrive/pull/12) 合入 dev，合并提交为 [2e9e523](https://github.com/LumiaBlack51/twodrive/commit/2e9e5239a77f8c84c29a70542576e0556eebac98)。

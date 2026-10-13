@@ -43,8 +43,8 @@ deb package. This monitor does not restart Nautilus or the mount.
 
 ## Source archival check (2026-10-13)
 
-The previously local-only script and this guide are now being committed to
-TwoDrive. Eight isolated checks passed: private SQLite modes, public-directory
+The previously local-only script and this guide were committed and merged into
+TwoDrive dev through [PR #12](https://github.com/LumiaBlack51/twodrive/pull/12). Eight isolated checks passed: private SQLite modes, public-directory
 and public-file rejection, 48-hour retention, absent process reporting,
 injected slow/recovered events, 30-second repeat throttling, input validation
 before state creation, and a real read-only local probe into a temporary DB.
