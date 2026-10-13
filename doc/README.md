@@ -39,3 +39,5 @@ Existing investigation paths are retained so earlier release links continue to w
 
 - [Experimental device peer: implementation and audit](peer-implementation.md)
 - [Peer 第一次 Windows/Linux 联调](peer-quickstart.zh-CN.md)
+
+- [TwoDrive Development — Linux Flutter client / Linux 桌面客户端](linux-dav-desktop.md) · [2026-10-13 验证报告](linux-desktop-validation-2026-10-13.json)

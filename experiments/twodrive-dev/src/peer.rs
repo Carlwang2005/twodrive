@@ -763,7 +763,18 @@ pub async fn gateway(
                     // Never replay a mutation on transport failure; the caller decides retry.
                     Ok(match client.forward(request).await {
                         Ok(response) => response,
-                        Err(_) => proxy_error(StatusCode::BAD_GATEWAY),
+                        Err(error) => {
+                            let category =
+                                if error.chain().any(|e| e.is::<tokio::time::error::Elapsed>()) {
+                                    "timeout"
+                                } else if error.chain().any(|e| e.is::<hyper::Error>()) {
+                                    "http"
+                                } else {
+                                    "transport"
+                                };
+                            eprintln!("network: peer request failed; category={category}");
+                            proxy_error(StatusCode::BAD_GATEWAY)
+                        }
                     })
                 }
             });

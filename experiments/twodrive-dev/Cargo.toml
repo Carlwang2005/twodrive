@@ -13,6 +13,7 @@ default = []
 mount = ["dep:twodrive-fs", "dep:fuser"]
 
 [dependencies]
+twodrive-core = { path = "../../crates/twodrive-core" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -51,7 +52,6 @@ windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32
 
 [target.'cfg(target_os = "linux")'.dependencies]
 twodrive-backend = { path = "../../crates/twodrive-backend" }
-twodrive-core = { path = "../../crates/twodrive-core" }
 twodrive-fs = { path = "../../crates/twodrive-fs", optional = true }
 fuser = { version = "0.15", default-features = false, optional = true }
 
