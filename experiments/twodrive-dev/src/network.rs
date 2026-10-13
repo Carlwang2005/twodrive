@@ -277,6 +277,39 @@ pub(crate) async fn close_failed(endpoint: Endpoint) {
     endpoint.close().await;
 }
 
+/// Own the physical DNS/CONNECT adapter for a synchronous HTTPS client.
+/// No fallback occurs inside this connector; callers choose fallback before writes.
+pub struct HttpConnector {
+    pub proxy: reqwest::Proxy,
+    pub interface: String,
+    _adapter: Arc<proxy::Adapter>,
+    _runtime: tokio::runtime::Runtime,
+}
+impl HttpConnector {
+    pub fn direct() -> anyhow::Result<Self> {
+        let physical = Arc::new(select_physical(
+            netdev::get_interfaces(),
+            RouteMode::Direct,
+            None,
+        )?);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()?;
+        let adapter = runtime.block_on(proxy::Adapter::start(
+            physical.clone(),
+            Arc::new(dns::Backend::new(physical.clone())),
+        ))?;
+        let proxy = reqwest::Proxy::https(adapter.url.as_str())?;
+        Ok(Self {
+            proxy,
+            interface: physical.name.clone(),
+            _adapter: adapter,
+            _runtime: runtime,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

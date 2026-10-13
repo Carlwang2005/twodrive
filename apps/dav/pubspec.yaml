@@ -1,0 +1,19 @@
+name: twodrive_dav
+description: TwoDrive Development for Linux and Windows, with paired devices and WebDAV accounts.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: ^3.11.5
+dependencies:
+  flutter:
+    sdk: flutter
+  window_manager: 0.5.1
+  file_selector: 1.1.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

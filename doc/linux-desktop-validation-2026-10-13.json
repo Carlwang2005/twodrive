@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-13",
+  "product": "TwoDrive Development",
+  "local": {
+    "mode": "local-WebDAV",
+    "checks": {
+      "private_profiles": true,
+      "connect": true,
+      "connection_affinity_enforced": true,
+      "roundtrip_bytes": 2097356,
+      "roundtrip_sha256": "25e13b8004eab67ba7723f8ff39dd3b180edd968c2902d3e0ed47e9a74723b65",
+      "shallow_directory": true,
+      "no_clobber": true,
+      "traversal_rejected": true,
+      "rename": true,
+      "progress_events": 3,
+      "fuse_read": true,
+      "existing_mount_not_adopted": true,
+      "fuse_write": true,
+      "fuse_pause_preserves_and_resumes_pending_write": true,
+      "cache_cleared": true,
+      "backup_committed_upload_recovery_by_hash": true,
+      "backup_conflict_preserves_remote": true,
+      "folder_backup_create_update_pause_resume_symlink_guard": true,
+      "remote_test_removed": true,
+      "readonly_enforced": true,
+      "autostart_toggle_isolated_default_off": true
+    },
+    "passed": true
+  },
+  "windows": {
+    "mode": "actual-paired-Windows",
+    "checks": {
+      "private_profiles": true,
+      "connect": true,
+      "connection_affinity_enforced": true,
+      "roundtrip_bytes": 2097356,
+      "roundtrip_sha256": "25e13b8004eab67ba7723f8ff39dd3b180edd968c2902d3e0ed47e9a74723b65",
+      "shallow_directory": true,
+      "no_clobber": true,
+      "traversal_rejected": true,
+      "rename": true,
+      "progress_events": 6,
+      "fuse_read": true,
+      "fuse_write": true,
+      "fuse_pause_preserves_and_resumes_pending_write": true,
+      "cache_cleared": true,
+      "backup_committed_upload_recovery_by_hash": true,
+      "backup_conflict_preserves_remote": true,
+      "folder_backup_create_update_pause_resume_symlink_guard": true,
+      "remote_test_removed": true,
+      "autostart_toggle_isolated_default_off": true
+    },
+    "passed": true
+  },
+  "routes": [
+    {
+      "mode": "direct",
+      "connected": true,
+      "seconds": 2.53,
+      "network": [
+        "network: route=physical interface=wlo1 fallback=disabled"
+      ]
+    },
+    {
+      "mode": "system",
+      "connected": true,
+      "seconds": 3.38,
+      "network": [
+        "network: route=system/proxy; physical bypass disabled"
+      ]
+    },
+    {
+      "mode": "auto",
+      "connected": true,
+      "seconds": 2.8,
+      "network": [
+        "network: route=physical interface=wlo1 fallback=reported-system/proxy"
+      ]
+    }
+  ],
+  "native": {
+    "tray_registered": true,
+    "dbus_activate_panel": true,
+    "panel_logical_size": [
+      390,
+      570
+    ],
+    "display_scale": 2,
+    "application_quit_exit_code": 0,
+    "single_click_event_roundtrips": [
+      {
+        "expected": "IsViewable",
+        "ms": 36,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 4,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      },
+      {
+        "expected": "IsViewable",
+        "ms": 36,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 3,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      },
+      {
+        "expected": "IsViewable",
+        "ms": 33,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsViewable"
+        }
+      },
+      {
+        "expected": "IsUnMapped",
+        "ms": 6,
+        "geometry": {
+          "Absolute upper-left X": "1046",
+          "Absolute upper-left Y": "530",
+          "Width": "780",
+          "Height": "1140",
+          "Map State": "IsUnMapped"
+        }
+      }
+    ],
+    "event_test_boundary": "Synthetic EnterNotify/primary press/release through the GTK tray window, matching GNOME forwarding; not hardware pointer injection.",
+    "gnome_host": "GTK XEmbed compatibility for the host that reserves SNI activation for double click",
+    "position_stable": true
+  },
+  "autostart_enabled": false,
+  "stable_daemon_restarted": false,
+  "limitations": [
+    "OneDrive and Google Drive provider integration not implemented in this frontend",
+    "Wayland and other desktop hosts not verified",
+    "initial Windows HTTP 502 deeper cause unconfirmed",
+    "recovery intent reconstructed in isolated state; no machine power-loss test"
+  ],
+  "deployment": {
+    "installed": true,
+    "gateway_propfind_status": 207,
+    "tray_provider": "TwoDrive",
+    "configured_device_name": "Windows",
+    "autostart_enabled": false,
+    "stable_daemon_pid": 2306,
+    "stable_daemon_restarts": 0
+  }
+}

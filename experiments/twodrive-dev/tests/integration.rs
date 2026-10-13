@@ -153,6 +153,69 @@ async fn streaming_download_cancellation_and_full_file_upload() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn desktop_shallow_browse_and_cancellable_upload() {
+    let fixture = Fixture::local(true, 16 * 1024 * 1024).await;
+    let backend = fixture.backend.clone();
+    let source = fixture._temp.path().join("source.bin");
+    tokio::task::spawn_blocking(move || {
+        backend.create_folder("/parent").unwrap();
+        backend.create_folder("/parent/child").unwrap();
+        backend
+            .upload("/parent/child/nested.txt", b"nested".to_vec())
+            .unwrap();
+        assert_eq!(backend.list_directory("/").unwrap().len(), 1);
+        assert_eq!(
+            backend.list_directory("/parent/").unwrap()[0].path,
+            "/parent/child"
+        );
+        assert!(backend.list_directory("/parent/child/nested.txt").is_err());
+        fs::write(&source, vec![31u8; 4 * 1024 * 1024]).unwrap();
+        let steps = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let copy = steps.clone();
+        backend
+            .upload_controlled(
+                "/complete.bin",
+                &source,
+                None,
+                std::sync::Arc::new(move |_, _| {
+                    copy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    Ok(())
+                }),
+            )
+            .unwrap();
+        assert!(steps.load(std::sync::atomic::Ordering::Relaxed) > 2);
+        assert_eq!(
+            backend.download("/complete.bin").unwrap().len(),
+            4 * 1024 * 1024
+        );
+        let before = backend
+            .get_metadata_by_path("/complete.bin")
+            .unwrap()
+            .unwrap();
+        assert!(
+            backend
+                .upload_controlled(
+                    "/complete.bin",
+                    &source,
+                    Some(&before.etag),
+                    std::sync::Arc::new(|done, _| {
+                        anyhow::ensure!(done < 128 * 1024, "cancelled");
+                        Ok(())
+                    })
+                )
+                .is_err()
+        );
+        // Aborting a replacement cannot destroy the previously committed file.
+        assert_eq!(
+            backend.download("/complete.bin").unwrap(),
+            vec![31u8; 4 * 1024 * 1024]
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn authentication_readonly_and_downgrade_are_rejected() {
     let fixture = Fixture::local(false, 1024).await;
     fs::write(fixture.root.join("visible.txt"), b"visible").unwrap();
