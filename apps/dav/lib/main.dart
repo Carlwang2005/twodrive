@@ -9,6 +9,9 @@ import 'platform_paths.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
+  // Windows creates its taskbar COM interface in this step. Tray transitions
+  // must not call setSkipTaskbar before that interface exists.
+  await windowManager.waitUntilReadyToShow();
   await windowManager.setMinimumSize(const Size(840, 580));
   await windowManager.setTitle('TwoDrive Development');
   final home = userHome;

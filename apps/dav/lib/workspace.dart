@@ -365,53 +365,62 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(22, 32, 20, 8),
-                  child: Icon(
-                    Icons.cloud_outlined,
-                    size: 42,
-                    color: Color(0xff326bd6),
-                  ),
-                ),
-                const Text(
-                  'TwoDrive',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 32, top: 3),
-                  child: Text(
-                    '文件与同步',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.blueGrey),
-                  ),
-                ),
-                for (var i = 0; i < titles.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 3,
-                    ),
-                    child: ListTile(
-                      selected: page == i,
-                      selectedTileColor: const Color(0xffedf3ff),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Expanded(
+                  child: ListView(
+                    key: const ValueKey('navigation'),
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(22, 32, 20, 8),
+                        child: Icon(
+                          Icons.cloud_outlined,
+                          size: 42,
+                          color: Color(0xff326bd6),
+                        ),
                       ),
-                      leading: Icon(
-                        [
-                          Icons.folder_outlined,
-                          Icons.swap_vert,
-                          Icons.dns_outlined,
-                          Icons.backup_outlined,
-                          Icons.tune,
-                        ][i],
+                      const Text(
+                        'TwoDrive',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 23,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                      title: Text(titles[i]),
-                      onTap: () => setState(() => page = i),
-                    ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 32, top: 3),
+                        child: Text(
+                          '文件与同步',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.blueGrey),
+                        ),
+                      ),
+                      for (var i = 0; i < titles.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 3,
+                          ),
+                          child: ListTile(
+                            selected: page == i,
+                            selectedTileColor: const Color(0xffedf3ff),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            leading: Icon(
+                              [
+                                Icons.folder_outlined,
+                                Icons.swap_vert,
+                                Icons.dns_outlined,
+                                Icons.backup_outlined,
+                                Icons.tune,
+                              ][i],
+                            ),
+                            title: Text(titles[i]),
+                            onTap: () => setState(() => page = i),
+                          ),
+                        ),
+                    ],
                   ),
-                const Spacer(),
+                ),
                 Padding(
                   padding: const EdgeInsets.all(20),
                   child: Text(
@@ -500,7 +509,14 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                             color: Colors.deepOrange,
                           ),
                           const SizedBox(width: 10),
-                          Expanded(child: SelectableText(c.error!)),
+                          Expanded(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 120),
+                              child: SingleChildScrollView(
+                                child: SelectableText(c.error!),
+                              ),
+                            ),
+                          ),
                           IconButton(
                             tooltip: '关闭提示',
                             onPressed: () {
@@ -565,24 +581,29 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
 
   Widget empty(IconData icon, String title, String detail, [Widget? action]) =>
       Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 60, color: Colors.blueGrey.shade300),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              detail,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.blueGrey),
-            ),
-            if (action != null)
-              Padding(padding: const EdgeInsets.only(top: 18), child: action),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 60, color: Colors.blueGrey.shade300),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                detail,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.blueGrey),
+              ),
+              if (action != null)
+                Padding(padding: const EdgeInsets.only(top: 18), child: action),
+            ],
+          ),
         ),
       );
   Widget filesPage() {
@@ -590,7 +611,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       return empty(
         Icons.cloud_outlined,
         '连接你的文件',
-        '使用标准 WebDAV，或通过已配对的 TwoDrive 连接 Windows。',
+        '使用标准 WebDAV，或连接已配对的 TwoDrive 设备。',
         OutlinedButton(
           onPressed: () => setState(() => page = 2),
           child: const Text('管理连接'),

@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "app.twodrive" "\0"
             VALUE "FileDescription", "TwoDrive Development" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "TwoDrive Development" "\0"
+            VALUE "InternalName", "twodrive_dav" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 app.twodrive. All rights reserved." "\0"
-            VALUE "OriginalFilename", "TwoDrive Development.exe" "\0"
+            VALUE "OriginalFilename", "twodrive_dav.exe" "\0"
             VALUE "ProductName", "TwoDrive Development" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

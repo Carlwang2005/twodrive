@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:twodrive_dav/client.dart';
 import 'package:twodrive_dav/main.dart';
+import 'package:twodrive_dav/main.dart' as desktop;
 import 'package:twodrive_dav/tray_panel.dart';
 import 'package:twodrive_dav/profile_dialog.dart';
 
@@ -33,6 +35,40 @@ class FakeClient extends DavClient {
 }
 
 void main() {
+  testWidgets('startup initializes native taskbar before configuring tray', (
+    tester,
+  ) async {
+    final calls = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const window = MethodChannel('window_manager');
+    const tray = MethodChannel('twodrive/status_tray');
+    messenger.setMockMethodCallHandler(window, (call) async {
+      calls.add(call.method);
+      if (call.method.startsWith('is')) return false;
+      return null;
+    });
+    messenger.setMockMethodCallHandler(tray, (call) async {
+      calls.add('tray.${call.method}');
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(window, null);
+      messenger.setMockMethodCallHandler(tray, null);
+    });
+    await tester.runAsync(
+      () => desktop.main(['--engine', 'missing-twodrive-test-engine']),
+    );
+    await tester.pumpAndSettle();
+    expect(calls.indexOf('waitUntilReadyToShow'), greaterThanOrEqualTo(0));
+    expect(
+      calls.indexOf('waitUntilReadyToShow'),
+      lessThan(calls.indexOf('tray.configure')),
+    );
+    final client = tester.widget<DavApp>(find.byType(DavApp)).client;
+    await tester.pumpWidget(const SizedBox());
+    client.dispose();
+  });
   testWidgets('tray shows actual sync state, progress and pause control', (
     tester,
   ) async {
@@ -183,6 +219,7 @@ void main() {
     final c = FakeClient()..available = true;
     await tester.pumpWidget(DavApp(client: c));
     expect(find.text('连接你的文件'), findsOneWidget);
+    expect(find.textContaining('已配对的 TwoDrive 设备'), findsOneWidget);
     expect(find.text('上传'), findsNothing);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
@@ -192,6 +229,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.calls, contains('autostart'));
     expect(c.status['autostart'], isTrue);
+    await tester.pumpWidget(const SizedBox());
+    c.dispose();
+  });
+  testWidgets('minimum-height window keeps long errors and navigation usable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(840, 580);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final c = FakeClient()
+      ..available = true
+      ..error = List.filled(80, '连接未完成，请检查地址。').join();
+    await tester.pumpWidget(DavApp(client: c));
+    expect(tester.takeException(), isNull);
+    final sidebar = find.descendant(
+      of: find.byKey(const ValueKey('navigation')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(find.text('设置'), 80, scrollable: sidebar);
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SwitchListTile), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     c.dispose();
   });
