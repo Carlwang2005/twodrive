@@ -130,7 +130,9 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     await windowManager.setSkipTaskbar(true);
     await windowManager.setAlwaysOnTop(true);
-    await windowManager.setMinimumSize(const Size(390, 570));
+    if (Platform.isWindows) {
+      await windowManager.setMinimumSize(const Size(390, 570));
+    }
     await tray.panel(true);
     if (!Platform.isLinux && !Platform.isWindows) {
       await windowManager.show();
