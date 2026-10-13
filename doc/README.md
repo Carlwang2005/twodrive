@@ -43,3 +43,5 @@ Existing investigation paths are retained so earlier release links continue to w
 - [TwoDrive Development — Linux Flutter client / Linux 桌面客户端](linux-dav-desktop.md) · [2026-10-13 验证报告](linux-desktop-validation-2026-10-13.json)
 
 - [Desktop provider boundaries and verification (2026-10-13)](provider-boundaries-2026-10-13.md)
+
+- [Provider delivery verification (2026-10-13)](provider-validation-2026-10-13.json)

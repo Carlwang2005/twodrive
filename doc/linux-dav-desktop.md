@@ -85,7 +85,21 @@ mutations. Changing a route requires reconnecting. Numeric loopback gateways
 always bypass external proxies; paired network traffic is governed by the
 selected peer route policy.
 
-## Verification (2026-10-13)
+## Provider delivery verification (0.1.1, 2026-10-13)
+
+- Linux Development Rust: 49 tests; Flutter: 13 tests, analyzer and native release build.
+- Windows: native engine/Flutter build, 13 Flutter tests, isolated IPC/backup/autostart and synthetic tray/focus/Escape checks.
+- Non-DAV memory provider: opaque IDs, individual capabilities, conditional upload, actual IPC and backup recovery. Restoring old path-as-ID expressions fails both regressions.
+- Final CI Linux bundle: real isolated FUSE plus loopback WebDAV smoke, including pause/resume, backup conflict protection and committed-upload recovery.
+- Stable 0.2.12-1 deb: 151 default Rust tests, 25 Nautilus and 4 Settings tests; six ignored FUSE regressions explicitly pass with the packaged CLI, plus isolated packaged CLI/daemon smoke.
+
+All four final CI workflows passed on 4554021, whose tree matches the dev merge.
+This round used no actual cloud account and did not replace installed clients.
+Native CI and synthetic tray events do not establish user hardware acceptance.
+See [incidents TD-20261013-15 through 18](incidents.md) and the
+[sanitized verification summary](provider-validation-2026-10-13.json).
+
+## Earlier desktop verification (before provider decoupling, 2026-10-13)
 
 - Rust: 28 unit, 11 integration and 2 signed-control tests; strict Clippy and format.
 - Flutter: 9 model/widget tests, analyzer and native release build.
@@ -131,7 +145,7 @@ release is replaced by this Development build.
 The same Flutter UI and IPC engine now have a native Windows runner, cloud tray,
 per-user paths, owned process jobs and opt-in startup entry. Windows CI builds the
 portable directory and exercises local WebDAV file operations and folder backups.
-Windows native CI passed shared engine checks, nine Flutter tests, release build,
+[Final Windows/Linux CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735) passed shared engine checks, 13 Flutter tests, release build,
 background tray toggles, outside-focus dismissal and Escape. The fixture uses
 owned windows and notification messages; physical Windows GUI acceptance is not
 claimed. The earlier first-activation access violation was reproduced before
