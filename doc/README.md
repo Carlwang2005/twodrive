@@ -22,6 +22,9 @@ These are historical investigations/design records, not the current user manual.
 
 | Topic | Record |
 | --- | --- |
+| Local workspace cleanup and recovery | [2026-10-07](workspace-cleanup-2026-10-07.md) |
+| Nautilus responsiveness monitor | [2026-09-24](nautilus-hang-monitor-2026-09-24.md) |
+| Archived original relay-lab reference | [Source and audit boundary](../TwoDrive-relay-lab/README.md) |
 | Archive extraction I/O error | [2026-09-15](archive-extraction-2026-09-15.md) |
 | Nautilus startup investigation | [2026-09-11](nautilus-startup-2026-09-11.md) |
 | Folder-move ordering | [2026-09-11](folder-move-sync-2026-09-11.md) |
