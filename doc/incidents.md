@@ -50,7 +50,7 @@
 ## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
 
 - 日期：2026-10-13
-- 状态：已修复测试平台假设；Linux 复验通过，Windows CI 待复验。
+- 状态：已验证测试平台假设修复；Linux 与 Windows 完整 CI 均通过。
 - 影响版本与环境：本轮新测试在 Windows CI 38363626181 失败；未证明产品图标实现异常。
 - 关联历史故障：TD-20261013-16 的验证遗漏，非路由或显示机制复发。
 
@@ -72,7 +72,7 @@ Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 clo
 
 ### 验证结果与边界
 
-失败证据来自真实 Windows CI；Linux analyzer与13项控件回归复验通过。修正后的 Windows 全量检查仍待CI，不将Linux通过代替Windows通过。
+失败证据来自真实 Windows CI；Linux analyzer 与13项控件回归复验通过。修正后的原生 Windows CI 同样通过 Flutter 检查、13项回归、原生构建、IPC/备份和托盘事件烟测；这不代表用户 Windows 设备上的硬件点击验收。
 
 ### 防复发措施与后续
 
@@ -80,7 +80,7 @@ Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 clo
 
 ### 交付记录
 
-失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；修复提交与通过的CI待实际完成后补充，与PR #11一同交付。
+失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；[修复4554021](https://github.com/LumiaBlack51/twodrive/commit/4554021886852e71b04299fd2b2ccc240442c2c7)；[通过的 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)。已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，Release 待发布。
 
 ## TD-20261013-17：编辑连接身份时沿用原账户保存的密码
 
@@ -115,7 +115,7 @@ legacy_profiles_roundtrip_and_redact_secrets 验证旧扁平配置兼容、脱�
 
 ### 交付记录
 
-提交、PR、Release 待实际产生后补充；与 TD-20261013-15 同批交付。
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 待发布，与 TD-20261013-15 同批交付。
 
 ## TD-20261013-16：自动路由成功兜底被显示为红色错误
 
@@ -142,7 +142,7 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 
 ### 验证结果与边界
 
-13 项 Flutter 回归通过；warning 控件回归检查 native configure 的 cloud-warning.svg、黄色三角图标及错误时 cloud-error.svg，另验证离线、暂停、备份失败优先级。原始 dev 控件回归失败。控件与 MethodChannel 替身不等于真实 Linux/Windows 硬件托盘、所有桌面主题或代理网络验收；Windows 原生构建待 CI。
+Linux 与 Windows 的13项 Flutter 回归、analyzer 和原生构建通过；warning 控件回归检查 native configure 的 cloud-warning.svg / cloud-warning.ico、黄色三角图标及错误图标，另验证离线、暂停、备份失败优先级。原始 dev 控件回归失败。诊断回归验证兜底标志在日志轮转后仍保留；[持久状态修复f2bc413](https://github.com/LumiaBlack51/twodrive/commit/f2bc41367615bee573af115a4f5eee4a3fef8085)。Windows CI 的原生托盘事件、外部焦点与 Escape 烟测通过。控件、MethodChannel 替身和合成原生事件不等于用户硬件点击、所有桌面主题或实际代理网络验收。
 
 ### 防复发措施与后续
 
@@ -150,12 +150,12 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 
 ### 交付记录
 
-提交、PR、Release 待实际产生后补充；与 TD-20261013-15 同批交付。
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 待发布，与 TD-20261013-15 同批交付。
 
 ## TD-20261013-15：桌面文件与备份服务绑定 WebDAV，阻碍其他存储提供者
 
 - 日期：2026-10-13
-- 状态：已验证本地提供者边界与非 DAV 回归；原生 Windows CI、打包和挂载复验待执行。
+- 状态：已验证提供者边界与非 DAV 回归、Linux/Windows CI、发布产物和隔离真实 FUSE 挂载；真实云端未验证。
 - 影响版本与环境：dev `8482ee4` 的 Flutter 桌面客户端、IPC 引擎、备份与挂载适配层；Development 版本更新为 0.1.1；合并后的 Linux 软件包版本为 0.2.12-1。
 - 关联历史故障：TD-20261013-02 的账户绑定与 TD-20261013-04 的备份/路由功能；[历史 provider 边界](refactor-2026-09-16.md)。本次是新增桌面实现的边界遗漏，非已证明的历史存储重构回归。
 
@@ -188,8 +188,8 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 - Development Rust 49 项通过：29 库测试、4 引擎单元测试、11 集成、3 非 DAV 契约与2签名控制。严格 Clippy 与格式通过。
 - 旧表达式回归在隔离源码副本分别恢复 desktop 和 backup 的 path-as-ID 调用，两项行为测试编译成功并在不透明 ID 断言失败；正常代码通过。这是对旧机制的受控回退，非原始完整旧树已支持非 DAV。
 - 13 项 Flutter 测试、analyzer 和 Linux release 构建通过。新提供者表单测试只用自定义 bucket 字段，无 DAV/peer 字段；能力分别控制上传/新建/重命名/删除/备份。
-- 完整根工作区151项默认 Rust、25项 Nautilus、4项 Settings 回归通过；根工作区格式和严格 Clippy 通过，7项环境相关测试仍默认忽略。
-- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；本地真实 FUSE + loopback WebDAV 的 CLI 进程烟测已通过（文件读写、挂载所有权、缓存释放、暂停/恢复、备份创建/更新/歧义提交恢复/冲突保护、只读和默认关闭的隔离自启动）；最终产物复验与原生 Windows CI 待补充。
+- 完整根工作区151项默认 Rust、25项 Nautilus、4项 Settings 回归通过；根工作区格式和严格 Clippy 通过。默认忽略的7项中，6项 FUSE 回归使用新 deb 内的 CLI 显式执行并通过，覆盖权限/编译重挂载、索引器复查、目录元数据免下载、大目录读写响应、释放取消/旧句柄和待处理目录解压；余下1项云端/设备环境测试未执行。包内 Nautilus 25项回归及 CLI/daemon 隔离 FUSE+MockBackend 烟测通过。
+- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；本地真实 FUSE + loopback WebDAV 的 CLI 进程烟测已通过（文件读写、挂载所有权、缓存释放、暂停/恢复、备份创建/更新/歧义提交恢复/冲突保护、只读和默认关闭的隔离自启动）；同一烟测使用最终 CI 的 Linux 分发包再次通过。Windows CI 已通过原生构建、IPC/备份、自启动隔离与托盘合成事件/焦点/Escape 检查；未安装到用户 Windows 设备。
 - **边界**：非 DAV 是隔离内存替身，不代表真实 OneDrive、Google Drive 新 OAuth 集成或端到端验证；本轮未使用实际账户。当前配对适配器内部仍通过 loopback DAV gateway 访问设备，这是适配器的实现细节，不再是前端/通用服务合同。新提供者仍需自行实现并注册适配器和服务契约测试。
 
 ### 防复发措施与后续
@@ -198,8 +198,10 @@ connected=true，自动直连探测失败并成功选择 system/proxy fallback�
 
 ### 交付记录
 
-- 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已创建。
-- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。最终CI、Release与资产待补充。
+- 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已于2026-10-13合入 dev，合并提交 [bff03bd](https://github.com/LumiaBlack51/twodrive/commit/bff03bdfc13eab7ab079433bdde8d4155a043ef1)。所有现存远端功能分支均为该提交祖先。
+- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。后续提交对稳定组件没有源码变化，已逐字节核对。Release 待发布。
+- 最终验证源码4554021886852e71b04299fd2b2ccc240442c2c7与 dev 合并树完全一致。四组 CI 均成功：[桌面 Linux/Windows](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)、[Development DAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410787)、[Peer 原生构建](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410773)、[Windows 双预览/根工作区](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410768)。Development Linux/Windows 分发包取自该桌面 CI，黄色 SVG/ICO 资产均已核对。
+- 发布前脱敏验证摘要及二进制 SHA-256 见 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。安装包中的故障记录为构建时快照；源码归档将包含发布前完整验证记录。发布链接待实际创建后补记。
 
 ## TD-20261013-14：映射后仅移动窗口保留了错误的缓存尺寸
 

@@ -39,7 +39,7 @@ remain available separately.
 
 ## Validation and limits
 
-The incident log contains the current results in TD-20261013-15/16/17. Tests use a
+The incident log contains the current results in TD-20261013-15/16/17/18. Tests use a
 non-DAV provider with object IDs distinct from paths, exercise the actual IPC
 handler and backup recovery, check atomic upload/pause/cancel protections, and
 render a newly declared provider form without DAV/peer-specific fields. Two
@@ -51,4 +51,10 @@ MethodChannel/widget checks do not establish hardware interaction. Real
 OneDrive/Google Drive end-to-end acceptance and additional provider adapters
 remain outside this verification. No real account or installed client is changed.
 
-Delivery links and artifact verification are recorded in [incidents.md](incidents.md).
+Linux and Windows final CI passed on 4554021. The published Linux desktop
+bundle was also exercised with an isolated real FUSE mount and a loopback DAV
+server. Six normally ignored stable FUSE regressions passed using the packaged
+CLI. These results do not establish live cloud behavior.
+
+Delivery links and artifact verification are recorded in [incidents.md](incidents.md)
+and the [sanitized verification report](provider-validation-2026-10-13.json).
