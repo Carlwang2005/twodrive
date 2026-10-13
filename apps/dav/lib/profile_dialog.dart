@@ -4,8 +4,9 @@ import 'client.dart';
 import 'platform_paths.dart';
 
 class ProfileDialog extends StatefulWidget {
-  const ProfileDialog({super.key, this.original});
+  const ProfileDialog({super.key, this.original, required this.providers});
   final Json? original;
+  final List<Json> providers;
   @override
   State<ProfileDialog> createState() => _ProfileDialogState();
 }
@@ -13,25 +14,31 @@ class ProfileDialog extends StatefulWidget {
 class _ProfileDialogState extends State<ProfileDialog> {
   final form = GlobalKey<FormState>();
   late final Map<String, TextEditingController> fields;
-  late String kind;
+  late String? kind;
   late bool writable;
   late String route;
+  Json? get provider =>
+      widget.providers.where((p) => p['id'] == kind).firstOrNull;
+  List<Json> get providerFields =>
+      ((provider?['fields'] as List?) ?? []).cast<Json>();
   @override
   void initState() {
     super.initState();
     final p = widget.original ?? {};
     route = p['network_route'] as String? ?? 'auto';
-    kind = p['kind'] as String? ?? 'dav';
+    final originalKind = p['kind'] as String?;
+    kind = widget.providers.any((d) => d['id'] == originalKind)
+        ? originalKind
+        : widget.providers.firstOrNull?['id'] as String?;
     writable = p['writable'] == true;
+    final keys = <String>{
+      'name',
+      'mount_path',
+      for (final d in widget.providers)
+        for (final f in d['fields'] as List) f['key'] as String,
+    };
     fields = {
-      for (final key in [
-        'name',
-        'url',
-        'username',
-        'password',
-        'peer_state',
-        'mount_path',
-      ])
+      for (final key in keys)
         key: TextEditingController(text: p[key] as String? ?? ''),
     };
     if (fields['mount_path']!.text.isEmpty) {
@@ -76,26 +83,36 @@ class _ProfileDialogState extends State<ProfileDialog> {
               field('name', '连接名称', required: true),
               DropdownButtonFormField<String>(
                 initialValue: kind,
-                decoration: const InputDecoration(labelText: '连接方式'),
-                items: const [
-                  DropdownMenuItem(value: 'dav', child: Text('HTTPS WebDAV')),
-                  DropdownMenuItem(value: 'peer', child: Text('TwoDrive 已有配对')),
+                decoration: const InputDecoration(labelText: '存储提供者'),
+                items: [
+                  for (final d in widget.providers)
+                    DropdownMenuItem(
+                      value: d['id'] as String,
+                      child: Text(d['label'] as String),
+                    ),
                 ],
-                onChanged: (value) => setState(() => kind = value!),
+                onChanged: (value) => setState(() {
+                  for (final f in providerFields.where(
+                    (f) => f['secret'] == true,
+                  )) {
+                    fields[f['key']]!.clear();
+                  }
+                  kind = value;
+                }),
               ),
               const SizedBox(height: 14),
-              if (kind == 'dav') ...[
-                field('url', 'WebDAV 根地址 · https://…', required: true),
-                field('username', '用户名'),
+              if (provider == null) const Text('引擎没有可用的存储提供者，请检查引擎版本。'),
+              for (final f in providerFields)
                 field(
-                  'password',
-                  widget.original?['password_saved'] == true
-                      ? '密码 · 留空保留已保存密码'
-                      : '密码',
-                  secret: true,
+                  f['key'] as String,
+                  f['secret'] == true &&
+                          widget.original?['kind'] == kind &&
+                          widget.original?['${f['key']}_saved'] == true
+                      ? '${f['label']} · 留空保留已保存值'
+                      : f['label'] as String,
+                  secret: f['secret'] == true,
+                  required: f['required'] == true,
                 ),
-              ] else
-                field('peer_state', '本机配对状态目录 · 绝对路径', required: true),
               DropdownButtonFormField<String>(
                 initialValue: route,
                 decoration: const InputDecoration(labelText: '网络连接方式'),
@@ -115,7 +132,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('允许修改服务器文件'),
-                subtitle: const Text('包含上传、备份、重命名和删除。'),
+                subtitle: const Text('可用操作取决于提供者支持的能力。'),
                 value: writable,
                 onChanged: (value) => setState(() => writable = value),
               ),
@@ -130,20 +147,24 @@ class _ProfileDialogState extends State<ProfileDialog> {
         child: const Text('取消'),
       ),
       FilledButton(
-        onPressed: () {
-          if (form.currentState!.validate()) {
-            Navigator.pop(context, {
-              'id': widget.original?['id'] ?? '',
-              'kind': kind,
-              'network_route': route,
-              'writable': writable,
-              for (final entry in fields.entries)
-                entry.key: entry.key == 'password'
-                    ? entry.value.text
-                    : entry.value.text.trim(),
-            });
-          }
-        },
+        onPressed: provider == null
+            ? null
+            : () {
+                if (form.currentState!.validate()) {
+                  Navigator.pop(context, {
+                    'id': widget.original?['id'] ?? '',
+                    'kind': kind,
+                    'network_route': route,
+                    'writable': writable,
+                    'name': fields['name']!.text.trim(),
+                    'mount_path': fields['mount_path']!.text.trim(),
+                    for (final f in providerFields)
+                      f['key'] as String: f['secret'] == true
+                          ? fields[f['key']]!.text
+                          : fields[f['key']]!.text.trim(),
+                  });
+                }
+              },
         child: const Text('保存'),
       ),
     ],

@@ -56,6 +56,8 @@ TwoDrive 是一个面向 **GNOME/Linux、使用 Rust 编写的实验性 OneDrive
 
 <img src="packaging/icons/hicolor/scalable/emblems/emblem-twodrive-cloud.svg" width="22" height="22" alt="Cloud"> + <img src="packaging/icons/hicolor/scalable/emblems/emblem-twodrive-syncing.svg" width="22" height="22" alt="Syncing"> **等待释放：** 在写入或上传尚未完成时申请了释放空间。必须等上传成功且文件句柄关闭，才会移除本地数据。
 
+<img src="packaging/icons/hicolor/scalable/emblems/emblem-twodrive-cloud.svg" width="22" height="22" alt="Cloud"> + <img src="packaging/icons/hicolor/scalable/emblems/emblem-twodrive-pinned.svg" width="22" height="22" alt="Pinned"> **等待保留：** 已选择始终保留，内容正在等待下载或下载中。缓存落盘后只显示图钉。
+
 文件夹标记汇总子项状态，并不意味着所有文件都已缓存。即使父目录已经固定，新发现的云端文件仍默认保持仅云端。[固定与释放的具体语义 →](doc/usage.zh-CN.md#固定与释放内容)
 
 </details>
@@ -106,3 +108,5 @@ Peer native builds CI 生成。本阶段提供认证控制消息和签名更新�
 ## Windows、WebDAV 与 QUIC 开发整合版
 
 dev 同时包含 PR #9 的 Windows Full/Lite 浏览和只读缓存，以及 PR #8 的 WebDAV/QUIC 目录共享。组合 Windows 包携带全部工具，分别使用独立状态。配置方式和当前 GUI 范围见[组合指南](doc/dev-integration.md)。这些开发构建不安装或替换稳定 TwoDrive。
+
+Development 桌面通过 IPC 读取提供者表单与能力，WebDAV 细节留在适配器内部；成功的代理兜底使用黄色三角感叹号。见[提供者边界与验证记录](doc/provider-boundaries-2026-10-13.md)。

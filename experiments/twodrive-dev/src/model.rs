@@ -88,7 +88,7 @@ mod portable {
         pub delta_link: Option<String>,
     }
     // This portable surface is intentionally limited to the methods actually
-    // implemented by WebDavBackend. It is not a Windows port of stable TwoDrive.
+    // needed by storage providers. It is not a Windows port of stable TwoDrive.
     #[cfg(not(target_os = "linux"))]
     pub trait CloudBackend: Send + Sync + 'static {
         fn is_conflict_error(&self, error: &anyhow::Error) -> bool;

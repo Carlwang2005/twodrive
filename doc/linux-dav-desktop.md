@@ -5,6 +5,15 @@ accounts. Its separate private state and installer do not manage the stable
 OneDrive daemon. OneDrive and Google Drive are future integrations for this UI;
 this delivery does not claim new OAuth integrations for those services.
 
+## Provider boundary (0.1.1)
+
+The desktop and shared file/backup/mount services now use a provider contract.
+Account fields, labels and capabilities come from engine IPC; protocol and
+credential details stay in registered adapters. Existing profiles and cache
+bindings are preserved. See [the architecture and regression record](provider-boundaries-2026-10-13.md).
+Successful automatic proxy fallback displays a yellow warning triangle. Actual
+connection or synchronization failures keep the error icon.
+
 ## User interface
 
 - Click the cloud tray icon to open a compact provider/account status panel.

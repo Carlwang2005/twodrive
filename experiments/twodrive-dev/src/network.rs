@@ -2,6 +2,8 @@
 //!
 //! iroh exposes UDP binds but not its relay TCP connector. A private loopback
 //! CONNECT adapter supplies the latter without terminating the relay's TLS.
+mod diagnostics;
+pub use diagnostics::Diagnostics;
 mod dns;
 mod lookup;
 mod proxy;

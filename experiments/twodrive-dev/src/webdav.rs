@@ -655,6 +655,31 @@ impl CloudBackend for WebDavBackend {
     }
 }
 
+impl crate::provider::Provider for WebDavBackend {
+    fn capabilities(&self) -> crate::provider::Capabilities {
+        crate::provider::Capabilities {
+            upload: self.writable,
+            mkdir: self.writable,
+            rename: self.writable,
+            delete: self.writable,
+            conditional_upload: true,
+        }
+    }
+    fn list_directory(&self, path: &str) -> anyhow::Result<Vec<MetadataEntry>> {
+        WebDavBackend::list_directory(self, path)
+    }
+    fn upload_controlled(
+        &self,
+        path: &str,
+        source: &Path,
+        _remote_id: Option<&str>,
+        version: Option<&str>,
+        progress: crate::provider::Progress,
+    ) -> anyhow::Result<MetadataEntry> {
+        WebDavBackend::upload_controlled(self, path, source, version, progress)
+    }
+}
+
 #[cfg(test)]
 mod desktop_tests {
     use super::*;

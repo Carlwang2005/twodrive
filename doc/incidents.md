@@ -46,6 +46,161 @@
 
 
 
+
+## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
+
+- 日期：2026-10-13
+- 状态：已修复测试平台假设；Linux 复验通过，Windows CI 待复验。
+- 影响版本与环境：本轮新测试在 Windows CI 38363626181 失败；未证明产品图标实现异常。
+- 关联历史故障：TD-20261013-16 的验证遗漏，非路由或显示机制复发。
+
+### 症状与影响
+
+Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 cloud-warning.svg 的断言拒绝，阻止后续 Windows 原生构建与资产产出。
+
+### 触发条件与复现
+
+在 Windows 上执行 successful proxy fallback uses warning triangle and native warning asset。CI 日志显示12项通过、1项失败，Expected cloud-warning.svg，Actual cloud-warning.ico。
+
+### 根因与证据
+
+新测试硬编码 Linux 后缀；StatusTray 原有实现正确按 Windows 选择 ICO。属于测试缺陷，没有证据支持修改产品资产选择逻辑。
+
+### 解决办法与恢复操作
+
+回归按实际平台断言 SVG 或 ICO，错误图标断言同样处理；不放宽 warning/error 严重程度检查。没有本机恢复或安装操作。
+
+### 验证结果与边界
+
+失败证据来自真实 Windows CI；Linux analyzer与13项控件回归复验通过。修正后的 Windows 全量检查仍待CI，不将Linux通过代替Windows通过。
+
+### 防复发措施与后续
+
+保留原生 Windows/Linux 的同一断言；产物资产按各自平台实际加载格式核对。
+
+### 交付记录
+
+失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；修复提交与通过的CI待实际完成后补充，与PR #11一同交付。
+
+## TD-20261013-17：编辑连接身份时沿用原账户保存的密码
+
+- 日期：2026-10-13
+- 状态：已验证隔离配置保存回归；未操作真实账户。
+- 影响版本与环境：dev `8482ee4` 桌面 save_profile；本次解耦中发现。
+- 关联历史故障：TD-20261013-02 的连接绑定遗漏；这里涉及保存凭据的身份边界，而非文件请求目标。
+
+### 症状与影响
+
+编辑同一 profile 的服务器或用户名、或切换提供者时，密码留空仍可能沿用旧账户密码。源码确认保存逻辑只按 profile ID 保留密码，没有检查服务器/用户名/提供者；未确认真实凭据曾被发送到错误服务器。
+
+### 触发条件与复现
+
+使用隔离合成配置：已保存密码的 DAV profile，编辑用户名或切换 peer，密码留空。旧逻辑无条件复制 previous.password；没有使用真实凭据。
+
+### 根因与证据
+
+旧 desktop save_profile 仅检查 p.password.is_empty 与 clear_password，不验证认证身份。将凭据保留规则移到提供者 schema 的 identity_fields 后，同一身份才能保留；切换提供者只保存其 schema 的字段。
+
+### 解决办法与恢复操作
+
+提供者声明秘密字段与身份字段。相同身份留空保留、显式清除可删除；更换身份不会继承秘密，转换提供者会移除其他提供者字段。未知提供者不将不透明 options 输出给 UI。没有修改真实配置或令牌。
+
+### 验证结果与边界
+
+legacy_profiles_roundtrip_and_redact_secrets 验证旧扁平配置兼容、脱敏、同身份保留、更换用户名不保留、切换提供者清理旧字段；unknown_provider_never_exposes_opaque_options 验证未知提供者不输出 password/token。为隔离配置回归，未执行真实账号认证或更换服务器；未主张过去发生实际泄露。
+
+### 防复发措施与后续
+
+新增提供者必须声明身份和秘密字段；禁止通用服务按 password 字段猜测凭据规则。
+
+### 交付记录
+
+提交、PR、Release 待实际产生后补充；与 TD-20261013-15 同批交付。
+
+## TD-20261013-16：自动路由成功兜底被显示为红色错误
+
+- 日期：2026-10-13
+- 状态：已验证 Flutter 控件与原生托盘图标参数回归；完整硬件交互未验证。
+- 影响版本与环境：dev `8482ee4` Linux/Windows Flutter 桌面。
+- 关联历史故障：TD-20261013-04 的代理兜底状态展示；本条纠正提示严重程度，不改变实际网络路由。
+
+### 症状与影响
+
+用户要求无法绕过代理但通过兜底成功连接时使用黄色三角感叹号。旧 updateTray 把 proxyFallback 和连接/备份错误合并为 cloud-error，令已成功连接被表示为错误。
+
+### 触发条件与复现
+
+connected=true，自动直连探测失败并成功选择 system/proxy fallback；没有其他错误。隔离 Flutter 控件回归验证传给原生托盘的资产路径。
+
+### 根因与证据
+
+旧条件 c.error != null || c.syncError || c.proxyFallback 统一选择 error。使用原始 dev 前端与同一托盘回归（仅兼容类名）时，cloud-warning 断言被 cloud-error 路径拒绝；修复后同项通过。
+
+### 解决办法与恢复操作
+
+成功连接后的 route_fallback 用独立 warning 状态，新增黄色三角感叹号 SVG 与 Windows ICO；托盘面板和工作区显示相同警告。真实连接/同步错误优先，断开后不保留兜底警告。UI 消费结构化布尔状态，不根据任意日志文本判断严重程度。兜底标志独立于24条诊断环，避免日志轮转丢失；每次连接使用独立诊断对象，旧进程残留输出不污染新连接。未更改代理配置或运行中的安装。
+
+### 验证结果与边界
+
+13 项 Flutter 回归通过；warning 控件回归检查 native configure 的 cloud-warning.svg、黄色三角图标及错误时 cloud-error.svg，另验证离线、暂停、备份失败优先级。原始 dev 控件回归失败。控件与 MethodChannel 替身不等于真实 Linux/Windows 硬件托盘、所有桌面主题或代理网络验收；Windows 原生构建待 CI。
+
+### 防复发措施与后续
+
+保留 provider_contract_test.dart 的严重程度和托盘回归，成功兜底与传输失败分别处理。
+
+### 交付记录
+
+提交、PR、Release 待实际产生后补充；与 TD-20261013-15 同批交付。
+
+## TD-20261013-15：桌面文件与备份服务绑定 WebDAV，阻碍其他存储提供者
+
+- 日期：2026-10-13
+- 状态：已验证本地提供者边界与非 DAV 回归；原生 Windows CI、打包和挂载复验待执行。
+- 影响版本与环境：dev `8482ee4` 的 Flutter 桌面客户端、IPC 引擎、备份与挂载适配层；Development 版本更新为 0.1.1；合并后的 Linux 软件包版本为 0.2.12-1。
+- 关联历史故障：TD-20261013-02 的账户绑定与 TD-20261013-04 的备份/路由功能；[历史 provider 边界](refactor-2026-09-16.md)。本次是新增桌面实现的边界遗漏，非已证明的历史存储重构回归。
+
+### 症状与影响
+
+用户报告 WebDAV 与前端及其他组件耦合，影响非 WebDAV 支持。确认通用 IPC、备份、mount 都要求具体 WebDavBackend；前端账户表单和标签只能识别 dav/peer，且用 writable 猜测全部修改能力。未确认数据丢失。
+
+### 触发条件与复现
+
+使用隔离非 DAV 提供者，远端 ID 为 object-N，与 /folder/file 路径不同；执行实际 IPC 文件操作、备份已提交意图恢复和界面能力控制。没有网络或真实云端账户。
+
+### 根因与证据
+
+- desktop App 与 backup/mount 签名引用具体 WebDavBackend，通用代码同时承担 DAV 认证/路由和配对网关启动；worker 使用 DAV 根 URL 传递连接。前端写死提供者字段、名称和 kind 分支。
+- download/rename/delete 和备份恢复直接把路径作为 CloudBackend 的 remote_id。DAV 正好以路径作为 ID，掩盖了这一假设；Graph 等 ID 与路径分离的提供者不符合该假设。
+- CloudBackend 的历史 upload_with_etag 默认实现不能保证条件写入。若仅替换为 trait 而仍依赖默认实现，备份和覆盖保护可能失效，故新增接口要求显式条件上传能力。
+
+### 解决办法与恢复操作
+
+- Provider/Backend 定义目录浏览、流式条件上传、能力、路径到不透明 ID 的转换；备份和挂载使用通用接口，CloudBackend 与稳定恢复契约保留。
+- 提供者适配器拥有认证、连接、路由、账户绑定、保护目录与不透明 worker recipe；私有 session 文件绑定提供者和 profile revision，worker 恢复不依赖 DAV URL 参数。原扁平 profiles、mount/backup binding 保持兼容。
+- Flutter StorageClient、动态 schema 表单、提供者标签与逐项能力来自 IPC。新增提供者无需更改通用文件/备份/mount 服务或前端 provider kind 分支。未知提供者不能静默作为 DAV 连接。
+- 备份歧义提交恢复先按路径查元数据，再通过提供者 ID 下载比对哈希；冲突保留意图及远端内容。条件上传能力不足时不提供上传/备份/读写挂载。
+- 已合并先前遗漏的 codex/pin-download-feedback 三项提交，并保留双方故障记录；其他远端功能分支已在 dev 的祖先中。main 的已合并内容已在56248a7同步合入，以对齐历史。
+
+**本地恢复操作**：在独立工作区开发。未修改原工作区未提交调查、真实配置、私人文件、运行服务或已安装客户端；本轮仅用临时测试数据。
+
+### 验证结果与边界
+
+- Development Rust 49 项通过：29 库测试、4 引擎单元测试、11 集成、3 非 DAV 契约与2签名控制。严格 Clippy 与格式通过。
+- 旧表达式回归在隔离源码副本分别恢复 desktop 和 backup 的 path-as-ID 调用，两项行为测试编译成功并在不透明 ID 断言失败；正常代码通过。这是对旧机制的受控回退，非原始完整旧树已支持非 DAV。
+- 13 项 Flutter 测试、analyzer 和 Linux release 构建通过。新提供者表单测试只用自定义 bucket 字段，无 DAV/peer 字段；能力分别控制上传/新建/重命名/删除/备份。
+- 完整根工作区151项默认 Rust、25项 Nautilus、4项 Settings 回归通过；根工作区格式和严格 Clippy 通过，7项环境相关测试仍默认忽略。
+- 验证非 DAV 文件下载/移动/删除、浅目录浏览、create-only/陈旧版本保护、取消与暂停、备份恢复/远端冲突、旧配置/凭据脱敏与 worker revision；本地真实 FUSE + loopback WebDAV 的 CLI 进程烟测已通过（文件读写、挂载所有权、缓存释放、暂停/恢复、备份创建/更新/歧义提交恢复/冲突保护、只读和默认关闭的隔离自启动）；最终产物复验与原生 Windows CI 待补充。
+- **边界**：非 DAV 是隔离内存替身，不代表真实 OneDrive、Google Drive 新 OAuth 集成或端到端验证；本轮未使用实际账户。当前配对适配器内部仍通过 loopback DAV gateway 访问设备，这是适配器的实现细节，不再是前端/通用服务合同。新提供者仍需自行实现并注册适配器和服务契约测试。
+
+### 防复发措施与后续
+
+保留不透明 ID 的实际 IPC、备份恢复和条件上传能力回归，以及动态 schema/控件测试。CI 新增两条旧表达式失败验证；新增适配器须明确条件上传、路径/ID 与能力约定，不能仅依赖兼容 trait 的默认行为。详见[边界与验证](provider-boundaries-2026-10-13.md)。
+
+### 交付记录
+
+- 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已创建。
+- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。最终CI、Release与资产待补充。
+
 ## TD-20261013-14：映射后仅移动窗口保留了错误的缓存尺寸
 
 - 日期：2026-10-13
@@ -1707,6 +1862,56 @@ Windows fmt 通过，Clippy/编译步骤失败，后续测试与产物构建被�
 ### 交付记录
 
 实现与修复已提交 [0222663](https://github.com/LumiaBlack51/twodrive/commit/022266391500e1293f722bccb9d333479c7c3cbf)，草稿 [PR #8](https://github.com/LumiaBlack51/twodrive/pull/8)；[dev 设计](dev-webdav-peer-design.md)。
+
+## TD-20261007-01：仅云端文件选择始终保留后缺少下载等待标志
+
+- 日期：2026-10-07
+- 状态：已验证本地状态图标与原生异步命令机制；真实 Nautilus GUI 与 OneDrive 端到端未验证。
+- 影响版本与环境：本次调查基于 main 源码 `bdacfb9`；用户当前运行版本未核实。修复包版本为 0.2.11-2，Rust 二进制版本继续为 0.2.11。
+- 关联历史故障：[目录浏览与延迟释放图标](directory-browsing-2026-09-08.md)、[固定策略可靠性](reliability-fix-2026-07-24.md)、[后台下载与恢复](responsiveness-recovery-2026-09-08.md)。本次补齐现有图标映射对“已固定但尚无缓存”的展示遗漏；未证明是历史修复回归，也未把它等同于 TD-20260924 的 Nautilus 卡顿。
+
+### 症状与影响
+
+用户报告对只有云图标的文件选择 Always keep on this device 后没有可见反馈。期望策略生效、下载尚未完成时显示云和 pin，下载完成后仅显示 pin。未确认下载本身失败或数据损坏。
+
+### 触发条件与复现
+
+仅云端文件，选择始终保留，观察下载期间及完成后的 Nautilus 图标。隔离 SQLite 回归复现了显式/继承固定、hydrating 与 pinned 尚无缓存的阶段；原生 Gio 冒烟在临时 mock 数据库中人为延迟 350 ms，再执行实际 CLI 的 MockBackend 下载，验证菜单请求到缓存落盘的转换。不使用真实账户。
+
+### 根因与证据
+
+- `run_action` 原先只启动 Python 工作线程，没有在菜单接受请求时设置图标反馈；扩展环境已有原生主循环可能持有 GIL 的历史限制，状态查询已改用 Gio 子进程，菜单命令却仍依赖线程。本次移除这项线程依赖；未取得用户现场调用栈，不能断言其原操作一定因 GIL 完全未启动。
+- Nautilus 查询只读取 state/release_pending，未结合显式或继承 pin 与 cache_path。`recompute_pin_inheritance` 对固定无缓存文件设为 hydrating，而 `begin_hydration` 又会在下载完成前设为 pinned 并清空 cache_path。因此旧展示可能只有同步图标，或过早只显示 pin，无法区分固定策略与缓存完成。
+- 新回归在未修改的 `bdacfb9` 扩展上失败，固定无缓存阶段得到单独 cloud/syncing/pin；修复后通过。并未证明下载失败、数据损坏或整个 Nautilus GUI 卡住。
+
+### 解决办法与恢复操作
+
+- 菜单选择仅云端文件时立即提交临时 `pin_pending` 展示，顺序添加 cloud、pin 两个已有图标。持久状态查询使用有效固定策略与缓存字段；在缓存未发布期间持续双图标，发布后只显示 pin，不依赖临时标记的 60 秒期限。
+- 数据库状态确认工作或完成后接管临时反馈；每个命令完成/失败时单独清除其临时状态，重新读取真实状态，不把失败请求永久当作已固定。多选仍按顺序执行，单项失败后继续处理其余项。
+- 菜单命令改用原生 Gio 异步子进程与完成回调，保留输出、失败通知及一小时超时；上传、错误/冲突与延迟释放的优先级保留。目录汇总尚无缓存的固定子项；新发现的未固定云端子项不被误认为等待固定。
+- 中英文首页与使用指南补充双图标含义。未改动数据库迁移、固定策略、下载算法或缓存发布机制。
+
+**本地恢复操作**：只使用临时 SQLite、临时命令包装器及 MockBackend 下载；未安装扩展或新包，未重启 Nautilus/用户服务，未修改用户配置或云端文件。实际会话加载新扩展仍需更新安装并重启 Nautilus。
+
+### 验证结果与边界
+
+- 25 项 Nautilus 回归通过，覆盖点击立即反馈、固定无缓存的显式/继承策略、缓存完成、目录与相邻路径边界、错误/上传/释放优先级、单项失败反馈清除、多选顺序与逐项清除，以及 sync/status/unpin/release 命令参数和通知。新增 pin 回归放入临时目录搭配旧扩展运行，确认旧代码失败；文件信息与菜单回调使用替身，不能称为完整 GUI 验证。
+- 真实 Gio/GLib + Nautilus 4 模块冒烟通过：接受菜单请求后立即双图标；模拟延迟阶段原生主循环继续响应；实际 mock CLI 发布缓存后只剩 pin，缓存字节与公开 mock 样本一致。另验证子进程非零退出及 stderr 合并、启动失败、强制超时均只回调一次。超时测试将一小时定时器缩短到 50 ms，未实际等待一小时。
+- 101 项 Rust 默认测试、4 项 Settings 回归通过；cargo fmt、Clippy 警告视错误、git diff --check 通过。6 项环境相关 FUSE 测试默认忽略，本次未额外执行（未修改文件系统实现）。
+- 0.2.11-2 amd64 deb 从源码提交 `a749e430acde26a4364c5ee2671b472281b17f9a` 的干净 Git 导出构建；解包 CLI/daemon 与 release 产物、扩展/托盘/Settings 与该提交源码字节一致。包内 CLI 版本为 0.2.11；扩展的 25 项回归重新通过。核对软件包无运行令牌、用户配置、数据库或私人构建路径；原有未提交调查不进入包内记录。
+- 使用包内 CLI/daemon 运行隔离真实 FUSE + MockBackend 冒烟，挂载、读取、持久写入、模拟上传、移动/删除、pin/unpin/release 均通过并卸载临时挂载。此项是包内容验证，不是 6 项默认忽略测试的补跑，也不代表真实 OneDrive。
+- 本机已安装 CLI、daemon、Nautilus 扩展摘要与构建前一致；用户服务保持 MainPID=3051、active、NRestarts=0。未安装 deb 或重启实际服务/Nautilus。
+- **边界**：未验证实际 Nautilus 窗口中图标布局、完整右键操作、多扩展交互、用户原会话升级或真实 OneDrive 下载。原生冒烟使用文件信息替身、合成等待状态和 MockBackend，不代表真实 Graph 端到端，也不能证明用户全部“没反应”现象来自同一根因。
+
+### 防复发措施与后续
+
+保留 `PinEmblemTests`、`ActionSequenceTests` 回归，特别是不能仅凭 state=pinned 就宣布本地内容下载完成。菜单动作和状态查询均避免依赖扩展中的 Python 工作线程。后续若再次出现无反馈，需核对已加载扩展版本、持久策略/缓存状态及原生命令执行结果；实际 GUI 和真实云端验收仍待执行。
+
+### 交付记录
+
+- 用户授权将修复与 deb 提交到新分支，明确不更新本机。已推送 [codex/pin-download-feedback](https://github.com/LumiaBlack51/twodrive/tree/codex/pin-download-feedback)；修复源码提交为 [a749e43](https://github.com/LumiaBlack51/twodrive/commit/a749e430acde26a4364c5ee2671b472281b17f9a)，软件包及验证记录提交为 [18120fc](https://github.com/LumiaBlack51/twodrive/commit/18120fc6286e797f57e487c58b5c57a019b54d1d)。远端分支提交及 deb/校验文件的 Git blob 与本地一致；未合并或修改 main。
+- 已构建并验证 [0.2.11-2 amd64 deb](../dist/twodrive_0.2.11-2_amd64.deb) 与 [SHA-256 校验文件](../dist/twodrive_0.2.11-2_amd64.deb.sha256)，随本分支提交，不创建 Release，也不安装本机。deb 为 6,419,576 字节，SHA-256：`e2da4946333cdecdd7f67cb7b1481acb8de93a0675c807cd0a682f7c412a230f`。
+- 包内故障记录为源码构建时快照；本次包验证与交付补记不更改包内二进制或扩展。原有未提交调查记录和无关文件保留在工作区，不纳入本次提交或软件包。
 
 ## TD-20261006-01：系统语言切换后特殊目录与上传来源错位
 
