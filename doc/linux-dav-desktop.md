@@ -5,6 +5,8 @@ accounts. Its separate private state and installer do not manage the stable
 OneDrive daemon. OneDrive and Google Drive are future integrations for this UI;
 this delivery does not claim new OAuth integrations for those services.
 
+Download the [Development 0.1.1 Linux/Windows release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.1), then verify its SHA256SUMS before running. The stable Linux daemon is separately available in [0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1).
+
 ## Provider boundary (0.1.1)
 
 The desktop and shared file/backup/mount services now use a provider contract.

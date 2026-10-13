@@ -117,5 +117,36 @@
     "No live OneDrive/Google Drive account, user configuration, installed client or service was changed.",
     "The remaining live-cloud/device dependent ignored test was not run.",
     "Native Windows CI is not physical interaction on the user device."
-  ]
+  ],
+  "published_releases": {
+    "v0.2.12-1": {
+      "target": "93d1b44e7256f19d4b0822f22c2f90a066ec3305",
+      "published_at": "2026-10-13T08:07:04Z",
+      "url": "https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1",
+      "prerelease": false,
+      "all_asset_digests_match": true,
+      "asset_sha256": {
+        "twodrive_0.2.12-1_amd64.deb": "12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9",
+        "verification.json": "6d73c6277e0387c92740457912d1423f52ef14864b51173734502937790ef8cd",
+        "twodrive_0.2.12-1_amd64.deb.sha256": "6f87f44ce83e8c571ae7b69db310c4c1927a5d0656164aa78a59408f2895ea90",
+        "twodrive-0.2.12-1-source.tar.gz": "48c478de7cbda138d65b2a499609ae9151c8a049dabdb14cc36d2f442b25475a",
+        "SHA256SUMS": "43c9b1cc5104325cfbf3fecf8a874e7bdf57147d46c57ed53c57d618fe48cb39"
+      }
+    },
+    "dev-v0.1.1": {
+      "target": "93d1b44e7256f19d4b0822f22c2f90a066ec3305",
+      "published_at": "2026-10-13T08:07:06Z",
+      "url": "https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.1",
+      "prerelease": true,
+      "all_asset_digests_match": true,
+      "asset_sha256": {
+        "twodrive-development-0.1.1-linux-x64.tar.xz": "c6cab31678207dbd57886e6d9db29ded85b785feedee588421afeb9c159f2a3a",
+        "twodrive-development-0.1.1-windows-x64.zip": "424ced128acacbf45d1dd8168efca8f07cfcb899fbb08a53aca2bcd63263b082",
+        "verification.json": "6d73c6277e0387c92740457912d1423f52ef14864b51173734502937790ef8cd",
+        "twodrive-development-0.1.1-source.tar.gz": "11c42d1b351b73356938dbb043830f86eea64c1732ee49653eb8d52296d5962e",
+        "SHA256SUMS": "2c657090c268a7bac94024159b5e7935c6594fde7431d9e2cbc5ebee9ca159c3"
+      }
+    }
+  },
+  "release_snapshot_note": "Release source archives and verification.json contain prepublication evidence at 93d1b44. This delivery-only update records published URLs/digests and does not change binary inputs."
 }

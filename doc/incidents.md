@@ -80,7 +80,7 @@ Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 clo
 
 ### 交付记录
 
-失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；[修复4554021](https://github.com/LumiaBlack51/twodrive/commit/4554021886852e71b04299fd2b2ccc240442c2c7)；[通过的 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)。已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，Release 待发布。
+失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；[修复4554021](https://github.com/LumiaBlack51/twodrive/commit/4554021886852e71b04299fd2b2ccc240442c2c7)；[通过的 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)。已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，Release 已发布，见 TD-20261013-15 的交付记录。
 
 ## TD-20261013-17：编辑连接身份时沿用原账户保存的密码
 
@@ -115,7 +115,7 @@ legacy_profiles_roundtrip_and_redact_secrets 验证旧扁平配置兼容、脱�
 
 ### 交付记录
 
-[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 待发布，与 TD-20261013-15 同批交付。
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 已发布，与 TD-20261013-15 同批交付，见该条交付记录。
 
 ## TD-20261013-16：自动路由成功兜底被显示为红色错误
 
@@ -150,7 +150,7 @@ Linux 与 Windows 的13项 Flutter 回归、analyzer 和原生构建通过；war
 
 ### 交付记录
 
-[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 待发布，与 TD-20261013-15 同批交付。
+[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已合入 dev；Release 已发布，与 TD-20261013-15 同批交付，见该条交付记录。
 
 ## TD-20261013-15：桌面文件与备份服务绑定 WebDAV，阻碍其他存储提供者
 
@@ -199,9 +199,13 @@ Linux 与 Windows 的13项 Flutter 回归、analyzer 和原生构建通过；war
 ### 交付记录
 
 - 已推送调查提交8c43805、遗漏修复合并237c87c、[修复0be09fa](https://github.com/LumiaBlack51/twodrive/commit/0be09fa5d1c36558c9a25804d37b1c62a1aa16bf)、main历史合并56248a7；[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 已于2026-10-13合入 dev，合并提交 [bff03bd](https://github.com/LumiaBlack51/twodrive/commit/bff03bdfc13eab7ab079433bdde8d4155a043ef1)。所有现存远端功能分支均为该提交祖先。
-- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。后续提交对稳定组件没有源码变化，已逐字节核对。Release 待发布。
+- Linux 0.2.12-1 deb 从干净源码56248a7822156ea2e10fade28bbb2dedcc2e7f2e构建；SHA-256 `12bd85c3e97f3931f06fdc295cc35c6f26663bbc732afbcf3fdb8dfa43bf16a9`。解包二进制与release构建、桌面辅助程序与源码字节一致；包内 CLI 为0.2.12、无运行令牌或状态，包内 CLI/daemon 隔离 FUSE+MockBackend 冒烟通过。它不代表实际云端验证。后续提交对稳定组件没有源码变化，已逐字节核对。Release 已发布，见 TD-20261013-15 的交付记录。
 - 最终验证源码4554021886852e71b04299fd2b2ccc240442c2c7与 dev 合并树完全一致。四组 CI 均成功：[桌面 Linux/Windows](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410735)、[Development DAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410787)、[Peer 原生构建](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410773)、[Windows 双预览/根工作区](https://github.com/LumiaBlack51/twodrive/actions/runs/38364410768)。Development Linux/Windows 分发包取自该桌面 CI，黄色 SVG/ICO 资产均已核对。
-- 发布前脱敏验证摘要及二进制 SHA-256 见 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。安装包中的故障记录为构建时快照；源码归档将包含发布前完整验证记录。发布链接待实际创建后补记。
+- 发布前脱敏验证摘要及二进制 SHA-256 见 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。安装包中的故障记录为构建时快照；源码归档将包含发布前完整验证记录。发布链接已核实，见以下补记。
+
+
+- 已发布 [Linux TwoDrive 0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)（Latest）和 [Development 0.1.1 Linux/Windows](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.1)（预览版）。两标签均指向已推送 dev 提交93d1b44e7256f19d4b0822f22c2f90a066ec3305；两个源码归档均由该提交 git archive 生成，不含工作区未提交文件。
+- 两个 Release 各5项资产（分发包/校验/源码/脱敏验证摘要）均为 uploaded，GitHub 报告 SHA-256 与本地全部一致；完整摘要保存在 [provider-validation-2026-10-13.json](provider-validation-2026-10-13.json)。本次交付补记仅更新链接和摘要，不修改已发布二进制。安装包内记录为构建快照，Release 源码与 verification.json 为发布前验证快照。
 
 ## TD-20261013-14：映射后仅移动窗口保留了错误的缓存尺寸
 
@@ -1734,6 +1738,8 @@ cargo build 实验 --features mount 后，scripts/smoke.py --network lan --mount
 
 Windows 来源 5120cf7（[PR #9，已合并到 dev](https://github.com/LumiaBlack51/twodrive/pull/9)），peer 来源 dd0686b，原 dev 71c31e0；Windows 合并 d3c9e32，peer/包整合 [805ceba](https://github.com/LumiaBlack51/twodrive/commit/805ceba6616efd6d77014736881ad1e9d74a6528)，平台测试限定 [c73fece](https://github.com/LumiaBlack51/twodrive/commit/c73fece6b8e9215b562ea88317a31f9f5723cf7e)。[Windows 组合包 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594661999)、[peer CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594656006)、[WebDAV/QUIC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/37594655979) 均成功。已核验[组合资产](https://github.com/LumiaBlack51/twodrive/actions/runs/37594661999/artifacts/11469933545)来源为 c73fece；Full ZIP SHA-256 `49c2ab6540228984745233bbed51b9235f38a1148c880c12566318d0c68b6552`，Lite ZIP `0b4663b87ab01e72c23836350e11df4263c170139cb44d3ad541ded7c992835e`。仅记录更新在构建后提交，不改变可执行文件的源码/锁文件/构建脚本；资产内文档是该构建的快照。未合并 main、发布 Release 或替换用户安装。
 
+
+2026-10-13 交付补记：该条固定下载反馈的三项既有提交已通过[PR #11](https://github.com/LumiaBlack51/twodrive/pull/11) 合入 dev，并包含于 [0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。包内 Nautilus 25项回归通过；旧调查结论和验证边界保留。
 
 ## TD-20261007-PR-WSL：提交前 fetch 的宿主调用超时
 
