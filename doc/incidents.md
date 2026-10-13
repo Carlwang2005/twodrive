@@ -47,6 +47,41 @@
 
 
 
+## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
+
+- 日期：2026-10-13
+- 状态：已修复测试平台假设；Linux 复验通过，Windows CI 待复验。
+- 影响版本与环境：本轮新测试在 Windows CI 38363626181 失败；未证明产品图标实现异常。
+- 关联历史故障：TD-20261013-16 的验证遗漏，非路由或显示机制复发。
+
+### 症状与影响
+
+Windows Flutter 测试实际正确选择 cloud-warning.ico，却被只允许 cloud-warning.svg 的断言拒绝，阻止后续 Windows 原生构建与资产产出。
+
+### 触发条件与复现
+
+在 Windows 上执行 successful proxy fallback uses warning triangle and native warning asset。CI 日志显示12项通过、1项失败，Expected cloud-warning.svg，Actual cloud-warning.ico。
+
+### 根因与证据
+
+新测试硬编码 Linux 后缀；StatusTray 原有实现正确按 Windows 选择 ICO。属于测试缺陷，没有证据支持修改产品资产选择逻辑。
+
+### 解决办法与恢复操作
+
+回归按实际平台断言 SVG 或 ICO，错误图标断言同样处理；不放宽 warning/error 严重程度检查。没有本机恢复或安装操作。
+
+### 验证结果与边界
+
+失败证据来自真实 Windows CI；Linux analyzer与13项控件回归复验通过。修正后的 Windows 全量检查仍待CI，不将Linux通过代替Windows通过。
+
+### 防复发措施与后续
+
+保留原生 Windows/Linux 的同一断言；产物资产按各自平台实际加载格式核对。
+
+### 交付记录
+
+失败[CI 38363626181](https://github.com/LumiaBlack51/twodrive/actions/runs/38363626181)；修复提交与通过的CI待实际完成后补充，与PR #11一同交付。
+
 ## TD-20261013-17：编辑连接身份时沿用原账户保存的密码
 
 - 日期：2026-10-13

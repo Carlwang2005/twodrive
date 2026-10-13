@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -166,7 +167,10 @@ void main() {
       };
       await tester.pumpWidget(DavApp(client: c, desktop: true));
       await tester.pumpAndSettle();
-      expect(icons.last, endsWith('cloud-warning.svg'));
+      expect(
+        icons.last,
+        endsWith('cloud-warning.${Platform.isWindows ? 'ico' : 'svg'}'),
+      );
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
       expect(find.byIcon(Icons.error_outline), findsNothing);
       await tester.pumpWidget(
@@ -184,7 +188,10 @@ void main() {
       c.error = '同步失败';
       await tester.pumpWidget(DavApp(client: c, desktop: true));
       await tester.pumpAndSettle();
-      expect(icons.last, endsWith('cloud-error.svg'));
+      expect(
+        icons.last,
+        endsWith('cloud-error.${Platform.isWindows ? 'ico' : 'svg'}'),
+      );
       await tester.pumpWidget(const SizedBox());
       c.dispose();
     },
