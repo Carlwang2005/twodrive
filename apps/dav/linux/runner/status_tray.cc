@@ -31,6 +31,7 @@ struct Tray {
   bool panel = false;
   bool focus_armed = false;
   gint64 dismissed = 0;
+  guint reposition = 0;
 };
 const char* kPath = "/StatusNotifierItem";
 const char* kInterface = "org.kde.StatusNotifierItem";
@@ -57,6 +58,21 @@ gboolean key_press(GtkWidget*, GdkEventKey* event, gpointer data) {
   dismiss(tray);
   return TRUE;
 }
+gboolean position_mapped_panel(gpointer data) {
+  auto* tray = static_cast<Tray*>(data);
+  tray->reposition = 0;
+  if (tray->panel && gtk_widget_get_visible(GTK_WIDGET(tray->window))) {
+    const auto bounds = tray->anchor.panel();
+    gdk_window_move(gtk_widget_get_window(GTK_WIDGET(tray->window)), bounds.x, bounds.y);
+  }
+  return G_SOURCE_REMOVE;
+}
+gboolean mapped(GtkWidget*, GdkEvent*, gpointer data) {
+  auto* tray = static_cast<Tray*>(data);
+  if (tray->panel && !tray->reposition)
+    tray->reposition = g_idle_add(position_mapped_panel, tray);
+  return FALSE;
+}
 void capture_anchor(Tray* tray, gint x, gint y) {
   auto* display = gtk_widget_get_display(GTK_WIDGET(tray->window));
   if (x == 0 && y == 0) {
@@ -67,6 +83,7 @@ void capture_anchor(Tray* tray, gint x, gint y) {
   GdkRectangle area;
   gdk_monitor_get_workarea(monitor, &area);
   tray->anchor.capture(x, y, {area.x, area.y, area.width, area.height});
+  if (g_getenv("TWODRIVE_TRAY_TRACE")) g_message("tray anchor: point=%d,%d work=%d,%d,%d,%d", x, y, area.x, area.y, area.width, area.height);
 }
 const char* kXml = R"XML(
 <node><interface name="org.kde.StatusNotifierItem">
@@ -129,17 +146,17 @@ void activate(Tray* tray, gint x, gint y) {
 }
 void legacy_activate(GtkStatusIcon* icon, gpointer data) {
   auto* tray = static_cast<Tray*>(data);
-  GdkRectangle area;
+  (void)icon;
   gint x = 0, y = 0;
   g_autoptr(GdkEvent) event = gtk_get_current_event();
-  gdouble event_x = 0, event_y = 0;
-  if (event && gdk_event_get_root_coords(event, &event_x, &event_y)) {
-    x = static_cast<gint>(event_x);
-    y = static_cast<gint>(event_y);
-  } else if (gtk_status_icon_get_geometry(icon, nullptr, &area, nullptr)) {
-    x = area.x + area.width / 2;
-    y = area.y + area.height / 2;
+  if (event && (event->type == GDK_KEY_PRESS || event->type == GDK_KEY_RELEASE) &&
+      tray->anchor.valid) {
+    x = tray->anchor.x;
+    y = tray->anchor.y;
   }
+  // GNOME forwards synthetic icon-local coordinates as x_root/y_root. The
+  // hidden XEmbed socket is also not the visible Shell clone's geometry.
+  // Zero asks capture_anchor to sample the pointer now, before Dart awaits.
   tray->activation_time = gtk_get_current_event_time();
   activate(tray, x, y);
 }
@@ -175,6 +192,7 @@ void watcher_appeared(GDBusConnection* bus, const gchar*, const gchar*, gpointer
       3000, nullptr, nullptr, nullptr);
 }
 void stop(Tray* tray) {
+  if (tray->reposition) { g_source_remove(tray->reposition); tray->reposition = 0; }
   if (tray->legacy) { gtk_status_icon_set_visible(tray->legacy, FALSE); g_clear_object(&tray->legacy); }
   if (tray->watcher) { g_bus_unwatch_name(tray->watcher); tray->watcher = 0; }
   if (tray->owner) { g_bus_unown_name(tray->owner); tray->owner = 0; }
@@ -190,6 +208,7 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
     tray->focus_armed = false;
     if (panel && !tray->anchor.valid) capture_anchor(tray, 0, 0);
     const auto bounds = tray->anchor.panel();
+    if (g_getenv("TWODRIVE_TRAY_TRACE")) g_message("tray bounds: %d,%d %dx%d", bounds.x, bounds.y, bounds.width, bounds.height);
     gtk_window_set_decorated(tray->window, !panel);
     gtk_window_set_resizable(tray->window, TRUE);
     GdkGeometry geometry = {};
@@ -285,6 +304,7 @@ void register_status_tray(FlView* view) {
   g_signal_connect(window, "focus-out-event", G_CALLBACK(focus_out), tray);
   g_signal_connect(window, "focus-in-event", G_CALLBACK(focus_in), tray);
   g_signal_connect(window, "key-press-event", G_CALLBACK(key_press), tray);
+  g_signal_connect(window, "map-event", G_CALLBACK(mapped), tray);
   auto* app = gtk_window_get_application(window);
   if (app) {
     g_autoptr(GSimpleAction) action = g_simple_action_new("quit", nullptr);

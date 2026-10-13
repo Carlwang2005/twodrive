@@ -227,7 +227,106 @@
           "Map State": "IsUnMapped"
         }
       }
-    ]
+    ],
+    "gnome_pointer_anchor_regression": {
+      "single_click_roundtrips": [
+        {
+          "expected": "IsViewable",
+          "ms": 42,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 4,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 32,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 5,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsViewable",
+          "ms": 33,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsViewable"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        },
+        {
+          "expected": "IsUnMapped",
+          "ms": 5,
+          "geometry": {
+            "Absolute upper-left X": "936",
+            "Absolute upper-left Y": "88",
+            "Width": "780",
+            "Height": "1140",
+            "Map State": "IsUnMapped"
+          },
+          "pointer": [
+            1676,
+            1267
+          ]
+        }
+      ],
+      "settling_ms": 400,
+      "stable": true,
+      "pointer_anchor_verified": true,
+      "host_event_root": "icon-local center"
+    },
+    "earlier_position_boundary_correction": "Earlier stable synthetic event coordinates did not verify the GNOME clone position; the later regression verifies the live pointer anchor and mapped window coordinates."
   },
   "autostart_enabled": false,
   "stable_daemon_restarted": false,
