@@ -79,7 +79,7 @@
 
 ### 交付记录
 
-[交付 PR #10](https://github.com/LumiaBlack51/twodrive/pull/10)；修复提交待生成。
+[修复 3f2470a](https://github.com/LumiaBlack51/twodrive/commit/3f2470afacc3af51d7972ab61eaa5a0b2f681f6e)；[交付 PR #10](https://github.com/LumiaBlack51/twodrive/pull/10)；[最终 Linux CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38354827650) 成功。验证后清理本轮构建和临时文件，安装运行时及身份保留。
 
 ## TD-20261013-13：GTK 面板首映射的实际位置偏离已计算边界
 

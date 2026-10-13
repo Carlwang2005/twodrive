@@ -108,8 +108,13 @@ success. Autostart remained absent. Sanitized checks are stored in the
 window with the live pointer and workarea, accounting for GNOME icon-local event
 coordinates and the mapped window rectangle. Installed opening took 28–54ms,
 closing 4ms, with a stable 390×570 logical rectangle at 2× scaling. These are
-synthetic host events, not hardware input or multi-monitor acceptance. Final CI
-and cleanup results will be appended after completion. No stable
+synthetic host events, not hardware input or multi-monitor acceptance. [Final Linux CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38354827650)
+passed the GTK rectangle fix; the Windows source is unchanged from the successful
+[native Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38353525532).
+The earlier shared engine/provider workflows also passed. Local cleanup removed
+12036603904 allocated bytes of owned build directories (11.2 GiB), 50 temporary
+paths, the empty obsolete mount directory and the failed Windows diagnostic
+artifact. Installed runtime, device pairing and stable daemon were retained. No stable
 release is replaced by this Development build.
 
 ## Windows desktop
