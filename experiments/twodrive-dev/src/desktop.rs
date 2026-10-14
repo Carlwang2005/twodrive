@@ -49,7 +49,7 @@ struct Args {
 
 #[path = "desktop_providers.rs"]
 mod providers;
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct Config {
     profiles: Vec<Profile>,
     selected: Option<String>,
@@ -426,12 +426,14 @@ impl App {
                 providers::retain_secrets(&mut p, previous, a["clear_password"] == true);
                 providers::prepare(&mut p, &self.state)?;
                 providers::validate(&p)?;
-                self.config.profiles.retain(|c| c.id != p.id);
-                self.config.profiles.push(p.clone());
+                let mut next = self.config.clone();
+                next.profiles.retain(|c| c.id != p.id);
+                next.profiles.push(p.clone());
                 if self.connected.is_none() {
-                    self.config.selected = Some(p.id.clone());
+                    next.selected = Some(p.id.clone());
                 }
-                self.state.save("profiles.json", &self.config)?;
+                self.state.save("profiles.json", &next)?;
+                self.config = next;
                 Ok(json!({"id":p.id}))
             }
             "remove_profile" => {
@@ -445,11 +447,13 @@ impl App {
                     self.cache(&p, false)?["pending"] == 0,
                     "此连接有待恢复的缓存，不能删除配置"
                 );
-                self.config.profiles.retain(|p| p.id != id);
-                if self.config.selected.as_deref() == Some(id) {
-                    self.config.selected = None;
+                let mut next = self.config.clone();
+                next.profiles.retain(|p| p.id != id);
+                if next.selected.as_deref() == Some(id) {
+                    next.selected = None;
                 }
-                self.state.save("profiles.json", &self.config)?;
+                self.state.save("profiles.json", &next)?;
+                self.config = next;
                 Ok(json!({}))
             }
             "connect" => self.connect(string(a, "id")?, &cancel),
@@ -885,6 +889,29 @@ mod tests {
         assert_eq!(app.config.selected.as_deref(), Some("active"));
         assert_eq!(app.profile("active").unwrap().revision, "active-revision");
         assert!(app.backend.is_some());
+
+        // Inject a persistence failure after the online happy path: no failed
+        // add/edit/remove may change the in-memory configuration or binding.
+        let other = json!({"id":"other","name":"Unchanged","kind":"dav","url":"https://example.invalid/dav/","mount_path":temp.path().join("mount"),"network_route":"system"});
+        call(&mut app, "save_profile", other.clone()).unwrap();
+        let before = serde_json::to_value(&app.config).unwrap();
+        fs::remove_file(app.state.dir.join("profiles.json")).unwrap();
+        fs::create_dir(app.state.dir.join("profiles.json")).unwrap();
+        let mut edited = other;
+        edited["name"] = json!("Changed");
+        for (op, args) in [
+            (
+                "save_profile",
+                json!({"id":"new","name":"New","kind":"dav","url":"https://example.invalid/dav/","mount_path":temp.path().join("mount"),"network_route":"system"}),
+            ),
+            ("save_profile", edited),
+            ("remove_profile", json!({"id":"other"})),
+        ] {
+            assert!(call(&mut app, op, args).is_err());
+            assert_eq!(serde_json::to_value(&app.config).unwrap(), before);
+            assert_eq!(app.connected.as_ref().unwrap().revision, "active-revision");
+            assert!(app.backend.is_some());
+        }
     }
     #[test]
     fn ipc_file_service_works_with_non_dav_opaque_ids() {
