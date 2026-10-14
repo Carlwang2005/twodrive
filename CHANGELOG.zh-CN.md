@@ -4,6 +4,14 @@
 
 本页整理自原 README。发布资产和验证说明保留在 Releases；[debian/changelog](debian/changelog)保留软件包历史。以下描述的是发布时的变化，不代表新的测试结果或当前行为保证。
 
+## Development 0.1.2 — 云账号与托盘定位
+
+接入 Google Drive 桌面登录与普通文件读写、条件覆盖、文件夹备份和 Linux FUSE。连接页支持在线添加/管理非活动的 WebDAV/NAS、PC/NAS 共享、Google Drive 和 OneDrive 配置；保存失败保留原列表。设备共享支持主动开启的签名局域网发现、可信邀请与 QUIC 配对。
+
+GNOME/Zorin 托盘使用真实图标边界定位，同时支持 X11 和原生 Wayland，随包提供 TwoDrive 专用组件；首次安装可能须下次桌面登录加载。Linux/Windows 包附安装器和[提供者、登录、上传及配套组件规范](doc/provider-integration-spec.md)。Google 在线文档仍以网页入口展示；其他 Wayland compositor、组织/共享盘及任意跨公网 NAT 打洞尚未验收。
+
+详情：[Google Drive](doc/google-drive-dev.md)、[连接管理](doc/storage-connections-dev.md)、[托盘定位](doc/tray-positioning-2026-10-14.md)、[故障证据](doc/incidents.md)。
+
 ## 0.2.10-2 — 内部架构重构
 
 按职责分离存储接口、持久化、OneDrive/OAuth、按需文件、服务编排与展示层，不有意改变既有行为或数据格式。本次为独立分支预发布，未合并 main。[架构与验证记录](doc/refactor-2026-09-16.md)。

@@ -37,7 +37,7 @@ python3 scripts/test-dav-panel-isolated.py --backend wayland \
 # X11 将 --backend 改为 x11；--xvfb 可指定私有 Xvfb 二进制。
 ```
 
-实现参考：[GNOME D-Bus 服务](https://gjs.guide/guides/gio/dbus.html)、[Meta.Window.move_resize_frame](https://mutter.gnome.org/meta/method.Window.move_resize_frame.html)。故障记录：[TD-20261014-06](incidents.md#td-20261014-06托盘状态面板未固定在任务栏图标正上方)。当前变更在本地 dev，提交/发布待补充。
+实现参考：[GNOME D-Bus 服务](https://gjs.guide/guides/gio/dbus.html)、[Meta.Window.move_resize_frame](https://mutter.gnome.org/meta/method.Window.move_resize_frame.html)。故障记录：[TD-20261014-06](incidents.md#td-20261014-06托盘状态面板未固定在任务栏图标正上方)。[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)。发布待补充；见[最终构建与范围](development-0.1.2.md)。
 
 ## English
 

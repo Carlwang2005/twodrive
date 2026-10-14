@@ -48,7 +48,7 @@ Windows 分享端示例：
 - OneDrive：分页/不可信 continuation 边界沿用 Graph 引擎；新浅层目录和创建失败/条件覆盖请求有本地 HTTP 回归。真实个人账号通过隔离登录副本完成 8 MiB+123 字节上传/下载比对、条件覆盖/旧版本拒绝、改名、删除与自有目录清理，见[实际摘要](onedrive-desktop-validation-2026-10-14.json)；新浏览器登录、组织账号、真实 OneDrive FUSE/备份及原生 Windows 本轮未验证。
 - Google：既有真实账号普通文件、FUSE 和备份验证见 Google 指南。本轮新增连接操作不要求重新登录 Google。
 
-故障与交付记录：[TD-20261014-05](incidents.md#td-20261014-05连接任意账号后禁止添加或管理其他连接)。提交和发布待补充。
+故障与交付记录：[TD-20261014-05](incidents.md#td-20261014-05连接任意账号后禁止添加或管理其他连接)。[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)。发布待补充；见[最终构建与范围](development-0.1.2.md)。
 
 ## English
 

@@ -54,3 +54,5 @@ Existing investigation paths are retained so earlier release links continue to w
 - [Storage connections / 存储连接与设备发现](storage-connections-dev.md)
 - [Live OneDrive desktop verification / 真实 OneDrive 脱敏验证](onedrive-desktop-validation-2026-10-14.json)
 - [Google Drive Development setup / 接入与验证](google-drive-dev.md)
+
+- [Development 0.1.2 发布与验证](development-0.1.2.md)：云账号、在线连接管理、X11/Wayland 组件、原生 CI 与分发范围。

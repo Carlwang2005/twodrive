@@ -47,10 +47,45 @@
 
 
 
+## TD-20261014-11：Windows 发布文本字节核对误报 CRLF 差异
+
+- 日期：2026-10-14
+- 状态：已验证发布审计规则；程序未修改。
+- 影响版本与环境：0.1.2 发布组装的临时核对脚本，Windows Git checkout 文本。
+- 关联历史故障：TD-20261014-07 也是跨平台检查假设遗漏，但根因不同。
+
+### 症状与影响
+
+Windows 包的安装脚本/说明/规范与 Linux 工作区原始 SHA 比较失败。PE x64 程序验证已通过；未发现程序损坏或文本语义变化。
+
+### 触发条件与复现
+
+对 Windows CI 的 CRLF 文本与 Git 源码 LF 文本直接按字节比较。
+
+### 根因与证据
+
+三份原始字节不同，全部在 CRLF→LF 后严格相等；属于核对方法的行尾假设，不是运行程序缺陷。
+
+### 解决办法与恢复操作
+
+原生程序/DLL/资产保持 CI 字节与 SHA 不变；核对文本时明确行尾归一化。最终组装文档/安装脚本采用发布源码的 LF 文本并记录组装来源，不冒称原始 Windows CI 文本字节相同。无用户本地恢复操作。
+
+### 验证结果与边界
+
+旧字节断言失败，行尾归一化后三份内容严格一致；Windows 三个 EXE 的 PE x64 和 ICO 资产通过。此项不属于 Windows 程序执行测试；原生执行证据由桌面 CI 单独提供。
+
+### 防复发措施与后续
+
+发布证据区分原生程序字节和源码文本组装，不以行尾差异否认已验证二进制。
+
+### 交付记录
+
+[构建 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+
 ## TD-20261014-10：配置落盘失败仍改变内存中的连接列表
 
 - 日期：2026-10-14
-- 状态：已验证旧代码失败、新候选配置顺序通过；待最终原生 CI。
+- 状态：已验证本机旧代码失败/修复通过，最终 Linux/Windows 原生单元与 IPC 检查通过。
 - 影响版本与环境：既有 desktop save_profile/remove_profile；本次允许在线管理其他连接后补查错误分支。
 - 关联历史故障：TD-20261014-05 的在线管理；TD-20261014-09 的 Windows 持久化失败触发调查。
 
@@ -80,12 +115,12 @@
 
 ### 交付记录
 
-提交/Release：待补充。
+[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
 
 ## TD-20261014-09：Windows IPC 检查一次配置原子替换被拒绝
 
 - 日期：2026-10-14
-- 状态：调查中 / 根因未确认。
+- 状态：后续两轮完整 Windows IPC 未复现；根因未确认，不宣称系统占用机制已修复。
 - 影响版本与环境：dev 6aebdb6，Windows 桌面 CI 的隔离临时配置。
 - 关联历史故障：TD-20261014-07 的路径断言已通过；本条发生于实际文件持久化，根因不同。
 
@@ -107,7 +142,7 @@
 
 ### 验证结果与边界
 
-Windows 引擎 Clippy、账号隔离和单元测试已通过，IPC 未完成；不能把本机 Linux 通过视作本项 Windows 通过。
+原失败任务 IPC 未完成；c80371b 与最终 863bf6d 的独立 Windows 原生 IPC 均完整通过，包括在线新增/编辑/删除、2 MiB 往返、备份与自启动隔离。没有复现具体系统拒绝来源；State::save 的原子替换实现未改，失败时内存配置保护另见 TD-20261014-10。
 
 ### 防复发措施与后续
 
@@ -115,12 +150,12 @@ Windows 引擎 Clippy、账号隔离和单元测试已通过，IPC 未完成；�
 
 ### 交付记录
 
-[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173558)。提交/Release：待补充。
+[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173558)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
 
 ## TD-20261014-08：既有上传并发测试依赖 100ms 调度窗口
 
 - 日期：2026-10-14
-- 状态：已验证本机旧窗口失败/新屏障通过；待最终原生 CI。
+- 状态：已验证本机旧窗口失败/新屏障通过；最终 Linux 原生根工作区 CI 通过。
 - 影响版本与环境：既有 FUSE 单元测试；dev 6aebdb6 的 Linux peer CI。
 - 关联历史故障：TD-20260916-04 是另一个 daemon 测试的短观察窗；本条不是相同代码路径。
 
@@ -142,7 +177,7 @@ immediate_reopen_during_upload_keeps_the_local_record 在进入重开操作前�
 
 ### 验证结果与边界
 
-同一 mock 首次上传注入 150ms 启动延迟，临时恢复旧 100×1ms 轮询时退出 101（active_uploads 断言失败）；恢复新同步后两项测试通过。FUSE 单元套件 34 通过/6 项按默认忽略，fmt 与严格 Clippy 通过。最终原生 CI 待执行；这些是 mock 测试，不是实际挂载或真实云端验证。
+同一 mock 首次上传注入 150ms 启动延迟，临时恢复旧 100×1ms 轮询时退出 101（active_uploads 断言失败）；恢复新同步后两项测试通过。FUSE 单元套件 34 通过/6 项按默认忽略，fmt 与严格 Clippy 通过。最终 Linux peer/根工作区 CI 已通过相同测试；这些是 mock 测试，不是实际挂载或真实云端验证。
 
 ### 防复发措施与后续
 
@@ -150,12 +185,12 @@ immediate_reopen_during_upload_keeps_the_local_record 在进入重开操作前�
 
 ### 交付记录
 
-[失败原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173503/job/115812503295)。提交/Release：待补充。
+[失败原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173503/job/115812503295)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
 
 ## TD-20261014-07：Development 发布 CI 的跨平台检查失败
 
 - 日期：2026-10-14
-- 状态：已修复两项检查配置/断言，待原生验证；另一个数据库争用失败根因未确认。
+- 状态：已验证两项检查修复的 Linux/Windows CI；原数据库争用未在原样重跑及最终 CI 复现，根因未确认。
 - 影响版本与环境：dev 37f8f3b，GitHub Ubuntu 24.04 / Windows 原生 runner；尚未发布 0.1.2。
 - 关联历史故障：TD-20261013-08 为 Windows 条件编译检查，TD-20260916-04 为 CI 时间窗；不能仅因 CI 失败认定相同根因。
 
@@ -177,7 +212,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 验证结果与边界
 
-初次 Windows 原断言在两个任务失败；修正后的本机账号隔离测试、fmt 及 scripts 7 项 unittest 通过。修复后的原生验证待执行；数据库单次失败不作为已修复机制。
+初次 Windows 原断言在两个任务失败；修正后的本机账号隔离测试、fmt 及 scripts 7 项 unittest 通过。最终原生 Linux scripts 全部 7 项通过，Windows 独立账号断言通过，四组最终 CI 全部成功；数据库单次失败不作为已修复机制。
 
 ### 防复发措施与后续
 
@@ -185,7 +220,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 交付记录
 
-[初次桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38550735306)。修复提交/Release：待补充。
+[初次桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38550735306)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
 
 ## TD-20261014-06：托盘状态面板未固定在任务栏图标正上方
 
@@ -210,7 +245,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 解决办法与恢复操作
 
-面板水平中心使用实际图标矩形中心，底边距离任务栏保留工作区边界 8 个逻辑像素；顶部任务栏相应向下展开，屏幕边缘必要时才限制横向边界。GNOME/Zorin 提供 TwoDrive 专用小组件，从 Shell 托盘 actor 读取准确逻辑矩形/工作区；X11 在 GTK/GDK 映射后定位，原生 Wayland 由 GNOME compositor 定位自己的 TwoDrive 面板。PositionPanel 校验 D-Bus 发送者 PID 等于目标 TwoDrive PID，窗口类匹配且无装饰，不提供任意窗口/坐标控制。小组件只调整 TwoDrive SNI 单击入口，不修改其他指示器；不依赖全局鼠标坐标或开启 Shell unsafe Eval。Windows 公式同步居中与任务栏边界，但本轮未进行原生 Windows 验证。
+面板水平中心使用实际图标矩形中心，底边距离任务栏保留工作区边界 8 个逻辑像素；顶部任务栏相应向下展开，屏幕边缘必要时才限制横向边界。GNOME/Zorin 提供 TwoDrive 专用小组件，从 Shell 托盘 actor 读取准确逻辑矩形/工作区；X11 在 GTK/GDK 映射后定位，原生 Wayland 由 GNOME compositor 定位自己的 TwoDrive 面板。PositionPanel 校验 D-Bus 发送者 PID 等于目标 TwoDrive PID，窗口类匹配且无装饰，不提供任意窗口/坐标控制。小组件只调整 TwoDrive SNI 单击入口，不修改其他指示器；不依赖全局鼠标坐标或开启 Shell unsafe Eval。Windows 公式同步居中与任务栏边界；最终原生 Windows CI 验证三轮展开/收起及稳定位置，硬件点击/物理多屏的居中位置未验收。
 
 遵守用户不影响前台编码的约束：测试全部使用私有 D-Bus/显示环境，不在用户桌面激活窗口、移动指针或测试弹窗。实际部署：已安装新 release 和 TwoDrive GNOME 组件，仅追加本组件启用项；新组件在当前 Shell 尚未加载，须下一次桌面登录。使用安装器保留旧运行路径到 `~/.local/share/twodrive-dav/runtime-before-7055ad73047e`，未终止当前 GUI/引擎，不修改 Google 私有令牌、连接列表、稳定服务或自启动设置。
 
@@ -218,7 +253,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 恢复 HEAD 旧几何代码时，同一“中心对齐/任务栏边界”断言退出 -6，修复通过。C++ 几何回归与 GJS 几何/提供者身份测试通过，覆盖顶部/底部、负坐标屏幕、边缘约束与图标实际移动。`test-dav-panel-isolated.py --backend wayland` 在真实 GNOME 46 headless compositor + 原生 GTK Wayland 完成三轮展开/收起：真实 Shell actor 1328,0,36,32、工作区 0,32,1440,868，最终面板均为 1042,40,390,570（该虚拟图标靠屏幕右边缘，横向必须限位）；错误的 Activate(16,16) 不影响真实图标定位，其他进程的 PositionPanel 被拒绝，后台启动未映射窗口。[Wayland 摘要](tray-wayland-validation-2026-10-14.json)。
 
-最初在私有 Wayland compositor 中启用 XWayland 的尝试缺少 systemd X11 session 服务，未当作 X11 产品失败或成功。后续转到独立 Xvfb/X11 compositor，使用真实虚拟显示器输入（核心合成事件没有使 GTK 激活，不把这一测试入口限制当作产品失败）；最终三轮单击展开/收起通过，稳定后矩形均为 1042,40,390,570，真实图标来源被核对。[X11 摘要](tray-x11-validation-2026-10-14.json)。Flutter analyze/release build 与 14 项测试通过，安装器保留运行中旧路径/账号配置与排队仅本组件的 2 项回归通过。当前实体 Zorin 2× 桌面遵照用户约束未弹窗实测；多实体显示器、其他 Wayland compositor/Windows 未实测，不承诺所有平台组合。
+最初在私有 Wayland compositor 中启用 XWayland 的尝试缺少 systemd X11 session 服务，未当作 X11 产品失败或成功。后续转到独立 Xvfb/X11 compositor，使用真实虚拟显示器输入（核心合成事件没有使 GTK 激活，不把这一测试入口限制当作产品失败）；最终三轮单击展开/收起通过，稳定后矩形均为 1042,40,390,570，真实图标来源被核对。[X11 摘要](tray-x11-validation-2026-10-14.json)。Flutter analyze/release build 与 14 项测试通过，安装器保留运行中旧路径/账号配置与排队仅本组件的 2 项回归通过。当前实体 Zorin 2× 桌面遵照用户约束未弹窗实测；最终 Windows 原生 CI 托盘消息、外部焦点及 Escape 烟测通过，不等于用户硬件点击或物理任务栏位置验收。多实体显示器、其他 Wayland compositor 未实测，不承诺所有平台组合。
 
 ### 防复发措施与后续
 
@@ -226,12 +261,12 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 交付记录
 
-提交/发布：待补充。[定位实现与后台验证](tray-positioning-2026-10-14.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[定位实现与后台验证](tray-positioning-2026-10-14.md)。
 
 ## TD-20261014-05：连接任意账号后禁止添加或管理其他连接
 
 - 日期：2026-10-14
-- 状态：已验证在线配置管理、本机 UDP/QUIC、WebDAV FUSE/备份及真实 OneDrive 普通文件；实体 NAS/跨公网 NAT/原生 Windows 未验证。
+- 状态：已验证在线配置管理、本机 UDP/QUIC、WebDAV FUSE/备份及真实 OneDrive 普通文件；实体 NAS/跨公网 NAT/真实 Windows 云端登录未验证。
 - 影响版本与环境：现用 Development Flutter 客户端与 desktop IPC；Google 接入前已有的单连接管理限制。
 - 关联历史故障：TD-20261013-15 的提供者边界和 TD-20261013-17 的凭据身份保护相关，但不是 Google 登录失败或凭据混用。
 
@@ -259,7 +294,7 @@ Rust `connected_account_can_manage_other_profiles_without_changing_active_revisi
 
 真实本机 WebDAV + FUSE 验证 2 MiB 上传下载 SHA-256 一致、挂载读写、暂停后待上传保护/恢复、备份创建修改与冲突保留。真实个人 OneDrive 使用稳定版登录文件的临时私有副本（不修改原配置/令牌或操作稳定服务），完成 8 MiB+123 字节上传/下载比对、条件覆盖/旧版本拒绝、改名/删除，自有随机目录已删除；[独立脱敏报告](onedrive-desktop-validation-2026-10-14.json)。这验证的是已有登录恢复和普通文件操作，新浏览器 OAuth、本轮真实 OneDrive FUSE/备份、组织账号未执行。
 
-整个主 workspace 测试、fmt、严格 Clippy 通过（默认忽略的 FUSE/原生进程测试仍未执行）；独立实验 mount 测试 64 项、Flutter 14 项及 analyze、Python 30 项通过。实体 NAS、跨公网 NAT 打洞和原生 Windows 新入口未验证，不能把局域网发现或中继连接等同于所有网络的 UDP 打洞成功。
+整个主 workspace 测试、fmt、严格 Clippy 通过（默认忽略的 FUSE/原生进程测试仍未执行）；独立实验 mount 测试 64 项、Flutter 14 项及 analyze、Python 30 项通过。最终 Windows CI 的提供者单元、在线配置管理、实际 loopback WebDAV IPC/备份及 Flutter 14 项通过，Windows 浏览器云端登录未执行。实体 NAS、跨公网 NAT 打洞未验证，不能把局域网发现或中继连接等同于所有网络的 UDP 打洞成功。
 
 ### 防复发措施与后续
 
@@ -267,7 +302,7 @@ Rust `connected_account_can_manage_other_profiles_without_changing_active_revisi
 
 ### 交付记录
 
-提交/发布：待补充。[存储连接使用与验证](storage-connections-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[存储连接使用与验证](storage-connections-dev.md)。
 
 ## TD-20261014-04：Google 验证脚本的无挂载分支错误限定 time 变量作用域
 
@@ -302,7 +337,7 @@ Python 静态局部变量规则。带挂载的实际成功测试不能覆盖该�
 
 ### 交付记录
 
-提交与发布：待补充。[Google Drive 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive 接入](google-drive-dev.md)。
 
 ## TD-20261014-03：Google 全目录逐层请求超过挂载启动时限
 
@@ -337,7 +372,7 @@ Google 全量索引改为分页库存+内存建树，并拒绝重复分页游标
 
 ### 交付记录
 
-提交与发布：待补充。[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261014-02：Google 真实下载拒绝元数据 ETag 的 If-Match
 
@@ -372,7 +407,7 @@ Google 全量索引改为分页库存+内存建树，并拒绝重复分页游标
 
 ### 交付记录
 
-提交与发布：待补充。[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261014-01：新增 Google 适配器将中文文件名显示为百分号编码
 
@@ -407,7 +442,7 @@ Google 中文名称可能显示为 `%E4…`，影响浏览可读性。本地 HTT
 
 ### 交付记录
 
-提交与发布：待补充。接入说明：[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。接入说明：[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
 

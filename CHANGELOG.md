@@ -4,6 +4,14 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## Development 0.1.2 — Cloud accounts and anchored tray
+
+Google Drive desktop sign-in now supports ordinary-file read/write, conditional replacement, directory backups and Linux FUSE. The connection page can add and manage inactive WebDAV/NAS, PC/NAS sharing, Google Drive and OneDrive accounts while connected; failed configuration persistence preserves the current list. Devices use opt-in signed LAN discovery and trusted invitation pairing over QUIC.
+
+GNOME/Zorin tray positioning uses actual icon bounds on X11 and native Wayland through the included TwoDrive component; first installation may require a new desktop login. Linux/Windows bundles include installers and the [provider, login, upload and supporting-component specification](doc/provider-integration-spec.md). Google editor documents remain browser shortcuts; other Wayland compositors, organization/shared drives and arbitrary cross-network NAT traversal have not been accepted.
+
+Details: [Google Drive](doc/google-drive-dev.md), [connections](doc/storage-connections-dev.md), [tray positioning](doc/tray-positioning-2026-10-14.md), [incident evidence](doc/incidents.md).
+
 ## 0.2.10-2 — Internal architecture refactor
 
 Separate storage, persistence, OneDrive/OAuth, Files On-Demand, service orchestration and presentation by responsibility. No intentional behavior or data-format changes. Branch prerelease; not merged into main. [Architecture and verification](doc/refactor-2026-09-16.md).
