@@ -108,7 +108,7 @@ twodrive delete file error: cannot delete a file while it is changing
 
 **验证边界和本地恢复**：本轮不操作现用服务、数据库或真实云端文件；最初的 Git 仓库迁移仍单独列于上文。未执行真实 Graph 上传/删除及断网/崩溃探针、Windows 原生运行、多进程完整竞争、外部客户端同名云端并发编辑、未缓存延迟读取句柄的 unlink 语义和正在云端创建目录时的 rmdir。测试中的重启是重开隔离数据库/重新运行恢复函数，不是真实生产进程崩溃。不能据此承诺所有 EIO 均已修复。
 
-**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。提交、PR 和最终验证结果待补充；未发布、未安装、未合并 main。
+**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。修复提交：[4d4f7ae](https://github.com/LumiaBlack51/twodrive/commit/4d4f7aec7424b75b686b60ab67cc1fe258a8fe64)；[指向 main 的草稿 PR #13](https://github.com/LumiaBlack51/twodrive/pull/13)。本机验证结果见上文；远端 CI 尚未取得结果，不能据此宣称 Windows 原生验证通过。未发布、未安装、未合并 main。
 
 
 ## TD-20261007-03：整合树 Windows 原生 peer 测试失败
