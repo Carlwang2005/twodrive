@@ -97,6 +97,8 @@ pub(super) struct PersistedUploadSession {
     pub(super) source_modified_unix: i64,
     pub(super) remote_id: Option<String>,
     pub(super) if_match: Option<String>,
+    #[serde(default)]
+    pub(super) create_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,10 +143,14 @@ pub(super) fn uses_upload_session(size: u64) -> bool {
     size > SIMPLE_UPLOAD_MAX
 }
 
+#[cfg(test)]
 pub(super) fn upload_session_request_body() -> serde_json::Value {
+    upload_session_request_body_for(false)
+}
+pub(super) fn upload_session_request_body_for(create_only: bool) -> serde_json::Value {
     serde_json::json!({
         "item": {
-            "@microsoft.graph.conflictBehavior": "replace"
+            "@microsoft.graph.conflictBehavior": if create_only { "fail" } else { "replace" }
         }
     })
 }

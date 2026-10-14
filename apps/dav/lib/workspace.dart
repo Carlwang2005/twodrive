@@ -840,9 +840,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       Align(
         alignment: Alignment.centerLeft,
         child: FilledButton.icon(
-          onPressed: c.busy || !c.available || c.connected
-              ? null
-              : () => editProfile(),
+          onPressed: c.busy || !c.available ? null : () => editProfile(),
           icon: const Icon(Icons.add),
           label: const Text('添加连接'),
         ),
@@ -862,11 +860,15 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   p['kind'] as String,
             ),
             selected: c.selected == p['id'],
-            onTap: c.busy || c.connected
+            onTap: c.busy || !c.available
                 ? null
                 : () {
-                    c.selected = p['id'] as String;
-                    changed();
+                    if (c.connected) {
+                      unawaited(c.connect(p['id'] as String));
+                    } else {
+                      c.selected = p['id'] as String;
+                      changed();
+                    }
                   },
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -875,14 +877,20 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   const Icon(Icons.check_circle, color: Colors.blue),
                 IconButton(
                   tooltip: '编辑',
-                  onPressed: c.busy || c.connected
+                  onPressed:
+                      c.busy ||
+                          !c.available ||
+                          (c.connected && c.selected == p['id'])
                       ? null
                       : () => editProfile(p),
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton(
                   tooltip: '删除配置',
-                  onPressed: c.busy || c.connected
+                  onPressed:
+                      c.busy ||
+                          !c.available ||
+                          (c.connected && c.selected == p['id'])
                       ? null
                       : () async {
                           if (await confirm('删除连接配置？', '服务器文件和已有配对状态会保留。')) {
@@ -1012,7 +1020,8 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
   Future<void> editProfile([Json? original]) async {
     final profile = await showDialog<Json>(
       context: context,
-      builder: (_) => ProfileDialog(original: original, providers: c.providers),
+      builder: (_) =>
+          ProfileDialog(original: original, providers: c.providers, client: c),
     );
     if (profile != null) {
       await c.save(profile);

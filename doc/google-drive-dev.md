@@ -1,0 +1,70 @@
+# Google Drive in TwoDrive Development
+
+[English homepage](../README.md) · [中文首页](../README.zh-CN.md) · [故障记录](incidents.md)
+
+The `dev` branch adds Google Drive to the existing provider catalog. Ordinary Drive files use the same desktop browse, download, upload, folder creation, rename/move, trash, Linux FUSE and folder-backup services as the other dev providers. The stable OneDrive CLI/daemon and account state are separate.
+
+`dev` 分支新增 Google Drive 提供者。普通文件接入既有桌面浏览、下载、上传、建目录、重命名/移动、回收站删除、Linux FUSE 和文件夹备份服务。Google Docs/Sheets/Slides 等在线文档显示为 `~google.url` 网页入口；它们不支持通过普通文件字节覆盖。共享盘及仅“与我共享”但未放入个人盘树的条目尚不属于此次挂载范围。
+
+## Sign in / 登录
+
+Create a **Desktop app** OAuth client, enable **Google Drive API**, and configure the OAuth consent screen. If the application is in Testing, add the account to its test users. This integration requests `https://www.googleapis.com/auth/drive` because browsing and changing existing files needs full Drive access. See Google's [installed app OAuth guide](https://developers.google.com/identity/protocols/oauth2/native-app) and [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth). Testing refresh tokens can expire after seven days, as described in Google's [OAuth overview](https://developers.google.com/identity/protocols/oauth2/).
+
+在 Development 的“添加连接”中选择 **Google Drive**，输入桌面应用凭据 JSON 的绝对路径与此账号专用私有登录目录，勾选允许修改。连接时打开系统浏览器，完成账号选择和授权后自动返回客户端。凭据目录必须在挂载和备份源之外，每个账号应使用不同目录。
+
+A terminal entry point can prepare the same private login directory:
+
+```bash
+cargo build --manifest-path experiments/twodrive-dev/Cargo.toml --locked --features mount
+experiments/twodrive-dev/target/debug/twodrive-dev \
+  --state /absolute/private/google-account google login \
+  --client-file /absolute/private/client_secret.json
+experiments/twodrive-dev/target/debug/twodrive-dev \
+  --state /absolute/private/google-account google status
+```
+
+Authorization uses a random numeric-loopback callback port, random state and S256 PKCE. Imported endpoint strings never control where secrets are sent. Access tokens refresh from the saved offline token. Unix state is 0700 and secret files are 0600; Windows uses the existing core DPAPI secret helper, but native Windows Google verification remains pending. “退出登录” removes the local Google token/client copies; it does not revoke grants in the Google account, which can be removed from Google's account permissions page. The imported credential JSON remains the user's file.
+
+浏览器授权成功不代表 Drive API 已启用。连接遇到 403 时检查项目 API、账号权限与配额。网络默认使用系统路由与 HTTP(S) 环境代理；`direct` 禁用显式代理，本次不把它称为已验证的 TUN 物理出口绕过。
+
+## Storage and recovery / 文件与恢复
+
+The adapter uses Drive v2's explicit file ETag with `If-Match` for metadata mutations and final resumable upload requests. Google can accept resumable initialization with a stale ETag and reject the final PUT: an accepted upload session is not cloud completion. Downloads compare metadata before and after streaming, plus byte length, because a media response's HTTP ETag differs from the metadata ETag. Partial downloads remain temporary until verification succeeds.
+
+Uploads use bounded 8 MiB chunks. A pre-generated remote ID, local content fingerprint and session are saved before upload; retries query the committed offset. A lost final response is reconciled against that same remote identity and SHA-256 rather than creating another object. A cancelled upload whose source bytes have changed is deliberately stopped for review; it cannot silently reuse the previous generation's session.
+
+同名 Google 文件保留独立远端 ID，列表用 `~g~ID` 区分，操作解析列表里的独立路径。普通中文、百分号与波浪号名称保持可读；云端斜杠/控制字符使用显示别名。Google 允许其他客户端并发创建同名对象，本适配器不能声明按名称的跨客户端唯一约束；它拒绝已发现的同名目标并避免覆盖其他 ID。删除移入回收站，不永久删除、不清空回收站。
+
+Mount and backup sessions bind the Google account identity as well as the profile revision. Index refresh uses a paginated full inventory and reconstructs the personal Drive tree in memory; it is snapshot polling rather than the native Google changes feed. The metadata limit is 100,000 objects / 16 MiB per page, matching the experiment's bounded provider approach. An indexing error does not publish a partial snapshot as deletions.
+
+## Verification / 验证
+
+Run the local checks:
+
+```bash
+cargo fmt --manifest-path experiments/twodrive-dev/Cargo.toml -- --check
+cargo clippy --manifest-path experiments/twodrive-dev/Cargo.toml --all-targets --locked --features mount -- -D warnings
+cargo test --manifest-path experiments/twodrive-dev/Cargo.toml --locked --features mount
+cd apps/dav
+flutter analyze --no-pub
+flutter test --no-pub
+```
+
+[verify-google-drive.py](../scripts/verify-google-drive.py) runs actual IPC with an already authorized private account directory. It changes only a newly created disposable remote folder and moves that folder to trash afterwards. `--mount` adds actual Linux FUSE read/write cloud roundtrips. Its cleanup checks for mounted filesystems before removing local temporary directories. Example:
+
+```bash
+python3 scripts/verify-google-drive.py \
+  --engine experiments/twodrive-dev/target/debug/twodrive-dav-engine \
+  --peer experiments/twodrive-dev/target/debug/twodrive-dev \
+  --client-file /absolute/private/client_secret.json \
+  --google-state /absolute/private/google-account \
+  --output /absolute/local/google-verification.json --mount
+```
+
+2026-10-14 已完成真实 Google 登录、离线令牌刷新、256 KiB 上传/下载 SHA-256 比对、正确版本覆盖、旧版本拒绝、中文文件名、建目录、移动、回收站删除、真实 Linux FUSE 读取及写入后的云端读回、文件夹备份创建/修改及本地删除不传播云端删除。自有临时对象均已移入回收站，测试挂载已卸载，见[脱敏摘要](google-drive-validation-2026-10-14.json)。独立服务端探针验证实际旧元数据 ETag 的最终上传 PUT 412 且原内容未改变。首轮 8 MiB+123 的分块上传成功，但下载被旧 ETag 逻辑拒绝，保留该失败结论；最后的默认无挂载独立运行已完成同大小分块上传/下载 SHA-256 一致、覆盖/移动/删除与备份，见[大文件独立摘要](google-drive-large-validation-2026-10-14.json)。中断后续传、下载中变更与重复名称覆盖由本地 HTTP 回归补充，未做真实网络中断注入。
+
+全盘冷索引改为分页库存；此账号的独立只读探针在 142.61 秒读了 80 页仍未结束，因此 Google 的冷挂载预算为最多十分钟，仍可取消。浏览/单文件操作不需要等待整个索引。原 60 秒预算失败和下载 ETag 故障分别保留在 TD-20261014-02/03。
+
+本轮不验证在线文档字节编辑、共享盘、Windows 或所有网络；没有重新测试真实 OneDrive。Google 模拟与真实验证结论分开保存，不能承诺所有同类故障永久消失。
+
+Final local checks: 58 Rust tests in the standalone experiment, 13 Flutter tests, one Python verifier regression, Rust formatting and strict Clippy, Flutter analysis and Linux release build passed. These checks include local substitutes; the two linked reports identify the separately executed live Google checks. The stable workspace's full suite and native Windows Google execution were not rerun. Source remains on the local `dev` branch; no GitHub release was created for this work.

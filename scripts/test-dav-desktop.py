@@ -104,7 +104,16 @@ def run(args):
             report['checks']['private_profiles'] = True
             engine.call('connect', {'id':profile['id']})
             report['checks']['connect'] = True
-            engine.call('save_profile', dict(profile, id='other-profile'), failure=True)
+            active_revision = engine.active_revision
+            other_profile = dict(profile, id='other-profile', name='Other connection')
+            engine.call('save_profile', other_profile)
+            engine.call('save_profile', dict(other_profile, name='Edited inactive connection'))
+            assert engine.call('status')['profile'] == profile['id']
+            assert engine.call('profiles')['selected'] == profile['id']
+            engine.call('save_profile', profile, failure=True)
+            engine.call('remove_profile', {'id':'other-profile'})
+            assert engine.active_revision == active_revision
+            report['checks']['connected_profile_management_preserves_active_account'] = True
             engine.call('mkdir', {'path':'/wrong-connection', 'profile':'not-connected'}, failure=True)
             engine.call('mkdir', {'path':'/outdated-configuration', 'revision':'old'}, failure=True)
             report['checks']['connection_affinity_enforced'] = True

@@ -61,14 +61,14 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
         MONITORINFO monitor{sizeof(MONITORINFO)};
         GetMonitorInfoW(MonitorFromPoint(anchor_, MONITOR_DEFAULTTONEAREST), &monitor);
         const int dpi = static_cast<int>(GetDpiForWindow(window_));
-        const int gap = MulDiv(8, dpi, 96), offset = MulDiv(20, dpi, 96);
+        const int gap = MulDiv(8, dpi, 96);
         const int width = std::min(MulDiv(390, dpi, 96), static_cast<int>(monitor.rcWork.right - monitor.rcWork.left) - 2 * gap);
         const int height = std::min(MulDiv(570, dpi, 96), static_cast<int>(monitor.rcWork.bottom - monitor.rcWork.top) - 2 * gap);
-        const int left = std::clamp(static_cast<int>(anchor_.x) + offset - width,
+        const int left = std::clamp(static_cast<int>(anchor_.x) - width / 2,
             static_cast<int>(monitor.rcWork.left) + gap, static_cast<int>(monitor.rcWork.right) - width - gap);
-        const int above = static_cast<int>(anchor_.y) - height - offset;
-        const int top = std::clamp(above >= monitor.rcWork.top + gap ? above : static_cast<int>(anchor_.y) + offset,
-            static_cast<int>(monitor.rcWork.top) + gap, static_cast<int>(monitor.rcWork.bottom) - height - gap);
+        const int top = anchor_.y < monitor.rcWork.top
+            ? static_cast<int>(monitor.rcWork.top) + gap
+            : static_cast<int>(monitor.rcWork.bottom) - height - gap;
         SetWindowLongPtrW(window_, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
         SetWindowPos(window_, HWND_TOPMOST, left, top, width, height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         SetForegroundWindow(window_);

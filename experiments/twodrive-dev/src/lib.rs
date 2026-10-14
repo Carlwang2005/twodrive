@@ -1,6 +1,9 @@
 pub mod capfs;
+pub mod discovery;
+pub mod google;
 pub mod model;
 pub mod network;
+pub mod onedrive;
 pub mod peer;
 pub mod profile;
 pub mod provider;

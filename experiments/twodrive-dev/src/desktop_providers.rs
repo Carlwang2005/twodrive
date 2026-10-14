@@ -11,6 +11,10 @@ use twodrive_dev::{profile::Profile, provider::Backend};
 
 #[path = "providers/dav.rs"]
 mod dav;
+#[path = "providers/google.rs"]
+mod google;
+#[path = "providers/onedrive.rs"]
+mod onedrive;
 #[path = "providers/paired.rs"]
 mod paired;
 
@@ -22,13 +26,36 @@ pub struct Connection {
 }
 
 pub fn catalog() -> Value {
-    json!([dav::descriptor(), paired::descriptor()])
+    json!([
+        dav::descriptor(),
+        paired::descriptor(),
+        google::descriptor(),
+        onedrive::descriptor()
+    ])
 }
 fn descriptor(kind: &str) -> anyhow::Result<Value> {
     match kind {
         "dav" => Ok(dav::descriptor()),
         "peer" => Ok(paired::descriptor()),
+        "google" => Ok(google::descriptor()),
+        "onedrive" => Ok(onedrive::descriptor()),
         _ => anyhow::bail!("unsupported provider: {kind}"),
+    }
+}
+pub fn prepare(p: &mut Profile, state: &twodrive_dev::state::State) -> anyhow::Result<()> {
+    descriptor(&p.kind)?;
+    match p.kind.as_str() {
+        "onedrive" => onedrive::prepare(p, state),
+        "peer" => paired::prepare(p, state),
+        "google" => google::prepare(p, state),
+        _ => Ok(()),
+    }
+}
+pub fn action(kind: &str, action: &str, cancel: &AtomicBool) -> anyhow::Result<Value> {
+    descriptor(kind)?;
+    match kind {
+        "peer" => paired::action(action, cancel),
+        _ => anyhow::bail!("此提供者不支持该操作"),
     }
 }
 pub fn validate(p: &Profile) -> anyhow::Result<()> {
@@ -36,6 +63,8 @@ pub fn validate(p: &Profile) -> anyhow::Result<()> {
     match p.kind.as_str() {
         "dav" => dav::validate(p),
         "peer" => paired::validate(p),
+        "google" => google::validate(p),
+        "onedrive" => onedrive::validate(p),
         _ => unreachable!(),
     }
 }
@@ -123,6 +152,8 @@ pub fn connect(
     match p.kind.as_str() {
         "dav" => dav::connect(p, cancel, network),
         "peer" => paired::connect(p, args, cancel, network),
+        "google" => google::connect(p, cancel, network),
+        "onedrive" => onedrive::connect(p, cancel, network),
         _ => unreachable!(),
     }
 }
@@ -135,6 +166,8 @@ pub fn restore(p: &Profile, recipe: &Value, paused: &Path) -> anyhow::Result<Bac
     let backend = match p.kind.as_str() {
         "dav" => dav::restore(p, recipe)?,
         "peer" => paired::restore(p, recipe)?,
+        "google" => google::restore(p, recipe)?,
+        "onedrive" => onedrive::restore(p, recipe)?,
         _ => anyhow::bail!("unsupported provider"),
     };
     Ok(backend.with_pause_file(paused.to_path_buf()))
@@ -176,6 +209,23 @@ pub fn protected_paths(p: &Profile) -> anyhow::Result<Vec<std::path::PathBuf>> {
         .collect()
 }
 
+pub fn mount_startup_timeout(p: &Profile) -> std::time::Duration {
+    let seconds = descriptor(&p.kind)
+        .ok()
+        .and_then(|d| d["mount_startup_timeout_seconds"].as_u64())
+        .unwrap_or(60)
+        .clamp(1, 600);
+    std::time::Duration::from_secs(seconds)
+}
+pub fn sign_out(p: &Profile) -> anyhow::Result<()> {
+    match p.kind.as_str() {
+        "google" => google::sign_out(p)?,
+        "onedrive" => onedrive::sign_out(p)?,
+        _ => {}
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,7 +240,7 @@ mod tests {
         let public = public_profile(&p);
         assert!(public.get("password").is_none());
         assert_eq!(public["password_saved"], true);
-        assert_eq!(public["provider_label"], "WebDAV");
+        assert_eq!(public["provider_label"], "WebDAV / NAS");
         let mut edit = p.clone();
         edit.options.insert("password".into(), json!(""));
         retain_secrets(&mut edit, Some(&p), false);

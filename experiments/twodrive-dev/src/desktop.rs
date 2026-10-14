@@ -243,8 +243,8 @@ impl App {
         Ok(())
     }
     fn connect(&mut self, id: &str, cancel: &AtomicBool) -> anyhow::Result<Value> {
-        self.disconnect()?;
         let p = self.profile(id)?;
+        self.disconnect()?;
         self.network = Arc::default();
         let connection = providers::connect(&p, &self.args, cancel, self.network.clone())?;
         let entries = connection.backend.list_directory("/")?;
@@ -378,6 +378,9 @@ impl App {
     ) -> anyhow::Result<Value> {
         let a = &req.args;
         match req.op.as_str() {
+            "provider_action" => {
+                providers::action(string(a, "kind")?, string(a, "action")?, &cancel)
+            }
             "profiles" => {
                 let profiles: Vec<_> = self
                     .config
@@ -390,7 +393,6 @@ impl App {
                 )
             }
             "save_profile" => {
-                ensure!(self.connected.is_none(), "请先断开连接再修改配置");
                 let mut p: Profile = serde_json::from_value(a.clone())?;
                 p.revision = twodrive_dev::state::random_secret();
                 if p.id.is_empty() {
@@ -414,13 +416,21 @@ impl App {
                     !p.name.trim().is_empty() && p.name.len() <= 120,
                     "连接名称不能为空"
                 );
+                if p.mount_path.as_os_str().is_empty() {
+                    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                        .context("home missing")?;
+                    p.mount_path = PathBuf::from(home).join("TwoDrive Development").join(&p.id);
+                }
                 ensure!(p.mount_path.is_absolute(), "挂载目录必须是绝对路径");
                 let previous = self.config.profiles.iter().find(|c| c.id == p.id);
                 providers::retain_secrets(&mut p, previous, a["clear_password"] == true);
+                providers::prepare(&mut p, &self.state)?;
                 providers::validate(&p)?;
                 self.config.profiles.retain(|c| c.id != p.id);
                 self.config.profiles.push(p.clone());
-                self.config.selected = Some(p.id.clone());
+                if self.connected.is_none() {
+                    self.config.selected = Some(p.id.clone());
+                }
                 self.state.save("profiles.json", &self.config)?;
                 Ok(json!({"id":p.id}))
             }
@@ -485,6 +495,7 @@ impl App {
                 self.disconnect()?;
                 let p = self.profile(&id)?;
                 ensure!(self.cache(&p, false)?["pending"] == 0, "请先处理待上传缓存");
+                providers::sign_out(&p)?;
                 self.config.profiles.retain(|p| p.id != id);
                 self.config.selected = None;
                 self.state.save("profiles.json", &self.config)?;
@@ -573,7 +584,10 @@ impl App {
                         if is_mount(&p.mount_path)? {
                             break Ok(());
                         }
-                        ensure!(start.elapsed() < Duration::from_secs(60), "挂载超时");
+                        ensure!(
+                            start.elapsed() < providers::mount_startup_timeout(p),
+                            "挂载超时"
+                        );
                         thread::sleep(Duration::from_millis(100));
                     }
                 })();
@@ -816,6 +830,62 @@ mod test_provider;
 mod tests {
     use super::*;
     use test_provider::OpaqueProvider;
+    #[test]
+    fn connected_account_can_manage_other_profiles_without_changing_active_revision() {
+        let temp = tempfile::tempdir().unwrap();
+        let active = Profile {
+            id: "active".into(),
+            revision: "active-revision".into(),
+            name: "Active".into(),
+            ..Default::default()
+        };
+        let state = State::new(temp.path().join("private")).unwrap();
+        let mut app = App {
+            args: Args {
+                state: state.dir.clone(),
+                peer_bin: PathBuf::new(),
+                launcher: PathBuf::new(),
+                mount_worker: None,
+                backup_worker: None,
+            },
+            state,
+            config: Config {
+                profiles: vec![active.clone()],
+                selected: Some(active.id.clone()),
+            },
+            connected: Some(active),
+            backend: Some(Backend::new(OpaqueProvider::default())),
+            gateway: None,
+            mounted: None,
+            backup: None,
+            network: Arc::default(),
+        };
+        let out = Arc::new(Mutex::new(std::io::stdout()));
+        let mut other = json!({"id":"other","name":"Other","kind":"dav","url":"https://example.invalid/dav/","mount_path":temp.path().join("mount"),"network_route":"system"});
+        let call = |app: &mut App, op: &str, args: Value| {
+            app.handle(
+                &Request {
+                    id: 1,
+                    op: op.into(),
+                    args,
+                },
+                Arc::default(),
+                &out,
+            )
+        };
+        call(&mut app, "save_profile", other.clone()).unwrap();
+        other["name"] = json!("Edited other");
+        call(&mut app, "save_profile", other.clone()).unwrap();
+        assert_eq!(app.profile("other").unwrap().name, "Edited other");
+        other["id"] = json!("active");
+        assert!(call(&mut app, "save_profile", other).is_err());
+        assert!(call(&mut app, "remove_profile", json!({"id":"active"})).is_err());
+        call(&mut app, "remove_profile", json!({"id":"other"})).unwrap();
+        assert_eq!(app.connected.as_ref().unwrap().revision, "active-revision");
+        assert_eq!(app.config.selected.as_deref(), Some("active"));
+        assert_eq!(app.profile("active").unwrap().revision, "active-revision");
+        assert!(app.backend.is_some());
+    }
     #[test]
     fn ipc_file_service_works_with_non_dav_opaque_ids() {
         let temp = tempfile::tempdir().unwrap();

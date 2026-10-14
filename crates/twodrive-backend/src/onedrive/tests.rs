@@ -389,6 +389,7 @@ fn upload_session_store_round_trips_with_private_permissions() {
             source_modified_unix: 7,
             remote_id: Some("remote-id".to_string()),
             if_match: Some("etag".to_string()),
+            create_only: false,
         },
     );
     store.save(&path).unwrap();

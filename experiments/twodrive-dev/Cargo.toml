@@ -1,11 +1,11 @@
 [package]
 name = "twodrive-dev"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 rust-version = "1.91"
 
-# An isolated experiment: the stable workspace and its lockfile are untouched.
+# Isolated workspace and lockfile; reusable Graph/core code is shared with stable.
 [workspace]
 
 [features]
@@ -14,6 +14,7 @@ mount = ["dep:twodrive-fs", "dep:fuser"]
 
 [dependencies]
 twodrive-core = { path = "../../crates/twodrive-core" }
+twodrive-backend = { path = "../../crates/twodrive-backend" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -35,7 +36,7 @@ n0-error = "1"
 netdev = { version = "=0.46.3", default-features = false, features = ["gateway"] }
 percent-encoding = "2"
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 roxmltree = "0.21"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -44,6 +45,8 @@ simple-dns = "=0.12.0"
 socket2 = { version = "0.6", features = ["all"] }
 subtle = "2"
 thiserror = "2"
+time = { version = "0.3", features = ["parsing"] }
+tiny_http = "0.12"
 tokio = { version = "1", features = ["full"] }
 url = "2"
 
@@ -51,7 +54,6 @@ url = "2"
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_Networking_WinHttp", "Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-twodrive-backend = { path = "../../crates/twodrive-backend" }
 twodrive-fs = { path = "../../crates/twodrive-fs", optional = true }
 fuser = { version = "0.15", default-features = false, optional = true }
 

@@ -60,15 +60,26 @@ impl WebDavBackend {
         credentials: Option<Credentials>,
         writable: bool,
     ) -> anyhow::Result<Self> {
+        Self::new_with_options(base, credentials, writable, false)
+    }
+    pub fn new_with_options(
+        base: &str,
+        credentials: Option<Credentials>,
+        writable: bool,
+        allow_private_http: bool,
+    ) -> anyhow::Result<Self> {
         let mut base = Url::parse(base).context("invalid WebDAV root URL")?;
         let loopback = match base.host() {
             Some(Host::Ipv4(ip)) => ip.is_loopback(),
             Some(Host::Ipv6(ip)) => ip.is_loopback(),
             _ => false,
         };
+        let private = matches!(base.host(), Some(Host::Ipv4(ip)) if ip.is_private() || ip.is_link_local())
+            || matches!(base.host(), Some(Host::Ipv6(ip)) if ip.is_unique_local());
         ensure!(
-            base.scheme() == "https" || (base.scheme() == "http" && loopback),
-            "WebDAV requires HTTPS; HTTP is allowed only on numeric loopback addresses"
+            base.scheme() == "https"
+                || (base.scheme() == "http" && (loopback || (allow_private_http && private))),
+            "WebDAV requires HTTPS; unencrypted LAN HTTP requires explicit permission and a numeric private IP"
         );
         ensure!(
             base.username().is_empty()
@@ -103,14 +114,24 @@ impl WebDavBackend {
         writable: bool,
         route: &str,
     ) -> anyhow::Result<Self> {
+        Self::routed_with_options(base, credentials, writable, route, false)
+    }
+    pub fn routed_with_options(
+        base: &str,
+        credentials: Option<Credentials>,
+        writable: bool,
+        route: &str,
+        allow_private_http: bool,
+    ) -> anyhow::Result<Self> {
         ensure!(
             matches!(route, "direct" | "system"),
             "invalid network route"
         );
-        let mut result = Self::new(base, credentials, writable)?;
+        let mut result = Self::new_with_options(base, credentials, writable, allow_private_http)?;
         result.route = route.into();
         // Numeric loopback is always private, including paired local gateways.
-        if matches!(result.base.host(), Some(Host::Ipv4(ip)) if ip.is_loopback())
+        if result.base.scheme() == "http"
+            || matches!(result.base.host(), Some(Host::Ipv4(ip)) if ip.is_loopback())
             || matches!(result.base.host(), Some(Host::Ipv6(ip)) if ip.is_loopback())
         {
             return Ok(result);
@@ -726,6 +747,27 @@ mod desktop_tests {
             }
         });
         (url, calls, worker)
+    }
+    #[test]
+    fn unencrypted_nas_requires_explicit_numeric_private_address() {
+        for url in [
+            "http://192.168.1.5/dav",
+            "http://10.1.2.3/",
+            "http://[fd12::5]/",
+        ] {
+            assert!(WebDavBackend::new(url, None, true).is_err());
+            assert!(WebDavBackend::new_with_options(url, None, true, true).is_ok());
+        }
+        for url in [
+            "http://8.8.8.8/",
+            "http://nas.local/",
+            "http://user:secret@192.168.1.5/",
+            "http://192.168.1.5/?token=x",
+        ] {
+            assert!(WebDavBackend::new_with_options(url, None, true, true).is_err());
+        }
+        assert!(WebDavBackend::new("http://127.0.0.1/", None, true).is_ok());
+        assert!(WebDavBackend::new("https://nas.example/dav", None, true).is_ok());
     }
     #[test]
     fn transient_read_is_retried_but_mutation_is_never_replayed() {

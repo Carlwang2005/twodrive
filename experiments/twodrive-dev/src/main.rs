@@ -62,6 +62,13 @@ impl From<NetworkArgs> for Network {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Discover opt-in TwoDrive PC/NAS servers on the local IPv4 LAN.
+    Discover,
+    /// Google Drive desktop OAuth; opens the system browser with PKCE.
+    Google {
+        #[command(subcommand)]
+        action: GoogleAction,
+    },
     /// Print the public device identity (no private key).
     DeviceId,
     /// Opt in to leased, signed test-process control over an existing share.
@@ -97,6 +104,11 @@ enum Command {
         write: bool,
         #[arg(long)]
         invite_file: Option<PathBuf>,
+        /// Advertise public identity on the LAN; pairing still needs an invitation.
+        #[arg(long)]
+        discoverable: bool,
+        #[arg(long, default_value = "TwoDrive device")]
+        device_name: String,
         #[arg(long, default_value_t = 8 * 1024 * 1024 * 1024)]
         max_upload: u64,
         #[command(flatten)]
@@ -148,6 +160,17 @@ enum Command {
         #[command(subcommand)]
         action: DavAction,
     },
+}
+#[derive(Subcommand)]
+enum GoogleAction {
+    Login {
+        #[arg(long)]
+        client_file: PathBuf,
+        #[arg(long, default_value = "system")]
+        route: String,
+    },
+    Status,
+    Logout,
 }
 #[derive(Subcommand)]
 enum DavAction {
@@ -246,6 +269,41 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     match cli.command {
+        Command::Discover => println!(
+            "{}",
+            serde_json::to_string(&twodrive_dev::discovery::scan(
+                &std::sync::atomic::AtomicBool::new(false)
+            )?)?
+        ),
+        Command::Google { action } => match action {
+            GoogleAction::Login { client_file, route } => {
+                let config = twodrive_dev::google::auth::ClientConfig::import(&client_file)?;
+                eprintln!("请在系统浏览器中完成 Google Drive 授权；等待最多十分钟。");
+                twodrive_dev::google::auth::login(
+                    &state,
+                    &config,
+                    &route,
+                    &std::sync::atomic::AtomicBool::new(false),
+                )?;
+                println!("Google 登录成功，离线令牌已私密保存。");
+            }
+            GoogleAction::Status => {
+                let config = twodrive_dev::google::auth::ClientConfig::load(&state)?;
+                let tokens = twodrive_dev::google::auth::Tokens::load(&state, &config)?;
+                println!(
+                    "Google 已登录；访问令牌{}，刷新令牌已保存。",
+                    if tokens.expires_at > twodrive_dev::state::now() {
+                        "有效"
+                    } else {
+                        "需刷新"
+                    }
+                );
+            }
+            GoogleAction::Logout => {
+                twodrive_dev::google::auth::logout(&state)?;
+                println!("Google 本机登录凭据已移除。");
+            }
+        },
         Command::DeviceId => println!("{}", state.identity()?.public()),
         Command::TestAgent {
             queue,
@@ -349,6 +407,8 @@ fn main() -> anyhow::Result<()> {
             root,
             write,
             invite_file,
+            discoverable,
+            device_name,
             max_upload,
             network,
         } => {
@@ -357,6 +417,11 @@ fn main() -> anyhow::Result<()> {
                 let endpoint = peer::endpoint(&state, &network.into()).await?;
                 peer::prepare_share(&endpoint, &state, &root, write)?;
                 if let Some(path) = invite_file { state.invite(&path)?; println!("Invitation saved (expires in 10 minutes)"); }
+                let discovery_stop=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                if discoverable {
+                    let s=state.clone();let stop=discovery_stop.clone();
+                    runtime.spawn(async move {if twodrive_dev::discovery::advertise(s,device_name,write,stop).await.is_err(){eprintln!("network: LAN discovery unavailable; encrypted sharing remains available");}});
+                }
                 println!("Serving device={} mode={}", endpoint.id(), if write { "read-write" } else { "read-only" });
                 tokio::select! { result = peer::serve(endpoint.clone(), state, &root, write, max_upload) => result, _ = tokio::signal::ctrl_c() => { endpoint.close().await; Ok(()) } }
             })?;

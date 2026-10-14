@@ -1,12 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 import 'client.dart';
-import 'platform_paths.dart';
 
 class ProfileDialog extends StatefulWidget {
-  const ProfileDialog({super.key, this.original, required this.providers});
+  const ProfileDialog({
+    super.key,
+    this.original,
+    required this.providers,
+    this.client,
+  });
   final Json? original;
   final List<Json> providers;
+  final StorageClient? client;
   @override
   State<ProfileDialog> createState() => _ProfileDialogState();
 }
@@ -14,13 +20,26 @@ class ProfileDialog extends StatefulWidget {
 class _ProfileDialogState extends State<ProfileDialog> {
   final form = GlobalKey<FormState>();
   late final Map<String, TextEditingController> fields;
+  late final Map<String, bool> flags;
   late String? kind;
   late bool writable;
   late String route;
+  bool runningAction = false;
+  String? actionMessage;
+  String? selectionMessage;
+  List<Json> actionItems = [];
+  Json? pickedItem;
   Json? get provider =>
       widget.providers.where((p) => p['id'] == kind).firstOrNull;
   List<Json> get providerFields =>
       ((provider?['fields'] as List?) ?? []).cast<Json>();
+  List<String> get networkModes =>
+      ((provider?['network_modes'] as List?) ?? ['auto', 'direct', 'system'])
+          .cast<String>();
+  void normalizeRoute() {
+    if (!networkModes.contains(route)) route = networkModes.first;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -39,11 +58,15 @@ class _ProfileDialogState extends State<ProfileDialog> {
     };
     fields = {
       for (final key in keys)
-        key: TextEditingController(text: p[key] as String? ?? ''),
+        key: TextEditingController(
+          text: p[key] is String ? p[key] as String : '',
+        ),
     };
-    if (fields['mount_path']!.text.isEmpty) {
-      fields['mount_path']!.text = '$userHome/TwoDrive Development';
+    flags = {for (final key in keys) key: p[key] == true};
+    if (fields['name']!.text.isEmpty) {
+      fields['name']!.text = provider?['label'] as String? ?? '';
     }
+    normalizeRoute();
   }
 
   @override
@@ -59,21 +82,100 @@ class _ProfileDialogState extends State<ProfileDialog> {
     String label, {
     bool secret = false,
     bool required = false,
+    bool readOnly = false,
+    String? type,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: TextFormField(
       controller: fields[key],
       obscureText: secret,
-      decoration: InputDecoration(labelText: label),
+      readOnly: readOnly,
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: type == 'file' || type == 'directory'
+            ? IconButton(
+                tooltip: '选择文件或文件夹',
+                icon: const Icon(Icons.folder_open),
+                onPressed: runningAction
+                    ? null
+                    : () async {
+                        final path = type == 'directory'
+                            ? await getDirectoryPath()
+                            : (await openFile(
+                                acceptedTypeGroups: const [
+                                  XTypeGroup(
+                                    label: 'JSON 文件',
+                                    extensions: ['json'],
+                                  ),
+                                ],
+                              ))?.path;
+                        if (mounted && path != null) {
+                          fields[key]!.text = path;
+                        }
+                      },
+              )
+            : null,
+      ),
       validator: (text) =>
           required && (text == null || text.trim().isEmpty) ? '请填写此项' : null,
     ),
   );
+  Widget providerField(Json f) {
+    final key = f['key'] as String;
+    if (f['type'] == 'boolean') {
+      return SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(f['label'] as String),
+        value: flags[key] ?? false,
+        onChanged: runningAction ? null : (v) => setState(() => flags[key] = v),
+      );
+    }
+    final label =
+        f['secret'] == true &&
+            widget.original?['kind'] == kind &&
+            widget.original?['${key}_saved'] == true
+        ? '${f['label']} · 留空保留已保存值'
+        : f['label'] as String;
+    return field(
+      key,
+      label,
+      secret: f['secret'] == true,
+      required: f['required'] == true,
+      readOnly: f['read_only'] == true,
+      type: f['type'] as String?,
+    );
+  }
+
+  Future<void> providerAction(Json action) async {
+    setState(() {
+      runningAction = true;
+      actionMessage = null;
+      actionItems = [];
+      pickedItem = null;
+    });
+    try {
+      final result = await widget.client!.request('provider_action', {
+        'kind': kind,
+        'action': action['id'],
+      });
+      if (!mounted) return;
+      setState(() {
+        actionItems = ((result['items'] as List?) ?? []).cast<Json>();
+        actionMessage = result['message'] as String?;
+        selectionMessage = result['selection_message'] as String?;
+      });
+    } catch (e) {
+      if (mounted) setState(() => actionMessage = '$e');
+    } finally {
+      if (mounted) setState(() => runningAction = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.original == null ? '添加连接' : '编辑连接'),
     content: SizedBox(
-      width: 490,
+      width: 540,
       child: SingleChildScrollView(
         child: Form(
           key: form,
@@ -91,50 +193,126 @@ class _ProfileDialogState extends State<ProfileDialog> {
                       child: Text(d['label'] as String),
                     ),
                 ],
-                onChanged: (value) => setState(() {
-                  for (final f in providerFields.where(
-                    (f) => f['secret'] == true,
-                  )) {
-                    fields[f['key']]!.clear();
-                  }
-                  kind = value;
-                }),
+                onChanged: runningAction
+                    ? null
+                    : (value) => setState(() {
+                        final previousLabel = provider?['label'];
+                        for (final f in providerFields.where(
+                          (f) => f['secret'] == true,
+                        )) {
+                          fields[f['key']]!.clear();
+                        }
+                        kind = value;
+                        normalizeRoute();
+                        actionMessage = null;
+                        actionItems = [];
+                        pickedItem = null;
+                        if (fields['name']!.text == previousLabel) {
+                          fields['name']!.text =
+                              provider?['label'] as String? ?? '';
+                        }
+                      }),
               ),
               const SizedBox(height: 14),
               if (provider == null) const Text('引擎没有可用的存储提供者，请检查引擎版本。'),
-              for (final f in providerFields)
-                field(
-                  f['key'] as String,
-                  f['secret'] == true &&
-                          widget.original?['kind'] == kind &&
-                          widget.original?['${f['key']}_saved'] == true
-                      ? '${f['label']} · 留空保留已保存值'
-                      : f['label'] as String,
-                  secret: f['secret'] == true,
-                  required: f['required'] == true,
+              if (provider?['help'] is String)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Text(provider!['help'] as String),
                 ),
+              for (final action
+                  in ((provider?['actions'] as List?) ?? []).cast<Json>())
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: runningAction || widget.client == null
+                        ? null
+                        : () => providerAction(action),
+                    icon: runningAction
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.radar),
+                    label: Text(action['label'] as String),
+                  ),
+                ),
+              if (actionMessage != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Text(actionMessage!),
+                ),
+              for (final item in actionItems)
+                ListTile(
+                  dense: true,
+                  title: Text(item['label'] as String),
+                  subtitle: Text(item['detail'] as String? ?? ''),
+                  leading: const Icon(Icons.devices),
+                  selected: pickedItem == item,
+                  onTap: () => setState(() {
+                    pickedItem = item;
+                    for (final entry in (item['options'] as Map).entries) {
+                      if (entry.key == 'writable' && entry.value is bool) {
+                        writable = entry.value as bool;
+                      } else if (fields.containsKey(entry.key) &&
+                          entry.value is String) {
+                        fields[entry.key]!.text = entry.value as String;
+                      }
+                    }
+                    actionMessage = selectionMessage ?? '已选择。';
+                  }),
+                ),
+              for (final f in providerFields.where(
+                (f) => f['advanced'] != true,
+              ))
+                providerField(f),
               DropdownButtonFormField<String>(
+                key: ValueKey('route-$kind'),
                 initialValue: route,
                 decoration: const InputDecoration(labelText: '网络连接方式'),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'auto',
-                    child: Text('优先直连，失败时提示并允许代理兜底'),
-                  ),
-                  DropdownMenuItem(value: 'direct', child: Text('仅直连（绕过代理）')),
-                  DropdownMenuItem(value: 'system', child: Text('使用系统路由和代理')),
+                items: [
+                  if (networkModes.contains('auto'))
+                    const DropdownMenuItem(
+                      value: 'auto',
+                      child: Text('优先直连，失败时提示并允许代理兜底'),
+                    ),
+                  if (networkModes.contains('direct'))
+                    const DropdownMenuItem(
+                      value: 'direct',
+                      child: Text('仅直连（绕过代理）'),
+                    ),
+                  if (networkModes.contains('system'))
+                    const DropdownMenuItem(
+                      value: 'system',
+                      child: Text('使用系统路由和代理'),
+                    ),
                 ],
-                onChanged: (value) => setState(() => route = value!),
+                onChanged: runningAction
+                    ? null
+                    : (value) => setState(() => route = value!),
               ),
               const SizedBox(height: 14),
-              if (Platform.isLinux)
-                field('mount_path', '挂载目录 · 使用空目录', required: true),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('允许修改服务器文件'),
-                subtitle: const Text('可用操作取决于提供者支持的能力。'),
+                title: const Text('允许修改远端文件'),
+                subtitle: const Text('可用操作取决于提供者和远端授权。'),
                 value: writable,
-                onChanged: (value) => setState(() => writable = value),
+                onChanged: runningAction
+                    ? null
+                    : (value) => setState(() => writable = value),
+              ),
+              ExpansionTile(
+                title: const Text('高级设置'),
+                tilePadding: EdgeInsets.zero,
+                children: [
+                  for (final f in providerFields.where(
+                    (f) => f['advanced'] == true,
+                  ))
+                    providerField(f),
+                  if (Platform.isLinux)
+                    field('mount_path', '挂载目录 · 留空自动创建独立目录'),
+                ],
               ),
             ],
           ),
@@ -143,11 +321,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
     ),
     actions: [
       TextButton(
-        onPressed: () => Navigator.pop(context),
+        onPressed: runningAction ? null : () => Navigator.pop(context),
         child: const Text('取消'),
       ),
       FilledButton(
-        onPressed: provider == null
+        onPressed: provider == null || runningAction
             ? null
             : () {
                 if (form.currentState!.validate()) {
@@ -159,9 +337,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
                     'name': fields['name']!.text.trim(),
                     'mount_path': fields['mount_path']!.text.trim(),
                     for (final f in providerFields)
-                      f['key'] as String: f['secret'] == true
-                          ? fields[f['key']]!.text
-                          : fields[f['key']]!.text.trim(),
+                      f['key'] as String: f['type'] == 'boolean'
+                          ? (flags[f['key']] ?? false)
+                          : (f['secret'] == true
+                                ? fields[f['key']]!.text
+                                : fields[f['key']]!.text.trim()),
                   });
                 }
               },

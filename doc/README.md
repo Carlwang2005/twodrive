@@ -48,3 +48,9 @@ Existing investigation paths are retained so earlier release links continue to w
 - [Desktop provider boundaries and verification (2026-10-13)](provider-boundaries-2026-10-13.md)
 
 - [Provider delivery verification (2026-10-13)](provider-validation-2026-10-13.json)
+
+- [Third-party provider/auth/upload design specification / 第三方网盘与配套组件设计规范](provider-integration-spec.md)
+- [Tray positioning / 托盘居中与 X11、Wayland 验证](tray-positioning-2026-10-14.md)
+- [Storage connections / 存储连接与设备发现](storage-connections-dev.md)
+- [Live OneDrive desktop verification / 真实 OneDrive 脱敏验证](onedrive-desktop-validation-2026-10-14.json)
+- [Google Drive Development setup / 接入与验证](google-drive-dev.md)

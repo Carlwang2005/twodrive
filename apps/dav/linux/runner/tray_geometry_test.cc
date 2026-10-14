@@ -3,25 +3,34 @@
 
 int main() {
   twodrive::TrayAnchor anchor;
-  anchor.capture(1350, 875, {0, 0, 1440, 843});
-  const auto first = anchor.panel();
-  assert(first.x == 980 && first.y == 265);
+  anchor.capture_icon({850, 850, 20, 20}, {0, 0, 1440, 843});
+  auto first = anchor.panel();
+  assert(first.x + first.width / 2 == 860);
+  assert(first.y + first.height == 835);
   assert(first.width == 390 && first.height == 570);
-  anchor.capture(1360, 870, {0, 0, 1440, 843});
+  // Exact icon geometry wins over a stale XWayland cursor in the workarea.
+  anchor.capture(1200, 150, {0, 0, 1440, 843});
+  anchor.capture_icon({850, 850, 20, 20}, {0, 0, 1440, 843});
   assert(anchor.panel().x == first.x && anchor.panel().y == first.y);
-  // No pointer or main-window position is consulted between capture and show.
-  anchor.capture(20, 15, {0, 30, 1440, 870});
+  // Host layout changes recapture the actual icon even inside 28px.
+  anchor.capture_icon({860, 850, 20, 20}, {0, 0, 1440, 843});
+  assert(anchor.panel().x == first.x + 10);
+  anchor.capture_icon({710, 5, 20, 20}, {0, 30, 1440, 870});
   auto top = anchor.panel();
-  assert(top.x == 8 && top.y == 38);
-  anchor.capture(-10, 1080, {-1920, 0, 1920, 1040});
+  assert(top.x == 525 && top.y == 38);
+  anchor.capture_icon({-700, 1050, 20, 20}, {-1920, 0, 1920, 1040});
   auto second = anchor.panel();
-  assert(second.x == -398 && second.y == 462);
-  // Workarea changes invalidate the cached icon position, even for nearby clicks.
-  anchor.capture(1350, 875, {0, 0, 1440, 843});
-  anchor.capture(1355, 875, {0, 0, 1440, 800});
-  assert(anchor.x == 1355 && anchor.panel().y == 222);
-  anchor.capture(120, 150, {0, 0, 320, 480});
+  assert(second.x == -885 && second.y == 462);
+  // Only screen edges may constrain horizontal centering.
+  anchor.capture_icon({10, 850, 20, 20}, {0, 0, 1440, 843});
+  assert(anchor.panel().x == 8);
+  anchor.capture_icon({1410, 850, 20, 20}, {0, 0, 1440, 843});
+  assert(anchor.panel().x == 1042);
+  anchor.capture_icon({120, 485, 20, 20}, {0, 0, 320, 480});
   auto small = anchor.panel();
   assert(small.x == 8 && small.y == 8);
   assert(small.width == 304 && small.height == 464);
+  // Point-only hosts still align with the taskbar edge and center horizontally.
+  anchor.capture(860, 867, {0, 0, 1440, 843});
+  assert(anchor.panel().x == first.x && anchor.panel().y == first.y);
 }

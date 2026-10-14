@@ -1,9 +1,6 @@
 # TwoDrive Development desktop
 
-The Flutter desktop client supports TwoDrive paired devices and HTTPS WebDAV
-accounts. Its separate private state and installer do not manage the stable
-OneDrive daemon. OneDrive and Google Drive are future integrations for this UI;
-this delivery does not claim new OAuth integrations for those services.
+The current dev Flutter desktop supports paired devices, WebDAV/NAS, OneDrive and Google Drive with separate private account state. See [connection setup and actual verification](storage-connections-dev.md). Its installer does not manage the stable OneDrive daemon. The linked 0.1.1 release is the earlier preview; later local/source changes are recorded separately.
 
 Download the [Development 0.1.1 Linux/Windows release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.1), then verify its SHA256SUMS before running. The stable Linux daemon is separately available in [0.2.12-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1).
 
@@ -38,11 +35,8 @@ connection or synchronization failures keep the error icon.
 
 Requirements: Flutter 3.41.8, Rust 1.96, GTK 3 development files, clang, CMake,
 Ninja, pkg-config, FUSE 3 and a session D-Bus StatusNotifierItem host. Current
-native acceptance is Zorin/GNOME with its tray extension and GTK X11.
-GNOME uses GTK XEmbed single-click events because this host reserves SNI Activate
-for double-click. Other hosts use SNI. No shell extension is installed or modified.
-The launcher selects X11 when DISPLAY is available, preserving an explicit GDK_BACKEND.
-Other desktop hosts and Wayland compositor popup placement are not verified.
+native acceptance now includes isolated GNOME 46 GTK X11 and native GTK Wayland.
+The optional TwoDrive-only GNOME component provides actual icon geometry and compositor positioning; first installation may need the next desktop login to load. The launcher selects native Wayland when that component is available, preserving explicit GDK_BACKEND. Other Wayland compositors are not verified. See [positioning, installation and boundaries](tray-positioning-2026-10-14.md).
 
 ```bash
 cargo build --locked --release --manifest-path experiments/twodrive-dev/Cargo.toml --features mount
@@ -52,7 +46,8 @@ flutter build linux --release
 cd ../..
 python3 scripts/install-dav-desktop.py \
   --bundle apps/dav/build/linux/x64/release/bundle \
-  --engine-dir experiments/twodrive-dev/target/release
+  --engine-dir experiments/twodrive-dev/target/release \
+  --gnome-anchor packaging/gnome-tray-anchor
 ~/.local/bin/twodrive-dav
 ```
 
@@ -159,3 +154,5 @@ shortcut. Installation does not enable startup. WebDAV browsing, file transfer
 and upload-only folder backups are shared. FUSE mounting is a Linux capability;
 the Windows UI does not present unsupported mount/cache actions. A Windows virtual
 drive driver and macOS runner are outside this delivery.
+
+Current icon-centered positioning and its separate X11/Wayland evidence are recorded in [the 2026-10-14 guide](tray-positioning-2026-10-14.md). Earlier pointer-based positioning evidence remains historical.

@@ -13,9 +13,9 @@ use twodrive_dev::{
 };
 
 pub fn descriptor() -> Value {
-    json!({"id":"dav","label":"WebDAV","account_label":"账号","icon":"cloud",
+    json!({"id":"dav","label":"WebDAV / NAS","account_label":"账号","icon":"cloud",
     "account_key":"username","summary_key":"url","identity_fields":["url","username"],"protected_paths":[],"capabilities":{"upload":true,"conditional_upload":true,"mkdir":true,"rename":true,"delete":true,"backup":true},"fields":[{"key":"url","label":"WebDAV 根地址 · https://…","required":true},
-        {"key":"username","label":"用户名"},{"key":"password","label":"密码","secret":true}]})
+        {"key":"username","label":"用户名"},{"key":"password","label":"密码","secret":true},{"key":"allow_private_http","label":"允许局域网 HTTP（连接不加密，须使用私有 IP）","type":"boolean","advanced":true}]})
 }
 fn credentials(p: &Profile) -> Option<Credentials> {
     (!p.option("username").is_empty()).then(|| Credentials {
@@ -24,18 +24,28 @@ fn credentials(p: &Profile) -> Option<Credentials> {
     })
 }
 pub fn validate(p: &Profile) -> anyhow::Result<()> {
-    WebDavBackend::new(p.option("url"), credentials(p), p.writable)?;
+    WebDavBackend::new_with_options(
+        p.option("url"),
+        credentials(p),
+        p.writable,
+        p.options
+            .get("allow_private_http")
+            .is_some_and(|v| v == true),
+    )?;
     Ok(())
 }
 pub fn restore(p: &Profile, recipe: &Value) -> anyhow::Result<Backend> {
     let route = recipe["route"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing provider route"))?;
-    Ok(Backend::new(WebDavBackend::routed(
+    Ok(Backend::new(WebDavBackend::routed_with_options(
         p.option("url"),
         credentials(p),
         p.writable,
         route,
+        p.options
+            .get("allow_private_http")
+            .is_some_and(|v| v == true),
     )?))
 }
 pub fn connect(
@@ -50,11 +60,14 @@ pub fn connect(
         "direct"
     };
     let probe = |route| -> anyhow::Result<Backend> {
-        let backend = Backend::new(WebDavBackend::routed(
+        let backend = Backend::new(WebDavBackend::routed_with_options(
             p.option("url"),
             credentials(p),
             p.writable,
             route,
+            p.options
+                .get("allow_private_http")
+                .is_some_and(|v| v == true),
         )?);
         backend.list_directory("/")?;
         Ok(backend)

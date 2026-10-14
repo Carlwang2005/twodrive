@@ -26,15 +26,26 @@ struct Tray {
   std::string icon;
   std::string title = "TwoDrive Development";
   twodrive::TrayAnchor anchor;
+  bool host_anchor = false;
   GtkStatusIcon* legacy = nullptr;
   guint32 activation_time = GDK_CURRENT_TIME;
   bool panel = false;
   bool focus_armed = false;
   gint64 dismissed = 0;
   guint reposition = 0;
+  guint placement_attempts = 0;
 };
 const char* kPath = "/StatusNotifierItem";
 const char* kInterface = "org.kde.StatusNotifierItem";
+const char* kAnchorPath = "/app/twodrive/TrayAnchor";
+const char* kAnchorInterface = "app.twodrive.TrayAnchor1";
+GVariant* host_call(Tray* tray, const char* method, const char* reply) {
+  if (!tray->bus) tray->bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+  if (!tray->bus) return nullptr;
+  return g_dbus_connection_call_sync(tray->bus, "org.gnome.Shell", kAnchorPath,
+      kAnchorInterface, method, g_variant_new("(u)", static_cast<guint32>(getpid())),
+      G_VARIANT_TYPE(reply), G_DBUS_CALL_FLAGS_NO_AUTO_START, 300, nullptr, nullptr);
+}
 void dismiss(Tray* tray) {
   if (!tray->panel || !gtk_widget_get_visible(GTK_WIDGET(tray->window))) return;
   tray->dismissed = g_get_monotonic_time();
@@ -60,21 +71,51 @@ gboolean key_press(GtkWidget*, GdkEventKey* event, gpointer data) {
 }
 gboolean position_mapped_panel(gpointer data) {
   auto* tray = static_cast<Tray*>(data);
-  tray->reposition = 0;
   if (tray->panel && gtk_widget_get_visible(GTK_WIDGET(tray->window))) {
+    ++tray->placement_attempts;
     const auto bounds = tray->anchor.panel();
-    gdk_window_move_resize(gtk_widget_get_window(GTK_WIDGET(tray->window)),
-        bounds.x, bounds.y, bounds.width, bounds.height);
+#ifdef GDK_WINDOWING_X11
+    if (GDK_IS_X11_DISPLAY(gtk_widget_get_display(GTK_WIDGET(tray->window))))
+      gdk_window_move_resize(gtk_widget_get_window(GTK_WIDGET(tray->window)),
+          bounds.x, bounds.y, bounds.width, bounds.height);
+#endif
+    // Wayland does not accept application-selected absolute window positions.
+    // GNOME places only this PID's panel using the actual compositor tray actor.
+    if (tray->host_anchor) {
+      g_autoptr(GVariant) result = host_call(tray, "PositionPanel", "(b)");
+      gboolean placed = FALSE;
+      if (result) g_variant_get(result, "(b)", &placed);
+      // A Wayland surface can map before the compositor has registered its
+      // MetaWindow. Retry briefly, including initial configure acknowledgements.
+      if (result && tray->placement_attempts < 20 &&
+          (!placed || tray->placement_attempts < 4)) return G_SOURCE_CONTINUE;
+    }
+    gtk_widget_set_opacity(GTK_WIDGET(tray->window), 1.0);
   }
+  tray->reposition = 0;
   return G_SOURCE_REMOVE;
 }
 gboolean mapped(GtkWidget*, GdkEvent*, gpointer data) {
   auto* tray = static_cast<Tray*>(data);
-  if (tray->panel && !tray->reposition)
-    tray->reposition = g_idle_add(position_mapped_panel, tray);
+  if (tray->panel && !tray->reposition) {
+    tray->placement_attempts = 0;
+    tray->reposition = g_timeout_add(25, position_mapped_panel, tray);
+  }
   return FALSE;
 }
 void capture_anchor(Tray* tray, gint x, gint y) {
+  g_autoptr(GVariant) host = host_call(tray, "GetAnchor", "(biiiiiiii)");
+  gboolean found = FALSE;
+  gint ix, iy, iw, ih, ax, ay, aw, ah;
+  if (host) {
+    g_variant_get(host, "(biiiiiiii)", &found, &ix, &iy, &iw, &ih, &ax, &ay, &aw, &ah);
+    if (found && iw > 0 && ih > 0 && aw > 0 && ah > 0) {
+      tray->anchor.capture_icon({ix, iy, iw, ih}, {ax, ay, aw, ah});
+      tray->host_anchor = true;
+      return;
+    }
+  }
+  tray->host_anchor = false;
   auto* display = gtk_widget_get_display(GTK_WIDGET(tray->window));
   if (x == 0 && y == 0) {
     auto* pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(display));
@@ -207,6 +248,11 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
     const bool panel = fl_value_get_bool(fl_value_lookup_string(args, "enabled"));
     tray->panel = panel;
     tray->focus_armed = false;
+    if (!panel) {
+      if (tray->reposition) g_source_remove(tray->reposition);
+      tray->reposition = 0;
+      gtk_widget_set_opacity(GTK_WIDGET(tray->window), 1.0);
+    }
     if (panel && !tray->anchor.valid) capture_anchor(tray, 0, 0);
     const auto bounds = tray->anchor.panel();
     if (g_getenv("TWODRIVE_TRAY_TRACE")) g_message("tray bounds: %d,%d %dx%d", bounds.x, bounds.y, bounds.width, bounds.height);
@@ -221,6 +267,7 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
         static_cast<GdkWindowHints>(panel ? GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE : GDK_HINT_MIN_SIZE));
     gtk_window_resize(tray->window, panel ? bounds.width : 1120, panel ? bounds.height : 760);
     if (panel) {
+      if (tray->host_anchor) gtk_widget_set_opacity(GTK_WIDGET(tray->window), 0.0);
       gtk_window_move(tray->window, bounds.x, bounds.y);
       gtk_widget_show(GTK_WIDGET(tray->window));
       gtk_window_present_with_time(tray->window, tray->activation_time);

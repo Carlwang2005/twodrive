@@ -134,3 +134,9 @@ Unix 私有目录 0700、文件 0600；Windows 继承目录 ACL，请使用当�
 `scripts/verify-live-test-agent.py` 是纳入版本控制的双机验证入口。它等待签名就绪回执，使用新的临时客户端身份，依次验证双端默认物理出口和两端各自的缺失网卡兜底。每阶段执行 2 MiB 全量哈希、移动、256 KiB 范围读取及删除，并把有限长度诊断保存至 `--output`。`--network-context` 应填写当前实际网络；同在校园网不能证明独立 NAT。失败时停止临时 child、保留控制端，查看签名快照后用 `--resume` 明确重试。全阶段成功才发送 `finish`；随后另行收集 bootstrap 清理回执并删除自有共享控制目录。跨重启任务应把报告保存在 `/tmp` 之外。
 
 2026-10-12 后续验证：同版两端默认物理出口、Linux 兜底及 Windows 兜底均完成 2 MiB 完整哈希、MOVE、Range、DELETE 404；Windows 系统 DNS 原生后备修复及双端清理证据见[实机记录](../../doc/peer-windows-egress-2026-10-12.json)。本轮两端校园网，未建立独立 NAT 条件；前一日热点/校园网记录保留。
+
+## Google Drive
+
+新增 Google 桌面 OAuth 与普通文件读写，通过既有桌面提供者接口接入 Linux FUSE 和文件夹备份。在线文档显示为网页入口。详见 [接入、安全与验证](../../doc/google-drive-dev.md)。
+
+Development 桌面支持 WebDAV/NAS、OneDrive、Google Drive 和 PC/NAS 连接设置。分享端须显式 `serve --discoverable --device-name NAME` 才能被局域网发现；配对仍需可信邀请。见[连接使用与验证](../../doc/storage-connections-dev.md)。

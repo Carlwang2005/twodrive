@@ -22,6 +22,21 @@ impl GraphBackend {
         paths: &AppPaths,
         cancelled: &std::sync::atomic::AtomicBool,
     ) -> anyhow::Result<()> {
+        Self::login_impl(paths, cancelled, true)
+    }
+
+    /// Desktop IPC must never mix browser instructions or authorization URLs into stdout.
+    pub fn login_cancellable_quiet(
+        paths: &AppPaths,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> anyhow::Result<()> {
+        Self::login_impl(paths, cancelled, false)
+    }
+    fn login_impl(
+        paths: &AppPaths,
+        cancelled: &std::sync::atomic::AtomicBool,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
         let config = Config::load_or_create(paths)?;
         config.validate_graph_login()?;
         let token_store = TokenStore::new(paths.token_path.clone());
@@ -63,12 +78,16 @@ impl GraphBackend {
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
 
-        println!("Open this URL to sign in:\n{auth_url}\n");
+        if verbose {
+            println!("Open this URL to sign in:\n{auth_url}\n");
+        }
         open_browser(auth_url.as_str())?;
-        println!(
-            "Waiting for Microsoft OAuth callback on {} ...",
-            config.graph.redirect_uri
-        );
+        if verbose {
+            println!(
+                "Waiting for Microsoft OAuth callback on {} ...",
+                config.graph.redirect_uri
+            );
+        }
 
         let deadline = std::time::Instant::now() + Duration::from_secs(600);
         loop {
@@ -130,7 +149,9 @@ impl GraphBackend {
             };
             let _ = request.respond(response);
             result?;
-            println!("twodrive login succeeded");
+            if verbose {
+                println!("twodrive login succeeded");
+            }
             return Ok(());
         }
     }
@@ -226,6 +247,9 @@ fn open_browser(url: &str) -> anyhow::Result<()> {
                 "-Command",
                 "Start-Process -FilePath $env:TWODRIVE_AUTH_URL",
             ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .env("TWODRIVE_AUTH_URL", url)
             .creation_flags(0x08000000)
             .status()?;
@@ -233,7 +257,12 @@ fn open_browser(url: &str) -> anyhow::Result<()> {
     }
     #[cfg(not(windows))]
     {
-        Command::new("xdg-open").arg(url).spawn()?;
+        Command::new("xdg-open")
+            .arg(url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
     }
     Ok(())
 }

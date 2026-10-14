@@ -249,21 +249,24 @@ class StorageClient extends ChangeNotifier {
     }
   }
 
-  Future<void> connect() => action('正在连接服务器', () async {
-    if (selected == null) {
-      throw StateError('请先添加连接');
-    }
+  Future<void> connect([String? profileId]) => action('正在登录并连接', () async {
+    final id = profileId ?? selected;
+    if (id == null) throw StateError('请先添加连接');
+    if (connected && status['profile'] == id) return;
     _browseGeneration++;
-    entries = [];
-    status = {};
-    notifyListeners();
     activeId = ++_id;
-    final result = await request('connect', {'id': selected}, activeId);
-    path = '/';
-    entries = (result['entries'] as List)
-        .map((e) => {...e as Json, ...target})
-        .toList();
-    await refreshStatus();
+    try {
+      final result = await request('connect', {'id': id}, activeId);
+      selected = id;
+      path = '/';
+      entries = (result['entries'] as List)
+          .map((e) => {...e as Json, ...target})
+          .toList();
+    } finally {
+      await refreshStatus();
+      if (connected) selected = status['profile'] as String;
+      notifyListeners();
+    }
   });
   Future<void> disconnect() => action('正在断开', () async {
     await request('disconnect');

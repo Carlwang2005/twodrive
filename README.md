@@ -112,3 +112,11 @@ authenticated control messages and signed updates, not file backup transfer.
 The dev branch also includes the Windows Full/Lite preview from PR #9 and encrypted WebDAV/QUIC directory sharing from PR #8. The combined Windows packages contain all three tools with independent state. See the [integration and setup guide](doc/dev-integration.md) for the supported flows and current UI boundaries. These builds do not install or replace stable TwoDrive.
 
 The Development desktop now consumes provider schemas and capabilities through IPC. WebDAV stays inside its adapter; successful proxy fallback uses a yellow warning triangle. See the [provider boundary record](doc/provider-boundaries-2026-10-13.md).
+
+Google Drive desktop OAuth and ordinary-file read/write support are also available in `dev`. See the [Google Drive setup and verification guide](doc/google-drive-dev.md). Google editor documents appear as browser shortcuts.
+
+The connection page now supports adding inactive accounts while connected, WebDAV/NAS setup, OneDrive sign-in, and opt-in LAN device discovery with invitation import. See [storage connection setup and validation](doc/storage-connections-dev.md).
+
+TwoDrive tray positioning on GNOME/Zorin now uses actual icon bounds for X11 and native Wayland. See [setup and isolated validation](doc/tray-positioning-2026-10-14.md); the GNOME component first loads on a new desktop session.
+
+Future third-party storage integrations follow the [provider, login, upload and supporting-component specification](doc/provider-integration-spec.md), included in the Development release.

@@ -3,7 +3,7 @@
 Requires an already running client and X11 tools. Does not inject global input.
 """
 import argparse
-import ctypes as c,subprocess,time,re,json
+import ctypes as c,subprocess,time,re,json,ast,os
 x=c.CDLL('libX11.so.6');x.XOpenDisplay.restype=c.c_void_p;d=x.XOpenDisplay(None)
 class Button(c.Structure):
  _fields_=[('type',c.c_int),('serial',c.c_ulong),('send_event',c.c_int),('display',c.c_void_p),('window',c.c_ulong),('root',c.c_ulong),('subwindow',c.c_ulong),('time',c.c_ulong),('x',c.c_int),('y',c.c_int),('x_root',c.c_int),('y_root',c.c_int),('state',c.c_uint),('button',c.c_uint),('same_screen',c.c_int)]
@@ -14,7 +14,11 @@ class Event(c.Union):
 x.XSendEvent.argtypes=[c.c_void_p,c.c_ulong,c.c_int,c.c_long,c.POINTER(Event)];x.XFlush.argtypes=[c.c_void_p]
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--pid',type=int,required=True)
+parser.add_argument('--virtual-input', action='store_true',
+ help='Use input only on a private test display, never the user desktop.')
 args=parser.parse_args()
+if args.virtual_input:
+ assert os.environ.get('XDG_RUNTIME_DIR','').startswith('/tmp/td-panel-isolated-')
 tree=subprocess.check_output(['xwininfo','-root','-tree'],text=True)
 windows={}
 for line in tree.splitlines():
@@ -39,20 +43,40 @@ def pointer():
  root=c.c_ulong();child=c.c_ulong();rx=c.c_int();ry=c.c_int();wx=c.c_int();wy=c.c_int();mask=c.c_uint()
  assert x.XQueryPointer(d,root_window,c.byref(root),c.byref(child),c.byref(rx),c.byref(ry),c.byref(wx),c.byref(wy),c.byref(mask)), 'pointer is on another X screen'
  return [rx.value,ry.value]
+def host_anchor():
+ result=subprocess.run(['gdbus','call','--session','--dest','org.gnome.Shell',
+  '--object-path','/app/twodrive/TrayAnchor','--method','app.twodrive.TrayAnchor1.GetAnchor',str(args.pid)],capture_output=True,text=True)
+ if result.returncode:return None
+ value=ast.literal_eval(result.stdout.replace('true','True').replace('false','False'))
+ return value if value[0] else None
+anchor=host_anchor()
 def expected_geometry(point,geometry):
  scale=int(geometry['Width'])//390
  assert scale>=1 and int(geometry['Width'])==390*scale, 'fixture requires a workarea wider than the panel'
- ax,ay,aw,ah=[v//scale for v in workarea]
- px,py=[int(v/scale+.5) for v in point]
- left=max(ax+8,min(px+20-390,ax+aw-390-8))
- preferred=py-570-20 if py-570-20>=ay+8 else py+20
- top=max(ay+8,min(preferred,ay+ah-570-8))
+ if anchor:
+  _,ix,iy,iw,ih,ax,ay,aw,ah=anchor
+  px=ix+iw//2;py=iy+ih//2
+ else:
+  ax,ay,aw,ah=[v//scale for v in workarea]
+  px,py=[int(v/scale+.5) for v in point]
+ left=max(ax+8,min(px-390//2,ax+aw-390-8))
+ top=ay+8 if py<ay else ay+ah-570-8
  return [left*scale,top*scale,390*scale,570*scale]
 
 def state():
  data=subprocess.check_output(['xwininfo','-id',window],text=True)
  return {k:re.search(k+r':\s+(.+)',data).group(1) for k in ['Absolute upper-left X','Absolute upper-left Y','Width','Height','Map State']}
 def click():
+ if args.virtual_input:
+  assert anchor, 'virtual input must use the actual TwoDrive tray actor'
+  t=c.CDLL('libXtst.so.6')
+  t.XTestFakeMotionEvent.argtypes=[c.c_void_p,c.c_int,c.c_int,c.c_int,c.c_ulong]
+  t.XTestFakeButtonEvent.argtypes=[c.c_void_p,c.c_uint,c.c_int,c.c_ulong]
+  _,ix,iy,iw,ih,*_=anchor
+  t.XTestFakeMotionEvent(d,-1,ix+iw//2,iy+ih//2,0);x.XFlush(d)
+  time.sleep(.05)
+  t.XTestFakeButtonEvent(d,1,1,0);t.XTestFakeButtonEvent(d,1,0,30);x.XFlush(d)
+  return
  stamp=int(time.monotonic()*1000)&0xffffffff
  e=Event();e.crossing=Crossing(7,0,1,d,tray,root_window,0,stamp,16,16,16,16,0,3,1,0,0)
  x.XSendEvent(d,tray,0,0,c.byref(e));x.XFlush(d)
@@ -74,13 +98,13 @@ for wanted in (['IsUnMapped','IsViewable'] if initial=='IsViewable' else ['IsVie
  settled=state()
  assert settled['Map State']==wanted, 'visibility changed after settling'
  if wanted=='IsViewable':
-  assert all(abs(a-b)<=4 for a,b in zip(point,pointer())), 'pointer moved during this read-only fixture; rerun when stationary'
+  assert anchor or all(abs(a-b)<=4 for a,b in zip(point,pointer())), 'pointer moved during this read-only fixture; rerun when stationary'
   if anchor_point is None:anchor_point=point
-  assert all(abs(a-b)<=4 for a,b in zip(anchor_point,point)), 'pointer moved between activations; rerun when stationary'
+  assert anchor or all(abs(a-b)<=4 for a,b in zip(anchor_point,point)), 'pointer moved between activations; rerun when stationary'
   actual=[int(settled[k]) for k in ['Absolute upper-left X','Absolute upper-left Y','Width','Height']]
   expected=expected_geometry(anchor_point,settled)
   assert actual==expected, ('anchor mismatch: GNOME icon-local coordinates must not position the panel',actual,expected)
  results.append(dict(expected=wanted,ms=latency,geometry=settled,pointer=point))
 positions=[r['geometry'] for r in results if r['expected']=='IsViewable']
 assert positions[0]==positions[1]==positions[2], 'window manager moved the panel between activations'
-print(json.dumps({'single_click_roundtrips':results,'settling_ms':400,'stable':True,'pointer_anchor_verified':True,'host_event_root':'icon-local center'},indent=2))
+print(json.dumps({'single_click_roundtrips':results,'settling_ms':400,'stable':True,'icon_geometry_verified':anchor is not None,'pointer_fallback':anchor is None,'host_event_root':'virtual display input' if args.virtual_input else 'icon-local center'},indent=2))

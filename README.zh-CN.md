@@ -110,3 +110,11 @@ Peer native builds CI 生成。本阶段提供认证控制消息和签名更新�
 dev 同时包含 PR #9 的 Windows Full/Lite 浏览和只读缓存，以及 PR #8 的 WebDAV/QUIC 目录共享。组合 Windows 包携带全部工具，分别使用独立状态。配置方式和当前 GUI 范围见[组合指南](doc/dev-integration.md)。这些开发构建不安装或替换稳定 TwoDrive。
 
 Development 桌面通过 IPC 读取提供者表单与能力，WebDAV 细节留在适配器内部；成功的代理兜底使用黄色三角感叹号。见[提供者边界与验证记录](doc/provider-boundaries-2026-10-13.md)。
+
+`dev` 版现已接入 Google Drive 桌面 OAuth 和普通文件读写，使用既有浏览、挂载与备份流程。Google 在线文档显示为网页入口。详见 [Google Drive 接入与验证](doc/google-drive-dev.md)。
+
+连接页现在支持在线添加其他账号、WebDAV/NAS、OneDrive 登录及局域网设备发现与邀请导入。见[存储连接使用与验证](doc/storage-connections-dev.md)。
+
+GNOME/Zorin 的托盘定位现通过图标实际边界支持 X11 与原生 Wayland。见[安装与隔离验证](doc/tray-positioning-2026-10-14.md)；GNOME 新组件首次安装须在新桌面会话加载。
+
+后续第三方网盘接入须遵循[提供者、登录入口、上传与配套组件设计规范](doc/provider-integration-spec.md)，规范随 Development Release 附带。

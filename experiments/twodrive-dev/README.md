@@ -134,3 +134,9 @@ Finish, lease expiry or owner revocation reaps the child and deletes temporary c
 `scripts/verify-live-test-agent.py` is the versioned two-device verification entry point. It waits for the signed ready response, uses fresh client identities, and checks both default physical routes and a missing-interface fallback on each device. Every stage verifies a 2 MiB full hash, move, 256 KiB range and deletion, and saves bounded diagnostics to `--output`. Supply the actual current `--network-context`; campus Wi-Fi alone does not establish independent NAT. Failed stages stop their temporary child but keep the controller available; inspect the signed snapshot and use `--resume` for an intentional retry. A complete successful run sends `finish`; collect the bootstrap cleanup receipt and remove the owned shared bundle separately. Keep reports outside `/tmp` when work must survive a reboot.
 
 Follow-up on 2026-10-12: the same native version passed both physical defaults, Linux fallback and Windows fallback with a 2 MiB full hash, MOVE, Range and DELETE 404. The [live record](../../doc/peer-windows-egress-2026-10-12.json) includes the Windows native DNS fallback repair and cleanup receipts from both devices. Both devices used campus Wi-Fi this round; independent NAT was not established. The previous hotspot/campus evidence remains separate.
+
+## Google Drive
+
+Google desktop OAuth and ordinary-file read/write now use the desktop provider interface, including Linux FUSE and folder backup. See [setup, security and verification](../../doc/google-drive-dev.md). Google editor documents appear as browser shortcuts.
+
+The Development desktop provides WebDAV/NAS, OneDrive, Google Drive and PC/NAS connection setup. LAN discovery is opt-in (`serve --discoverable --device-name NAME`); pairing still requires a trusted invitation. See [connection setup and validation](../../doc/storage-connections-dev.md).

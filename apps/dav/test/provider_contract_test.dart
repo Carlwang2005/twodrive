@@ -8,6 +8,54 @@ import 'package:twodrive_dav/profile_dialog.dart';
 import 'package:twodrive_dav/tray_panel.dart';
 
 void main() {
+  testWidgets(
+    'connected account can open add dialog and edit inactive accounts',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = StorageClient()
+        ..available = true
+        ..selected = 'active';
+      c.status = {'connected': true, 'profile': 'active'};
+      c.profiles = [
+        {'id': 'active', 'name': 'Active account', 'kind': 'example'},
+        {'id': 'other', 'name': 'Other account', 'kind': 'example'},
+      ];
+      c.providers = [
+        {'id': 'example', 'label': 'Example storage', 'fields': []},
+      ];
+      await tester.pumpWidget(DavApp(client: c));
+      await tester.tap(find.text('连接').first);
+      await tester.pumpAndSettle();
+      final add = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '添加连接'),
+      );
+      expect(add.onPressed, isNotNull);
+      await tester.tap(find.text('添加连接'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileDialog), findsOneWidget);
+      expect(c.connected, isTrue);
+      expect(c.selected, 'active');
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      final inactive = find.ancestor(
+        of: find.text('Other account'),
+        matching: find.byType(ListTile),
+      );
+      final edit = find.descendant(
+        of: inactive,
+        matching: find.byIcon(Icons.edit_outlined),
+      );
+      await tester.tap(edit);
+      await tester.pumpAndSettle();
+      expect(find.text('编辑连接'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+    },
+  );
+
   testWidgets('new provider schema works without DAV or peer fields', (
     tester,
   ) async {
