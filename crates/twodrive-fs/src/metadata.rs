@@ -11,7 +11,8 @@ pub fn sync_metadata<B: CloudBackend>(db: &Database, backend: &B) -> anyhow::Res
 pub fn sync_delta_metadata<B: CloudBackend>(db: &Database, backend: &B) -> anyhow::Result<usize> {
     let delta = backend.list_delta(db.delta_link()?.as_deref())?;
     for remote_id in &delta.deleted_remote_ids {
-        db.remove_pending_delete(remote_id)?;
+        // A delta deletion does not settle an in-flight upload or release open
+        // cache handles. Only deletion recovery retires the durable tombstone.
         let record = db.get_by_cloud_remote_id(remote_id)?;
         if record.as_ref().is_some_and(|record| {
             matches!(

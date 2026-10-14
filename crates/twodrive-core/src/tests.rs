@@ -84,6 +84,107 @@ fn add_file(db: &Database, id: &str, path: &str) {
 }
 
 #[test]
+fn deletion_claim_reads_latest_cloud_binding_and_migrates_idempotently() {
+    let test = TestDatabase::new("delete-cloud-binding");
+    let cache = test.root.join("cache");
+    fs::write(&cache, b"saved").unwrap();
+    test.db
+        .create_local_file("local-upload-saved", "/saved", &cache)
+        .unwrap();
+    test.db
+        .mark_dirty_with_size("local-upload-saved", 5)
+        .unwrap();
+    let stale = test.db.get_by_path("/saved").unwrap().unwrap();
+    assert!(test.db.begin_upload(&stale).unwrap());
+    let uploaded = MetadataEntry::new_file("cloud-saved", "/saved", 5, 1, "etag-saved");
+    test.db
+        .commit_uploaded("local-upload-saved", "/saved", &uploaded, &cache)
+        .unwrap();
+    let delete = test.db.queue_pending_delete(&stale).unwrap();
+    assert_eq!(delete.remote_id, "local-upload-saved");
+    assert_eq!(delete.cloud_remote_id.as_deref(), Some("cloud-saved"));
+    assert!(delete.upload_path.is_none());
+    // Old schema entries remain readable, including inserts from compatible code.
+    Connection::open(test.db.path()).unwrap().execute(
+        "INSERT INTO pending_deletes(remote_id, path, queued_unix) VALUES ('legacy-cloud', '/legacy', 1)", [],).unwrap();
+    for _ in 0..2 {
+        test.db.init().unwrap();
+        let deletes = test.db.pending_deletes().unwrap();
+        assert_eq!(deletes.len(), 2);
+        assert_eq!(
+            deletes
+                .iter()
+                .find(|delete| delete.remote_id == "legacy-cloud")
+                .unwrap()
+                .cloud_remote_id
+                .as_deref(),
+            Some("legacy-cloud")
+        );
+        assert_eq!(
+            deletes
+                .iter()
+                .find(|delete| delete.remote_id == "local-upload-saved")
+                .unwrap()
+                .cloud_remote_id
+                .as_deref(),
+            Some("cloud-saved")
+        );
+    }
+}
+
+#[test]
+fn late_deleted_upload_acknowledgement_preserves_recreated_file_and_cloud_path_barrier() {
+    let test = TestDatabase::new("late-delete-ack");
+    let cache = test.root.join("old.cache");
+    fs::write(&cache, b"old").unwrap();
+    test.db
+        .create_local_file("local-upload-old", "/old", &cache)
+        .unwrap();
+    test.db.mark_dirty_with_size("local-upload-old", 3).unwrap();
+    let old = test.db.get_by_path("/old").unwrap().unwrap();
+    assert!(test.db.begin_upload(&old).unwrap());
+    // The claimed request still targets /old even though the local name changed.
+    test.db
+        .move_subtree_and_queue("local-upload-old", "/renamed")
+        .unwrap();
+    let renamed = test.db.get_by_path("/renamed").unwrap().unwrap();
+    let delete = test.db.queue_pending_delete(&renamed).unwrap();
+    assert_eq!(delete.upload_path.as_deref(), Some("/old"));
+    let new_cache = test.root.join("new.cache");
+    fs::write(&new_cache, b"new").unwrap();
+    test.db
+        .create_local_file("local-upload-new", "/old", &new_cache)
+        .unwrap();
+    test.db.mark_dirty_with_size("local-upload-new", 3).unwrap();
+    let new = test.db.get_by_path("/old").unwrap().unwrap();
+    assert!(!test.db.begin_upload(&new).unwrap());
+    let uploaded = MetadataEntry::new_file("cloud-old", "/old", 3, 1, "etag-old");
+    assert!(
+        test.db
+            .complete_deleted_upload("local-upload-old", &uploaded)
+            .unwrap()
+    );
+    test.db.init().unwrap();
+    test.db.upsert_metadata_batch(&[uploaded]).unwrap();
+    assert_eq!(
+        test.db
+            .get_by_path("/old")
+            .unwrap()
+            .unwrap()
+            .metadata
+            .remote_id,
+        "local-upload-new"
+    );
+    assert!(test.db.get_by_path("/renamed").unwrap().is_none());
+    assert!(!test.db.begin_upload(&new).unwrap());
+    let pending = test.db.pending_deletes().unwrap();
+    assert_eq!(pending[0].cloud_remote_id.as_deref(), Some("cloud-old"));
+    assert_eq!(pending[0].uploaded_path.as_deref(), Some("/old"));
+    test.db.remove_pending_delete(&delete.remote_id).unwrap();
+    assert!(test.db.begin_upload(&new).unwrap());
+}
+
+#[test]
 fn local_create_is_atomic_and_can_reuse_a_pending_delete_path() {
     let test = TestDatabase::new("local-create");
     add_file(&test.db, "old-cloud", "/file");

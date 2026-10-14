@@ -4,6 +4,16 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## 0.2.13 — Delete files awaiting synchronization
+
+Closed dirty and uploading files can be removed immediately from the local namespace. Durable deletion records coordinate in-flight uploads, cloud cleanup, cached open handles and same-name recreation. After an interrupted unbound upload, recovery may finish that claimed transfer to obtain its cloud identity before deleting it. Includes the Nautilus pending-download feedback already shipped in 0.2.12.
+
+Details and validation limits: [TD-20261014-12](doc/incidents.md#td-20261014-12关闭后的待上传文件不能删除导致-git-锁文件残留).
+
+## 0.2.12 — Pending-download feedback
+
+Nautilus immediately shows requested pin/download work, retains feedback across refresh and file-object replacement, and allows retry after failure.
+
 ## 0.2.10-2 — Internal architecture refactor
 
 Separate storage, persistence, OneDrive/OAuth, Files On-Demand, service orchestration and presentation by responsibility. No intentional behavior or data-format changes. Branch prerelease; not merged into main. [Architecture and verification](doc/refactor-2026-09-16.md).

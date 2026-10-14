@@ -46,6 +46,141 @@
 
 
 
+## TD-20261014-14：稳定组件升级后独立工作区锁文件仍引用旧版本
+
+- 日期：2026-10-14
+- 状态：已定位，修复/最终 CI 验证进行中。
+- 影响版本与环境：0.2.13 发布准备提交 eba3604，独立 experiments/twodrive-dev 工作区，Linux/Windows CI。
+- 关联历史故障：TD-20261014-13 为稳定发布基线遗漏，本条为另一套 Cargo.lock 未同步版本；不归因于云端删除机制。
+
+### 症状与影响
+
+根工作区构建/测试及 deb 验证通过，独立 WebDAV CI 在 cargo clippy --locked 的依赖解析阶段失败，未进入测试。阻止发布；用户现用软件和云端数据未改变。
+
+### 触发条件与复现
+
+共享 core/backend/fs 从 0.2.11 升至 0.2.13，独立 Cargo.lock 仍锁定三个本地 path package 的 0.2.11。Linux 和 Windows 原生任务均失败。
+
+### 根因与证据
+
+[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563070060) 的两个任务报告 cannot update the lock file .../experiments/twodrive-dev/Cargo.lock because --locked was passed。根锁已同步，独立工作区使用另一份锁。虽 Windows 不启用 Linux mount，Cargo 仍需要一致的跨目标锁文件。
+
+### 解决办法与恢复操作
+
+离线重新解析独立锁文件，限定 diff 为三个本地共享 package 的版本号，不升级第三方依赖、不修改实验功能。没有用户恢复操作。
+
+### 验证结果与边界
+
+原失败证据为两个真实 CI job；新锁的离线 locked metadata 检查和最终 Linux/Windows CI 待补充。不是运行程序测试失败，不能把修复锁文件说成新云端功能验证。
+
+### 防复发措施与后续
+
+升级共享 path package 时搜索所有独立 Cargo.lock 并检查锁定解析，保留原生工作区 CI。
+
+### 交付记录
+
+修复提交及最终 CI 待补充；尚未合并、发布或安装。
+
+## TD-20261014-13：main 发布基线落后于上一稳定包的 Nautilus 下载反馈
+
+- 日期：2026-10-14
+- 状态：两份已发布源码原字节恢复及 25 项 Nautilus 测试已通过；发布验证进行中。
+- 影响版本与环境：main 基线 258438e（稳定组件 0.2.11），上一稳定 Release v0.2.12-1；尚未发布本轮包。
+- 关联历史故障：上一稳定包包含 a749e43 的固定下载反馈修复；与 TD-20261014-12 的删除限制是不同机制。
+
+### 症状与影响
+
+从 main 直接组装下一稳定包会遗漏已在 0.2.12-1 发布的 Nautilus 等待下载反馈、刷新后反馈保留和失败重试逻辑。发布准备时发现；没有交付这一回退包，也没有改变本地客户端。
+
+### 触发条件与复现
+
+比较 main 与已存在的 v0.2.12-1 标签：稳定 Rust 组件只有版本号差异；另外两份 Nautilus 程序/测试源码存在实际差异，上一稳定版为 25 项测试，main 为 19 项。
+
+### 根因与证据
+
+上一稳定包从包含稳定修复的 dev 集成提交构建，main 尚未同步这些已发布文件。已核对 Release 的源码标签 93d1b44 和文件 diff，不根据分支名推断稳定代码相同。v0.2.12-1 中稳定五个 Rust crate 与 main 的差异仅 Cargo.toml 版本号，实验组件不属于本次恢复范围。
+
+### 解决办法与恢复操作
+
+把 v0.2.12-1 的 packaging/nautilus/twodrive_nautilus.py 和 test_twodrive_nautilus.py 原字节恢复到 main 修复分支；只恢复这两份已发布稳定源码，不合入 dev 实验功能。稳定五个 crate 及 deb 版本更新为 0.2.13 / 0.2.13-1，避免覆盖已存在的 0.2.12 Release。尚未执行本地安装；用户已授权 CI 完成后合入 main、发布和升级。
+
+### 验证结果与边界
+
+两份源码与 v0.2.12-1 原字节相等，25 项 Nautilus 和 4 项 Settings 测试通过；最终源码与软件包核对待执行。本条只防止发布回退，不重新宣称旧下载反馈全部真机路径得到验证。
+
+### 防复发措施与后续
+
+稳定发布前逐组件比较上一稳定标签与 main，核实版本递增和实际源码差异；不能把开发分支整个并入作为恢复稳定文件的替代。
+
+### 交付记录
+
+[上一稳定 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。本轮提交/发布待补充，未安装。
+
+## TD-20261014-12：关闭后的待上传文件不能删除，导致 Git 锁文件残留
+
+- 日期：2026-10-14
+- 状态：已验证本机删除/并发/模拟重启机制及隔离真实 FUSE；真实 OneDrive 端到端未验证。最初仅调查阶段的结论和恢复操作保留如下。
+- 影响版本与环境：本机运行 `twodrive-daemon 0.2.10`，Linux、真实 OneDrive FUSE 挂载。当前源码提交 `ecb05392324275f3e0c4317f6e5937d3a4b52ed7`（daemon 0.2.12）仍包含对应删除限制；未运行该源码构建作版本对照。
+- 关联历史故障：[2026-07-24 可靠性修复](reliability-fix-2026-07-24.md)仅覆盖打开句柄的 dirty 文件删除；[2026-09-03 local-first 设计](local-first-sync-2026-09-03.md)约定 unlink 先更新本地命名空间，再持久排队云端删除。本次是关闭句柄后仍受同步状态限制的遗漏。
+
+### 症状与影响
+
+在挂载目录初始化、提交及推送 Git 仓库时，删除 `HEAD.lock`、`maintenance.lock`、`config.lock`、`index.lock` 先后返回 `Input/output error`。残留 `config.lock` 导致后续 upstream 配置写入报 `File exists`。GitHub 推送实际完成，38 个项目文件和远端提交核对一致，未发现项目文件损坏。迁移后删除旧 `.git` 的一个内部引用文件也暂时遭遇同一错误。
+
+### 触发条件与复现
+
+Git 创建、写入并关闭短生命周期文件，随后在 TwoDrive 后台同步完成前 unlink。真实操作多次出现删除错误，服务日志在 19:22:56、19:23:18、19:25:18、19:26:32 等时刻输出同一拒绝信息。迁移清理时有一个引用文件连续重试仍失败，稍后只读查询显示该文件已变为 pinned，随后正常删除成功。没有新建独立探针或回归测试；未在每次原始错误瞬间抓取数据库状态。
+
+### 根因与证据
+
+`crates/twodrive-fs/src/filesystem/writes.rs` 的关闭提交路径将持久缓存标为 Dirty 并排队上传；`filesystem/fuse.rs` 的 release 路径随后移除写句柄。unlink 仅在 `unlink_record_with_open_handles` 找到打开句柄时绕过普通删除分支；没有打开句柄时进入 `delete_record`。`filesystem/mutations.rs` 明确拒绝 Writing、Dirty、Hydrating、Uploading 四种状态，错误为 `cannot delete a file while it is changing`；`filesystem/fuse.rs` 将该错误统一返回 `libc::EIO`。
+
+本机日志实际出现：
+
+```text
+twodrive delete file error: cannot delete a file while it is changing
+```
+
+这使已完成本地关闭的短生命周期文件仍需等待云端状态变化才能删除，与上述 local-first unlink 约定不一致。Git 的锁文件生命周期暴露该实现缺口。源码拒绝分支、实际服务日志和稍后成功删除的状态变化相互吻合；不据此认定所有 FUSE 文件系统都有同样限制，也不将同期其他云端删除错误或 Git 首次 HTTPS 连接等待归为此根因。
+
+### 解决办法与恢复操作
+
+程序、服务和数据库未修改，未重启或升级 TwoDrive。按用户要求仅定位原因。
+
+本地恢复单独执行：将项目文件及完整 Git 元数据复制到普通本地 ext4 工作目录，核对 38 个项目文件的 SHA-256、提交及远端跟踪配置，运行 `git fsck --full`；确认新仓库完整后删除原挂载目录的 `.git`，保留项目文件作备份。删除清理先遭遇上述限制，等待后台状态正常变化后完成。未绕过同步状态检查或直接修改同步数据库。
+
+### 验证结果与边界
+
+新目录 `git fsck --full` 通过，工作区干净，main 跟踪 origin/main；提交与迁移前及 GitHub 一致。原目录 `.git` 已完全移除，Git 仓库探测失败符合预期；原目录与新目录的 38 个项目文件校验值一致。读取生产 SQLite 使用 `mode=ro`。这些结果验证迁移和备份完整性，不代表 TwoDrive 缺陷已修复。未新增或运行 TwoDrive 回归测试，未验证其他系统、提供者、发布版本和首次 HTTPS 等待原因。
+
+### 防复发措施与后续
+
+如后续授权修复，应覆盖已关闭的 Dirty/Uploading 文件 unlink、后台上传与删除并发、删除后的重启恢复，以及 Git 锁文件快速创建/关闭/删除的真实 FUSE 操作；保留待上传内容及远端删除的正确排序，不能仅移除保护条件。当前继续使用普通本地工作目录，将挂载目录保留为项目文件备份。
+
+### 交付记录
+
+仅本地调查记录，未提交或发布 TwoDrive 修复。迁移的项目原有提交已核实为 `0f60e17259f8f77f4bf45f96552e1c1514510b6e`；本记录不收录用户私人路径、令牌或完整文件清单。
+
+
+### 2026-10-14 主分支修复补记
+
+用户在分析后授权修复；基线为 main `258438eb230409cc30d600c722f434f2e08bb3bc`（daemon/core/fs 0.2.11），在独立 `codex/pending-unlink-main` 工作树开发，不将 dev 后续改动一并合入。本次修复对应原删除限制的遗漏；不是另一场复发。上文“未修改/未测试”描述的是最初调查阶段，本节更新当前状态。
+
+**机制与改动**：unlink 在 SQLite Immediate 事务中重新读取当前记录、持久化删除意图并移除本地命名空间，随后返回成功。后台通知失败也不撤销已提交的 unlink。未被上传任务认领的本地文件直接取消上传；已绑定云端身份的待上传修改可以直接排队删除原对象。正在进行的上传与删除使用相同的本地身份锁，上传持有缓存共享锁，清理先取得缓存独占锁；缓存和删除记录保留到任务和打开的缓存句柄结束。原上传请求的路径、目标和缓存路径持久化，迟到的成功响应绑定到旧文件的删除记录，不能发布到同名新文件。
+
+上传已开始但新对象的云端身份未确认时，重启/失败恢复保留缓存，完成或续传该已认领的请求以获得云端 ID，然后删除；这条保守路径可能仍会上传被删除的内容，不把所有删除都强制先上传。云端已接受、进程尚未记录响应的窗口由模拟丢失响应回归覆盖。旧路径、当前本地路径和响应路径均作为后台上传屏障，允许前台立即创建同名文件，但新文件云端上传等待旧对象清理完成。冲突复制已开始的情况下，原对象和迟到的冲突对象分别排队清理，不让它们重新进入本地目录。delta 的删除回声不再提前丢弃尚有上传/缓存工作未结束的删除记录。
+
+迁移为 files 的 3 个可空上传声明字段及 pending_deletes 的 6 个可空字段；旧删除队列可兼容读入，重复初始化保留新队列状态。恢复/回滚需要使用理解这些记录的程序，或恢复升级前的停止服务数据库备份；不能把旧程序理解新增队列语义视作已验证。原有防止旧缓存覆盖新内容的代次检查保留。
+
+**验证进度**：新增关闭 Dirty 文件、上传中 unlink/同名重建、丢失上传响应前后重启、云端删除失败重试、上传冲突及冲突副本上传中删除、缓存锁和 Hydrating 完成取消回归；数据库覆盖删除时读取最新云端绑定、重复迁移、改名后的迟到响应及旧路径屏障。临时恢复 main 原始 filesystem/mutations.rs，两项关闭 Dirty 文件回归均因 `cannot delete a file while it is changing` 失败；恢复修复后通过。这是恢复旧删除实现的对照，不冒称所有代码都回退到旧版。开发中新增替身曾因嵌套持有自身 Mutex 自锁，已改为先复制观测结果再调用后端；上传前误刷新旧任务快照被既有 stale_empty_upload 回归识别并撤回。
+
+已在真实隔离 FUSE 挂载、模拟上传/删除离线后端执行 Git init/config/add/commit/status，HEAD.lock、config.lock、index.lock、maintenance.lock 各 5 次创建/关闭/删除/重建通过。该测试不访问真实 OneDrive。同一挂载回归临时恢复 main 原删除实现后失败：日志再次出现拒绝 Changing 的删除分支，并因残留锁在 create_new 时返回 File exists；恢复修复后通过。最终 `cargo build --workspace --locked`、`cargo fmt --all -- --check`、严格 Clippy 和工作区 162 项默认 Rust 测试通过（8 项默认忽略）；7 项 FUSE 挂载测试全部显式通过，包括新 Git 锁回归以及解压、chmod/执行、下载取消、延迟读取和大目录响应。Nautilus 19 项与 Settings 4 项 Python 测试通过；独立 MockBackend daemon 冒烟的 hydration/write/upload/move/delete/pin/release 全部通过。另一个默认忽略的 peer 更新进程测试本轮未执行。构建和测试日志保存在本工作树忽略目录 target/unlink-validation，不含真实账号数据。
+
+**验证边界和本地恢复**：本轮不操作现用服务、数据库或真实云端文件；最初的 Git 仓库迁移仍单独列于上文。未执行真实 Graph 上传/删除及断网/崩溃探针、Windows 原生运行、多进程完整竞争、外部客户端同名云端并发编辑、未缓存延迟读取句柄的 unlink 语义和正在云端创建目录时的 rmdir。测试中的重启是重开隔离数据库/重新运行恢复函数，不是真实生产进程崩溃。不能据此承诺所有 EIO 均已修复。
+
+**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。修复提交：[4d4f7ae](https://github.com/LumiaBlack51/twodrive/commit/4d4f7aec7424b75b686b60ab67cc1fe258a8fe64)；[指向 main 的草稿 PR #13](https://github.com/LumiaBlack51/twodrive/pull/13)。本机验证结果见上文；远端 CI 尚未取得结果，不能据此宣称 Windows 原生验证通过。未发布、未安装、未合并 main。
+
+
 ## TD-20261007-03：整合树 Windows 原生 peer 测试失败
 
 - 日期：2026-10-07

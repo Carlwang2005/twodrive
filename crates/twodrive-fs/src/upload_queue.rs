@@ -181,18 +181,20 @@ pub(crate) fn run_upload_worker<B: CloudBackend>(
             }
             UploadCommand::Shutdown => return,
         };
-        let item_lock = item_sync_lock(&remote_id);
-        let Ok(_item_guard) = item_lock.lock() else {
-            continue;
-        };
-        if let Ok(Some(operation)) = db.pending_metadata_operation(&remote_id)
-            && let Err(err) = recover_pending_metadata_record(&db, backend.as_ref(), &operation)
         {
-            eprintln!(
-                "twodrive: queued metadata operation failed for {}: {err:#}",
-                operation.path
-            );
-            continue;
+            let item_lock = item_sync_lock(&remote_id);
+            let Ok(_item_guard) = item_lock.lock() else {
+                continue;
+            };
+            if let Ok(Some(operation)) = db.pending_metadata_operation(&remote_id)
+                && let Err(err) = recover_pending_metadata_record(&db, backend.as_ref(), &operation)
+            {
+                eprintln!(
+                    "twodrive: queued metadata operation failed for {}: {err:#}",
+                    operation.path
+                );
+                continue;
+            }
         }
         if let Ok(Some(record)) = db.get_by_remote_id(&remote_id)
             && !record.metadata.is_dir
@@ -231,5 +233,8 @@ pub(crate) fn run_upload_worker<B: CloudBackend>(
             eprintln!("twodrive: queued upload failed for {remote_id}: {err:#}");
         }
         activity.finish();
+        if let Ok(Some(delete)) = db.pending_delete_for_local_id(&remote_id) {
+            let _ = queue.send(UploadCommand::Delete(delete.remote_id));
+        }
     }
 }

@@ -107,6 +107,29 @@ impl Database {
             "local_mode",
             "ALTER TABLE files ADD COLUMN local_mode INTEGER",
         )?;
+        for (table, column) in [
+            ("files", "upload_path"),
+            ("files", "upload_target_id"),
+            ("files", "upload_cache_path"),
+            ("pending_deletes", "local_id"),
+            ("pending_deletes", "cloud_remote_id"),
+            ("pending_deletes", "upload_path"),
+            ("pending_deletes", "upload_target_id"),
+            ("pending_deletes", "upload_cache_path"),
+            ("pending_deletes", "uploaded_path"),
+        ] {
+            ensure_column(
+                &conn,
+                table,
+                column,
+                &format!("ALTER TABLE {table} ADD COLUMN {column} TEXT"),
+            )?;
+        }
+        conn.execute(
+            "UPDATE pending_deletes SET cloud_remote_id = remote_id
+             WHERE local_id IS NULL AND cloud_remote_id IS NULL AND remote_id NOT LIKE 'local-upload-%'",
+            [],
+        )?;
         let migrated = conn
             .query_row(
                 "SELECT value FROM app_state WHERE key = 'pin_policy_v1_migrated'",

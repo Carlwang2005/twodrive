@@ -22,24 +22,7 @@ impl<B: CloudBackend> TwoDriveFs<B> {
             return Ok(false);
         }
 
-        let created_locally = record.cloud_remote_id.is_none()
-            || write_fhs.iter().any(|fh| {
-                self.write_handles
-                    .get(fh)
-                    .is_some_and(|handle| handle.created_new_record)
-            });
-        if !created_locally {
-            let mut queued_record = record.clone();
-            queued_record.cache_path = None;
-            self.db.queue_pending_delete(&queued_record)?;
-            if let Some(cloud_remote_id) = &record.cloud_remote_id {
-                self.upload_pool.enqueue_delete(cloud_remote_id.clone())?;
-            }
-        } else {
-            self.db.remove_by_remote_id(&record.metadata.remote_id)?;
-        }
-
-        self.inodes.remove_ino(ino);
+        self.delete_record(ino, record)?;
         for fh in write_fhs {
             if let Some(handle) = self.write_handles.get_mut(&fh) {
                 handle.unlinked = true;
@@ -54,32 +37,18 @@ impl<B: CloudBackend> TwoDriveFs<B> {
     }
 
     pub(super) fn delete_record(&mut self, ino: u64, record: &FileRecord) -> anyhow::Result<()> {
-        if matches!(
-            record.state,
-            FileState::Writing | FileState::Dirty | FileState::Hydrating | FileState::Uploading
-        ) {
-            anyhow::bail!("cannot delete a file while it is changing");
-        }
-
-        if record.cloud_remote_id.is_none() {
-            if let Some(cache_path) = &record.cache_path {
-                match fs::remove_file(cache_path) {
-                    Ok(()) => {}
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(err) => return Err(err.into()),
-                }
-            }
-            self.db.remove_pending_delete(&record.metadata.remote_id)?;
-            self.db.remove_by_remote_id(&record.metadata.remote_id)?;
-            self.inodes.remove_ino(ino);
-            return Ok(());
-        }
-
-        self.db.queue_pending_delete(record)?;
-        if let Some(cloud_remote_id) = &record.cloud_remote_id {
-            self.upload_pool.enqueue_delete(cloud_remote_id.clone())?;
-        }
+        // Only acknowledgement publication is serialized here, never network I/O.
+        let delete = {
+            let _guard = crate::recovery::upload_commit_lock()
+                .lock()
+                .map_err(|_| anyhow::anyhow!("upload commit lock is poisoned"))?;
+            self.db.queue_pending_delete(record)?
+        };
         self.inodes.remove_ino(ino);
+        if let Err(err) = self.upload_pool.enqueue_delete(delete.remote_id) {
+            // The durable queue, rather than this notification, commits the unlink.
+            eprintln!("twodrive: deletion remains queued after notification failure: {err:#}");
+        }
         Ok(())
     }
 

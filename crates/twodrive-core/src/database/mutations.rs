@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::paths::{cloud_name, normalize_cloud_path, parent_cloud_path};
 use crate::{
-    FileRecord, MetadataEntry, PendingDelete, PendingMetadataKind, PendingMetadataOperation,
-    now_unix,
+    FileRecord, FileState, MetadataEntry, PendingDelete, PendingMetadataKind,
+    PendingMetadataOperation, now_unix,
 };
 
 impl Database {
@@ -403,34 +403,66 @@ impl Database {
         self.recompute_pin_inheritance()
     }
 
-    pub fn queue_pending_delete(&self, record: &FileRecord) -> anyhow::Result<()> {
-        let cloud_remote_id = record
-            .cloud_remote_id
-            .as_deref()
-            .unwrap_or(&record.metadata.remote_id);
+    pub fn queue_pending_delete(&self, record: &FileRecord) -> anyhow::Result<PendingDelete> {
         let mut conn = self.connect()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Upload acknowledgement may have bound a cloud ID since the FUSE snapshot.
+        // Claiming an upload and hiding a file must serialize in SQLite as well.
+        let record = self.query_record(&tx,
+            "SELECT remote_id, path, parent_path, name, is_dir, size, modified_unix, etag, state, cache_path, cache_accessed_unix, pin_explicit, pin_origin_remote_id, pin_inheritance_blocked, cloud_remote_id, local_mode FROM files WHERE remote_id = ?1",
+            params![record.metadata.remote_id])?
+            .ok_or_else(|| anyhow::anyhow!("cannot delete an unknown local item"))?;
+        let (upload_path, upload_target_id, upload_cache_path): (Option<String>, Option<String>, Option<String>) = tx.query_row(
+            "SELECT upload_path, upload_target_id, upload_cache_path FROM files WHERE remote_id = ?1",
+            params![record.metadata.remote_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        // Legacy interrupted Uploading records predate the durable transfer claim.
+        let upload_target_id = if upload_path.is_none() && record.state == FileState::Uploading {
+            record.cloud_remote_id.clone()
+        } else {
+            upload_target_id
+        };
+        let upload_path = upload_path.or_else(|| {
+            (record.state == FileState::Uploading).then(|| record.metadata.path.clone())
+        });
+        let upload_cache_path = upload_cache_path
+            .map(PathBuf::from)
+            .or_else(|| upload_path.as_ref().and(record.cache_path.clone()));
+        let queued_unix = now_unix();
         tx.execute(
             "DELETE FROM pending_metadata_operations WHERE local_id = ?1",
             params![record.metadata.remote_id],
         )?;
         tx.execute(
             r#"
-            INSERT INTO pending_deletes(remote_id, path, cache_path, queued_unix)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO pending_deletes(remote_id, path, cache_path, queued_unix, local_id,
+                cloud_remote_id, upload_path, upload_target_id, upload_cache_path)
+            VALUES (?1, ?2, ?3, ?4, ?1, ?5, ?6, ?7, ?8)
             ON CONFLICT(remote_id) DO UPDATE SET
                 path = excluded.path,
                 cache_path = excluded.cache_path,
-                queued_unix = excluded.queued_unix
+                queued_unix = excluded.queued_unix,
+                local_id = excluded.local_id,
+                cloud_remote_id = excluded.cloud_remote_id,
+                upload_path = excluded.upload_path,
+                upload_target_id = excluded.upload_target_id,
+                upload_cache_path = excluded.upload_cache_path
             "#,
             params![
-                cloud_remote_id,
+                record.metadata.remote_id,
                 record.metadata.path,
                 record
                     .cache_path
                     .as_ref()
                     .map(|path| path.to_string_lossy()),
-                now_unix(),
+                queued_unix,
+                record.cloud_remote_id,
+                upload_path,
+                upload_target_id,
+                upload_cache_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy()),
             ],
         )?;
         if record.metadata.is_dir {
@@ -450,16 +482,29 @@ impl Database {
             )?;
         }
         tx.commit()?;
-        self.recompute_pin_inheritance()
+        self.recompute_pin_inheritance()?;
+        Ok(PendingDelete {
+            remote_id: record.metadata.remote_id.clone(),
+            local_id: Some(record.metadata.remote_id),
+            cloud_remote_id: record.cloud_remote_id,
+            path: record.metadata.path,
+            cache_path: record.cache_path,
+            queued_unix,
+            upload_path,
+            upload_target_id,
+            upload_cache_path,
+            uploaded_path: None,
+        })
     }
 
     pub fn queue_remote_delete(&self, cloud_remote_id: &str, path: &str) -> anyhow::Result<()> {
         let conn = self.connect()?;
         conn.execute(
             r#"
-            INSERT INTO pending_deletes(remote_id, path, cache_path, queued_unix)
-            VALUES (?1, ?2, NULL, ?3)
-            ON CONFLICT(remote_id) DO UPDATE SET path = excluded.path, queued_unix = excluded.queued_unix
+            INSERT INTO pending_deletes(remote_id, cloud_remote_id, path, cache_path, queued_unix)
+            VALUES (?1, ?1, ?2, NULL, ?3)
+            ON CONFLICT(remote_id) DO UPDATE SET cloud_remote_id = excluded.cloud_remote_id,
+                path = excluded.path, queued_unix = excluded.queued_unix
             "#,
             params![cloud_remote_id, normalize_cloud_path(path), now_unix()],
         )?;
@@ -469,7 +514,9 @@ impl Database {
     pub fn pending_deletes(&self) -> anyhow::Result<Vec<PendingDelete>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT remote_id, path, cache_path, queued_unix FROM pending_deletes ORDER BY queued_unix, path",
+            "SELECT remote_id, path, cache_path, queued_unix, local_id,
+                COALESCE(cloud_remote_id, CASE WHEN local_id IS NULL AND remote_id NOT LIKE 'local-upload-%' THEN remote_id END),
+                upload_path, upload_target_id, upload_cache_path, uploaded_path FROM pending_deletes ORDER BY queued_unix, path",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -478,6 +525,12 @@ impl Database {
                     path: row.get(1)?,
                     cache_path: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
                     queued_unix: row.get(3)?,
+                    local_id: row.get(4)?,
+                    cloud_remote_id: row.get(5)?,
+                    upload_path: row.get(6)?,
+                    upload_target_id: row.get(7)?,
+                    upload_cache_path: row.get::<_, Option<String>>(8)?.map(PathBuf::from),
+                    uploaded_path: row.get(9)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -498,11 +551,81 @@ impl Database {
         let path = normalize_cloud_path(path);
         Ok(conn
             .query_row(
-                "SELECT 1 FROM pending_deletes WHERE remote_id = ?1 OR path = ?2 LIMIT 1",
+                "SELECT 1 FROM pending_deletes WHERE remote_id = ?1 OR cloud_remote_id = ?1 OR path = ?2 OR upload_path = ?2 OR uploaded_path = ?2 LIMIT 1",
                 params![remote_id, path],
                 |_| Ok(()),
             )
             .optional()?
             .is_some())
+    }
+
+    pub fn pending_delete_for_local_id(
+        &self,
+        local_id: &str,
+    ) -> anyhow::Result<Option<PendingDelete>> {
+        Ok(self
+            .pending_deletes()?
+            .into_iter()
+            .find(|delete| delete.local_id.as_deref() == Some(local_id)))
+    }
+
+    /// A late acknowledgement belongs to the deleted generation, never to a new
+    /// file at the same path. Bind it to the tombstone in a single transaction.
+    pub fn complete_deleted_upload(
+        &self,
+        local_id: &str,
+        uploaded: &MetadataEntry,
+    ) -> anyhow::Result<bool> {
+        let mut conn = self.connect()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let cloud_id: Option<Option<String>> = tx
+            .query_row(
+                "SELECT cloud_remote_id FROM pending_deletes WHERE local_id = ?1",
+                params![local_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(cloud_id) = cloud_id else {
+            return Ok(false);
+        };
+        if cloud_id
+            .as_deref()
+            .is_some_and(|id| id != uploaded.remote_id)
+        {
+            tx.execute(
+                "INSERT INTO pending_deletes(remote_id, cloud_remote_id, path, queued_unix)
+                 VALUES (?1, ?1, ?2, ?3) ON CONFLICT(remote_id) DO NOTHING",
+                params![uploaded.remote_id, uploaded.path, now_unix()],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE pending_deletes SET cloud_remote_id = ?2 WHERE local_id = ?1",
+                params![local_id, uploaded.remote_id],
+            )?;
+        }
+        tx.execute("UPDATE pending_deletes SET upload_path = NULL, upload_target_id = NULL, uploaded_path = ?2 WHERE local_id = ?1",
+            params![local_id, uploaded.path])?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub fn begin_conflict_upload(
+        &self,
+        record: &FileRecord,
+        path: &str,
+        cache_path: &Path,
+    ) -> anyhow::Result<bool> {
+        Ok(self.connect()?.execute(
+            "UPDATE files SET upload_path = ?2, upload_target_id = NULL, upload_cache_path = ?3
+             WHERE remote_id = ?1 AND state = 'conflict' AND path = ?4
+                 AND cache_path IS ?3 AND etag = ?5",
+            params![
+                record.metadata.remote_id,
+                path,
+                cache_path.to_string_lossy(),
+                record.metadata.path,
+                record.metadata.etag
+            ],
+        )? == 1)
     }
 }

@@ -23,8 +23,14 @@ pub(crate) fn preserve_conflict_copy<B: CloudBackend>(
     on_progress: &mut dyn FnMut(u64, u64) -> anyhow::Result<()>,
 ) -> anyhow::Result<MetadataEntry> {
     let conflict_path = conflict_copy_path(original, cache_path);
+    if !db.begin_conflict_upload(original, &conflict_path, cache_path)? {
+        anyhow::bail!("conflict generation was removed before upload");
+    }
     let conflict =
         backend.upload_file_with_version(&conflict_path, cache_path, None, None, on_progress)?;
+    if db.complete_deleted_upload(&original.metadata.remote_id, &conflict)? {
+        return Ok(conflict);
+    }
     let cloud_remote_id = original
         .cloud_remote_id
         .as_deref()
@@ -35,6 +41,16 @@ pub(crate) fn preserve_conflict_copy<B: CloudBackend>(
             original.metadata.path
         )
     })?;
+    let _guard = crate::recovery::upload_commit_lock()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("upload commit lock is poisoned"))?;
+    if db.complete_deleted_upload(&original.metadata.remote_id, &conflict)? {
+        return Ok(conflict);
+    }
+    if db.get_by_remote_id(&original.metadata.remote_id)?.is_none() {
+        db.queue_remote_delete(&conflict.remote_id, &conflict_path)?;
+        return Ok(conflict);
+    }
     db.upsert_metadata(&conflict)?;
     db.mark_cached(&conflict.remote_id, cache_path)?;
     db.upsert_metadata(&latest_original)?;
