@@ -46,6 +46,41 @@
 
 
 
+## TD-20261014-14：稳定组件升级后独立工作区锁文件仍引用旧版本
+
+- 日期：2026-10-14
+- 状态：已定位，修复/最终 CI 验证进行中。
+- 影响版本与环境：0.2.13 发布准备提交 eba3604，独立 experiments/twodrive-dev 工作区，Linux/Windows CI。
+- 关联历史故障：TD-20261014-13 为稳定发布基线遗漏，本条为另一套 Cargo.lock 未同步版本；不归因于云端删除机制。
+
+### 症状与影响
+
+根工作区构建/测试及 deb 验证通过，独立 WebDAV CI 在 cargo clippy --locked 的依赖解析阶段失败，未进入测试。阻止发布；用户现用软件和云端数据未改变。
+
+### 触发条件与复现
+
+共享 core/backend/fs 从 0.2.11 升至 0.2.13，独立 Cargo.lock 仍锁定三个本地 path package 的 0.2.11。Linux 和 Windows 原生任务均失败。
+
+### 根因与证据
+
+[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563070060) 的两个任务报告 cannot update the lock file .../experiments/twodrive-dev/Cargo.lock because --locked was passed。根锁已同步，独立工作区使用另一份锁。虽 Windows 不启用 Linux mount，Cargo 仍需要一致的跨目标锁文件。
+
+### 解决办法与恢复操作
+
+离线重新解析独立锁文件，限定 diff 为三个本地共享 package 的版本号，不升级第三方依赖、不修改实验功能。没有用户恢复操作。
+
+### 验证结果与边界
+
+原失败证据为两个真实 CI job；新锁的离线 locked metadata 检查和最终 Linux/Windows CI 待补充。不是运行程序测试失败，不能把修复锁文件说成新云端功能验证。
+
+### 防复发措施与后续
+
+升级共享 path package 时搜索所有独立 Cargo.lock 并检查锁定解析，保留原生工作区 CI。
+
+### 交付记录
+
+修复提交及最终 CI 待补充；尚未合并、发布或安装。
+
 ## TD-20261014-13：main 发布基线落后于上一稳定包的 Nautilus 下载反馈
 
 - 日期：2026-10-14
