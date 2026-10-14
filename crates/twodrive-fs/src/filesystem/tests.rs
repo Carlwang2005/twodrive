@@ -98,6 +98,7 @@ struct ConcurrentBackend {
     inner: MockBackend,
     active_uploads: AtomicUsize,
     max_active_uploads: AtomicUsize,
+    first_upload_gate: Mutex<Option<(Sender<()>, mpsc::Receiver<()>)>>,
 }
 
 impl ConcurrentBackend {
@@ -106,7 +107,16 @@ impl ConcurrentBackend {
             inner: MockBackend::new(),
             active_uploads: AtomicUsize::new(0),
             max_active_uploads: AtomicUsize::new(0),
+            first_upload_gate: Mutex::new(None),
         }
+    }
+
+    fn paused_first_upload() -> (Self, mpsc::Receiver<()>, Sender<()>) {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let backend = Self::new();
+        *backend.first_upload_gate.lock().unwrap() = Some((started_tx, resume_rx));
+        (backend, started_rx, resume_tx)
     }
 }
 
@@ -131,16 +141,23 @@ impl CloudBackend for ConcurrentBackend {
         if_match: Option<&str>,
         on_progress: &mut dyn FnMut(u64, u64) -> anyhow::Result<()>,
     ) -> anyhow::Result<MetadataEntry> {
+        let gate = self.first_upload_gate.lock().unwrap().take();
+        if gate.is_some() {
+            // Exercise a startup delay longer than the old 100ms polling window.
+            thread::sleep(Duration::from_millis(150));
+        }
         let active = self.active_uploads.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_active_uploads.fetch_max(active, Ordering::SeqCst);
-        thread::sleep(Duration::from_millis(100));
-        let result = self.inner.upload_file_with_version(
-            path,
-            source_path,
-            remote_id,
-            if_match,
-            on_progress,
-        );
+        let result = (|| {
+            if let Some((started, resume)) = gate {
+                started.send(())?;
+                resume.recv_timeout(Duration::from_secs(10))?;
+            } else {
+                thread::sleep(Duration::from_millis(100));
+            }
+            self.inner
+                .upload_file_with_version(path, source_path, remote_id, if_match, on_progress)
+        })();
         self.active_uploads.fetch_sub(1, Ordering::SeqCst);
         result
     }
@@ -1253,7 +1270,7 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     fs::create_dir_all(&root).unwrap();
     let db = Database::new(root.join("test.sqlite3"));
     db.init().unwrap();
-    let backend = ConcurrentBackend::new();
+    let (backend, started, resume) = ConcurrentBackend::paused_first_upload();
     sync_metadata(&db, &backend).unwrap();
     let mut fuse =
         TwoDriveFs::new_with_upload_concurrency(db, root.join("cache"), backend, 2).unwrap();
@@ -1267,12 +1284,7 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     fuse.inodes.set_size(ino, 16);
     fuse.queue_upload_handle(first_fh).unwrap();
     fuse.write_handles.remove(&first_fh);
-    for _ in 0..100 {
-        if fuse.backend.active_uploads.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
 
     let record = fuse.db.get_by_path("/rapid.pdf").unwrap().unwrap();
@@ -1281,10 +1293,20 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     write_slice(&second_cache, 0, b"second generation").unwrap();
     fuse.queue_upload_handle(second_fh).unwrap();
     fuse.write_handles.remove(&second_fh);
+    assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
+    resume.send(()).unwrap();
 
     for _ in 0..80 {
         let record = fuse.db.get_by_remote_id(&local_id).unwrap().unwrap();
-        if record.state == FileState::Cached && record.cloud_remote_id.is_some() {
+        if record.state == FileState::Cached
+            && record.cloud_remote_id.is_some()
+            && fuse
+                .backend
+                .download(record.cloud_remote_id.as_deref().unwrap())
+                .ok()
+                .as_deref()
+                == Some(b"second generation")
+        {
             break;
         }
         thread::sleep(Duration::from_millis(25));
@@ -1292,6 +1314,12 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     let record = fuse.db.get_by_remote_id(&local_id).unwrap().unwrap();
     assert_eq!(record.metadata.remote_id, local_id);
     assert_eq!(record.state, FileState::Cached);
+    assert_eq!(
+        fuse.backend
+            .download(record.cloud_remote_id.as_deref().unwrap())
+            .unwrap(),
+        b"second generation"
+    );
     assert_eq!(
         fs::read(record.cache_path.unwrap()).unwrap(),
         b"second generation"
@@ -1351,7 +1379,7 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
     fs::create_dir_all(&root).unwrap();
     let db = Database::new(root.join("test.sqlite3"));
     db.init().unwrap();
-    let backend = ConcurrentBackend::new();
+    let (backend, started, resume) = ConcurrentBackend::paused_first_upload();
     sync_metadata(&db, &backend).unwrap();
     let mut fuse =
         TwoDriveFs::new_with_upload_concurrency(db, root.join("cache"), backend, 2).unwrap();
@@ -1365,12 +1393,7 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
     fuse.inodes.set_size(target_ino, 18);
     fuse.queue_upload_handle(target_fh).unwrap();
     fuse.write_handles.remove(&target_fh);
-    for _ in 0..100 {
-        if fuse.backend.active_uploads.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
 
     let mut temp_ids = Vec::new();
@@ -1399,6 +1422,8 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
         fuse.queue_upload_handle(temp_fh).unwrap();
         fuse.write_handles.remove(&temp_fh);
     }
+    assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
+    resume.send(()).unwrap();
 
     for _ in 0..120 {
         let record = fuse.db.get_by_remote_id(&target_id).unwrap().unwrap();

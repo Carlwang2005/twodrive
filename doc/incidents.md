@@ -47,6 +47,41 @@
 
 
 
+## TD-20261014-08：既有上传并发测试依赖 100ms 调度窗口
+
+- 日期：2026-10-14
+- 状态：已验证本机旧窗口失败/新屏障通过；待最终原生 CI。
+- 影响版本与环境：既有 FUSE 单元测试；dev 6aebdb6 的 Linux peer CI。
+- 关联历史故障：TD-20260916-04 是另一个 daemon 测试的短观察窗；本条不是相同代码路径。
+
+### 症状与影响
+
+immediate_reopen_during_upload_keeps_the_local_record 在进入重开操作前断言 active_uploads > 0 失败，阻断发布检查；没有证据表明产品的重开/云端保存行为失败。
+
+### 触发条件与复现
+
+测试等待后台线程进入上传，最多轮询 100 次、每次 1ms；模拟后端上传仅持续 100ms。GitHub Linux job 115812503295 在等待结束后未观察到活动上传。
+
+### 根因与证据
+
+源码用定时休眠近似上传开始与结束；调度稍迟或采样错过短窗口都会使前置条件失败，日志不能还原具体调度。拟改为明确的上传开始/放行屏障，保持“上传未完成时重开”断言，并注入超过旧窗口的启动延迟证明边界。
+
+### 解决办法与恢复操作
+
+给 mock 后端的首次上传增加开始信号与有界放行屏障；两项并发测试在后台确认上传开始后执行重开/替换，最后明确放行。补充云端 mock 最终内容断言。不修改生产上传逻辑，无用户恢复操作。
+
+### 验证结果与边界
+
+同一 mock 首次上传注入 150ms 启动延迟，临时恢复旧 100×1ms 轮询时退出 101（active_uploads 断言失败）；恢复新同步后两项测试通过。FUSE 单元套件 34 通过/6 项按默认忽略，fmt 与严格 Clippy 通过。最终原生 CI 待执行；这些是 mock 测试，不是实际挂载或真实云端验证。
+
+### 防复发措施与后续
+
+相邻使用同一轮询的上传竞态测试同步改用受控屏障；保留最终本地身份和内容断言。
+
+### 交付记录
+
+[失败原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173503/job/115812503295)。提交/Release：待补充。
+
 ## TD-20261014-07：Development 发布 CI 的跨平台检查失败
 
 - 日期：2026-10-14
@@ -64,11 +99,11 @@
 
 ### 根因与证据
 
-Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测试，runner 原先仅装 Gtk3，未声明 Gtk4 introspection 依赖。Windows State::new 正常 canonicalize 后产生 verbatim 路径前缀，测试用未 canonicalize 的 temp.path 做词法 starts_with，两个任务重复失败；实际账号目录没有落到稳定配置。这两项分别是 CI 依赖遗漏和跨平台测试断言错误。core 并发写入结果为 database is locked（busy_timeout=10s），尚未还原具体争用轨迹，已单独重跑失败任务，不把它归因于新增云盘代码。
+Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测试，runner 原先仅装 Gtk3，未声明 Gtk4 introspection 依赖。Windows State::new 正常 canonicalize 后产生 verbatim 路径前缀，测试用未 canonicalize 的 temp.path 做词法 starts_with，两个任务重复失败；实际账号目录没有落到稳定配置。这两项分别是 CI 依赖遗漏和跨平台测试断言错误。core 并发写入结果为 database is locked（busy_timeout=10s），尚未还原具体争用轨迹。原样重跑失败 Windows job 后整项 peer CI 38550735303 成功；不把重跑当作机制修复，不把它归因于新增云盘代码。
 
 ### 解决办法与恢复操作
 
-声明 python3-gi/Gtk4/Adw introspection 依赖；账号回归比较 canonicalize 后的独立目录及确切文件名，保留账号隔离断言。数据库问题仍调查中。无用户桌面、账号、云端文件恢复操作；只处理后台源码与 CI。
+声明 python3-gi/Gtk4/Adw introspection 依赖；账号回归比较 canonicalize 后的独立目录及确切文件名，保留账号隔离断言。数据库未修改生产代码/测试；保留偶发失败证据，根因未确认。无用户桌面、账号、云端文件恢复操作；只处理后台源码与 CI。
 
 ### 验证结果与边界
 
