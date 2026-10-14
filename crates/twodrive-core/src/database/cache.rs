@@ -23,10 +23,12 @@ impl Database {
             return Ok(false);
         }
         let changed = self.connect()?.execute(
-            "UPDATE files SET state = 'uploading'
+            "UPDATE files SET state = 'uploading', upload_path = path,
+                upload_target_id = cloud_remote_id, upload_cache_path = cache_path
              WHERE remote_id = ?1 AND path = ?2 AND cache_path IS ?3
                AND state = ?4 AND size = ?5 AND modified_unix = ?6
                AND etag = ?7 AND cloud_remote_id IS ?8
+               AND NOT EXISTS (SELECT 1 FROM pending_deletes WHERE path = ?2 OR upload_path = ?2 OR uploaded_path = ?2)
                AND NOT EXISTS (SELECT 1 FROM pending_metadata_operations op
                    JOIN files parent ON parent.remote_id = op.local_id
                    WHERE ?2 = parent.path
@@ -150,7 +152,8 @@ impl Database {
                     ELSE ?1
                 END,
                 cache_path = NULL,
-                cache_accessed_unix = NULL
+                cache_accessed_unix = NULL,
+                upload_path = NULL, upload_target_id = NULL, upload_cache_path = NULL
             WHERE remote_id = ?2
             "#,
             params![FileState::OnlineOnly.as_str(), remote_id],

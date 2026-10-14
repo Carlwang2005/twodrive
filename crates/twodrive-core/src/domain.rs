@@ -136,10 +136,19 @@ pub struct FileRecord {
 
 #[derive(Debug, Clone)]
 pub struct PendingDelete {
+    /// Queue identity. New entries use the stable local ID, legacy entries the cloud ID.
     pub remote_id: String,
+    pub local_id: Option<String>,
+    pub cloud_remote_id: Option<String>,
     pub path: String,
     pub cache_path: Option<PathBuf>,
     pub queued_unix: i64,
+    /// A claimed transfer whose acknowledgement has not yet been recorded.
+    pub upload_path: Option<String>,
+    pub upload_target_id: Option<String>,
+    pub upload_cache_path: Option<PathBuf>,
+    /// The acknowledged cloud path can differ after a concurrent local rename.
+    pub uploaded_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

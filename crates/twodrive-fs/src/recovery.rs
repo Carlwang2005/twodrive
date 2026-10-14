@@ -11,6 +11,7 @@ use twodrive_core::{
 
 use crate::cache_io::has_existing_cache;
 use crate::conflicts::{preserve_conflict_copy, record_upload_etag, record_upload_remote_id};
+use crate::locks::item_sync_lock;
 use crate::upload_queue::{UploadCommand, UploadQueue};
 
 pub fn recover_dirty_uploads<B: CloudBackend>(db: &Database, backend: &B) -> anyhow::Result<usize> {
@@ -86,12 +87,28 @@ pub fn recover_dirty_record<B: CloudBackend>(
     record: FileRecord,
     on_progress: &mut dyn FnMut(u64, u64) -> anyhow::Result<()>,
 ) -> anyhow::Result<bool> {
+    let lock = item_sync_lock(&record.metadata.remote_id);
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("item sync lock is poisoned"))?;
+    if db.get_by_remote_id(&record.metadata.remote_id)?.is_none() {
+        return Ok(false);
+    }
+    if db.is_pending_delete(&record.metadata.remote_id, &record.metadata.path)? {
+        return Ok(false);
+    }
     if db.has_pending_metadata_at_or_above(&record.metadata.path)? {
         return Ok(false);
     }
     let Some(cache_path) = record.cache_path.clone().filter(|path| path.exists()) else {
         return Ok(false);
     };
+    let cache_guard = match fs::File::open(&cache_path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    cache_guard.lock_shared()?;
     if record.state == FileState::Conflict {
         return match preserve_conflict_copy(db, backend, &record, &cache_path, on_progress) {
             Ok(_) => Ok(true),
@@ -117,7 +134,7 @@ pub fn recover_dirty_record<B: CloudBackend>(
         let awaiting_delete = db
             .pending_deletes()?
             .iter()
-            .any(|delete| delete.remote_id == remote.remote_id);
+            .any(|delete| delete.cloud_remote_id.as_deref() == Some(remote.remote_id.as_str()));
         if owned_by_another_record || awaiting_delete {
             return Ok(false);
         }
@@ -137,6 +154,9 @@ pub fn recover_dirty_record<B: CloudBackend>(
             let _commit_guard = upload_commit_lock()
                 .lock()
                 .map_err(|_| anyhow::anyhow!("upload commit lock is poisoned"))?;
+            if db.complete_deleted_upload(&record.metadata.remote_id, &uploaded)? {
+                return Ok(true);
+            }
             let committed = match db.commit_uploaded(
                 &record.metadata.remote_id,
                 &record.metadata.path,
@@ -145,22 +165,28 @@ pub fn recover_dirty_record<B: CloudBackend>(
             ) {
                 Ok(committed) => committed,
                 Err(err) => {
-                    db.queue_remote_delete(&uploaded.remote_id, &record.metadata.path)?;
+                    if !db.complete_deleted_upload(&record.metadata.remote_id, &uploaded)? {
+                        db.queue_remote_delete(&uploaded.remote_id, &record.metadata.path)?;
+                    }
                     return Err(err);
                 }
             };
             if committed.cloud_remote_id.as_deref() != Some(uploaded.remote_id.as_str()) {
                 db.queue_remote_delete(&uploaded.remote_id, &record.metadata.path)?;
             }
+            drop(cache_guard);
             if let Err(err) = db.finish_pending_releases() {
                 eprintln!("twodrive: deferred release remains queued: {err:#}");
             }
             Ok(true)
         }
         Err(err) => {
-            let _commit_guard = upload_commit_lock()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("upload commit lock is poisoned"))?;
+            if db
+                .pending_delete_for_local_id(&record.metadata.remote_id)?
+                .is_some()
+            {
+                return Ok(false);
+            }
             if backend.is_conflict_error(&err) {
                 db.mark_state(&record.metadata.remote_id, FileState::Conflict)?;
                 let conflict_record = db
@@ -210,30 +236,9 @@ pub fn recover_pending_deletes<B: CloudBackend>(
     let pending = db.pending_deletes()?;
     let mut recovered = 0;
     for delete in pending {
-        if delete.remote_id.starts_with("local-upload-") {
-            if let Some(cache_path) = &delete.cache_path {
-                match fs::remove_file(cache_path) {
-                    Ok(()) => {}
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(err) => return Err(err.into()),
-                }
-            }
-            db.remove_pending_delete(&delete.remote_id)?;
-            recovered += 1;
-            continue;
-        }
-        match backend.delete(&delete.remote_id) {
-            Ok(()) => {
-                if let Some(cache_path) = &delete.cache_path {
-                    match fs::remove_file(cache_path) {
-                        Ok(()) => {}
-                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(err) => return Err(err.into()),
-                    }
-                }
-                db.remove_pending_delete(&delete.remote_id)?;
-                recovered += 1;
-            }
+        match recover_pending_delete_id(db, backend, &delete.remote_id) {
+            Ok(true) => recovered += 1,
+            Ok(false) => {}
             Err(err) => {
                 eprintln!(
                     "twodrive: pending delete remains queued for {}: {err:#}",
@@ -248,19 +253,81 @@ pub fn recover_pending_deletes<B: CloudBackend>(
 pub(crate) fn recover_pending_delete_id<B: CloudBackend>(
     db: &Database,
     backend: &B,
-    cloud_remote_id: &str,
+    delete_id: &str,
 ) -> anyhow::Result<bool> {
     let Some(delete) = db
         .pending_deletes()?
         .into_iter()
-        .find(|delete| delete.remote_id == cloud_remote_id)
+        .find(|delete| delete.remote_id == delete_id)
     else {
         return Ok(false);
     };
-    if !delete.remote_id.starts_with("local-upload-") {
-        backend.delete(&delete.remote_id)?;
+    let lock = item_sync_lock(delete.local_id.as_deref().unwrap_or(delete_id));
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("item sync lock is poisoned"))?;
+    // An upload may have acknowledged or another worker may have drained this
+    // entry while we waited. Its result is authoritative, not the first snapshot.
+    let Some(mut delete) = db
+        .pending_deletes()?
+        .into_iter()
+        .find(|delete| delete.remote_id == delete_id)
+    else {
+        return Ok(false);
+    };
+    // File locks also protect a transfer/handle owned by another process. Claim
+    // all retained cache files before remote deletion or unknown-upload replay.
+    let mut cache_guards = Vec::new();
+    let mut paths = HashSet::new();
+    for cache_path in delete
+        .cache_path
+        .iter()
+        .chain(delete.upload_cache_path.iter())
+    {
+        if !paths.insert(cache_path.clone()) {
+            continue;
+        }
+        let file = match fs::File::open(cache_path) {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.into()),
+        };
+        match file.try_lock() {
+            Ok(()) => cache_guards.push((cache_path.clone(), file)),
+            Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
+            Err(err) => return Err(err.into()),
+        }
     }
-    if let Some(cache_path) = &delete.cache_path {
+    if let Some(upload_path) = &delete.upload_path
+        && delete.upload_target_id.is_none()
+    {
+        // After a lost acknowledgement/restart an unbound upload may already
+        // exist remotely. Finish/resume that claimed generation to obtain its ID.
+        // Same-path uploads stay blocked until this tombstone is retired.
+        let source = delete
+            .upload_cache_path
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("interrupted deleted upload has no retained cache"))?;
+        let uploaded = backend.upload_file_with_version(
+            upload_path,
+            source,
+            None,
+            None,
+            &mut |_, _| Ok(()),
+        )?;
+        let local_id = delete
+            .local_id
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("interrupted deleted upload has no local identity"))?;
+        db.complete_deleted_upload(local_id, &uploaded)?;
+        delete = db
+            .pending_delete_for_local_id(local_id)?
+            .ok_or_else(|| anyhow::anyhow!("deleted upload tombstone disappeared"))?;
+    }
+    if let Some(cloud_remote_id) = &delete.cloud_remote_id {
+        backend.delete(cloud_remote_id)?;
+    }
+    for (cache_path, _guard) in &cache_guards {
         match fs::remove_file(cache_path) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}

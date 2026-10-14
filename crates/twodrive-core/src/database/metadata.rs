@@ -18,7 +18,7 @@ impl Database {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for entry in entries {
             let pending_delete = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM pending_deletes WHERE remote_id = ?1 OR path = ?2)",
+                "SELECT EXISTS(SELECT 1 FROM pending_deletes WHERE remote_id = ?1 OR cloud_remote_id = ?1 OR path = ?2 OR upload_path = ?2 OR uploaded_path = ?2)",
                 params![entry.remote_id, normalize_cloud_path(&entry.path)],
                 |row| row.get::<_, bool>(0),
             )?;
@@ -308,7 +308,8 @@ impl Database {
         tx.execute(
             r#"
             UPDATE files
-            SET cloud_remote_id = CASE
+            SET upload_path = NULL, upload_target_id = NULL, upload_cache_path = NULL,
+                cloud_remote_id = CASE
                     WHEN ?3 = 1 OR cloud_remote_id IS NULL THEN ?1
                     ELSE cloud_remote_id
                 END,

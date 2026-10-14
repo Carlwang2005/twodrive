@@ -108,3 +108,15 @@ The 2026-09-03 verification run completed path truncate, twenty immediate rewrit
 mkdir, cross-directory rename, and unlink without `EIO`. The measured foreground metadata
 operations completed in 9–15 ms on the test machine, and all durable metadata, delete, and dirty
 queues drained to zero afterward.
+
+## Pending-file deletion (2026-10-14)
+
+Closed dirty or uploading files now use the same durable local-first unlink contract.
+The deletion queue retains the stable local identity, cloud identity, claimed upload
+path/target/cache, and acknowledged cloud path until background work and cached open
+handles settle. Unclaimed uploads are cancelled; a claimed upload with an unknown
+cloud ID may be finished/resumed before deleting its result after restart. Recreating
+the name is immediately allowed locally; its upload waits for the old cloud object
+to be removed. This requires the new queue-aware recovery code when upgrading or
+restoring a database. See [TD-20261014-12](incidents.md#td-20261014-12关闭后的待上传文件不能删除导致-git-锁文件残留)
+for regression evidence and validation limits.
