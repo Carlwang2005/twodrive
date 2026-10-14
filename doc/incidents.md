@@ -1254,4 +1254,3 @@ Path::parent 对单文件名返回空路径；原子写入尝试在空路径创�
 - 同批发布的既有 Nautilus 修复：[030132f](https://github.com/LumiaBlack51/twodrive/commit/030132f)，与解压故障根因不同。
 - Release：[TwoDrive 0.2.9-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.9-1)
 - 详细调查：[Archive extraction I/O error](archive-extraction-2026-09-15.md)
-
