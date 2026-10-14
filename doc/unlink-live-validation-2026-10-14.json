@@ -13,5 +13,15 @@
   "recreated_sha256": "1674e9a5167c90710268daddb3c22bfa35c3d011d1d68aade3420ce02feb4bf0",
   "remaining_pending_deletes": 0,
   "upload_download_bytes": 8388731,
-  "upload_download_sha256": "592eb3d8165e391e15e2d81a714f939c6bd9e7161c65387a23a2874a5993e20c"
+  "upload_download_sha256": "592eb3d8165e391e15e2d81a714f939c6bd9e7161c65387a23a2874a5993e20c",
+  "installed_daemon_validation": {
+    "existing_user_files_untouched": true,
+    "installed_daemon_version": "0.2.13",
+    "lock_cycles": 12,
+    "owned_cloud_folder_removed": true,
+    "real_existing_mount": true,
+    "real_onedrive": true,
+    "upload_download_bytes": 524295,
+    "upload_download_sha256": "9522f8247ac7b982d7ca7ebc83141b7b65f33874d565578d50de894e3ffcee5e"
+  }
 }
