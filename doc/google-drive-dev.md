@@ -23,7 +23,7 @@ experiments/twodrive-dev/target/debug/twodrive-dev \
   --state /absolute/private/google-account google status
 ```
 
-Authorization uses a random numeric-loopback callback port, random state and S256 PKCE. Imported endpoint strings never control where secrets are sent. Access tokens refresh from the saved offline token. Unix state is 0700 and secret files are 0600; Windows uses the existing core DPAPI secret helper, but native Windows Google verification remains pending. “退出登录” removes the local Google token/client copies; it does not revoke grants in the Google account, which can be removed from Google's account permissions page. The imported credential JSON remains the user's file.
+Authorization uses a random numeric-loopback callback port, random state and S256 PKCE. Imported endpoint strings never control where secrets are sent. Access tokens refresh from the saved offline token. Unix state is 0700 and secret files are 0600; Windows uses the existing core DPAPI secret helper, but native Windows Google verification remains pending. “退出登录” removes the local Google token/client copies and profile; it does not revoke grants in the Google account, which can be removed from Google's account permissions page. The imported credential JSON remains the user's file.
 
 浏览器授权成功不代表 Drive API 已启用。连接遇到 403 时检查项目 API、账号权限与配额。网络默认使用系统路由与 HTTP(S) 环境代理；`direct` 禁用显式代理，本次不把它称为已验证的 TUN 物理出口绕过。
 

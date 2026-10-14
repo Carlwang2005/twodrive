@@ -178,8 +178,10 @@ mod tests {
     fn explicit_account_paths_never_use_stable_configuration() {
         let temp = tempfile::tempdir().unwrap();
         let p = paths(&temp.path().join("onedrive")).unwrap();
-        assert!(p.config_path.starts_with(temp.path()));
-        assert!(p.token_path.starts_with(temp.path()));
+        // State resolves the directory; Windows adds its verbatim path prefix.
+        let account = temp.path().join("onedrive").canonicalize().unwrap();
+        assert_eq!(p.config_path, account.join("config.toml"));
+        assert_eq!(p.token_path, account.join("tokens.json"));
         assert_eq!(p.data_dir, p.config_dir);
     }
 }

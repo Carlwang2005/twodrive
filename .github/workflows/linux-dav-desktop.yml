@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Native desktop prerequisites
-        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev fuse3 gjs
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev fuse3 gjs python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

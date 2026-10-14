@@ -47,6 +47,41 @@
 
 
 
+## TD-20261014-07：Development 发布 CI 的跨平台检查失败
+
+- 日期：2026-10-14
+- 状态：已修复两项检查配置/断言，待原生验证；另一个数据库争用失败根因未确认。
+- 影响版本与环境：dev 37f8f3b，GitHub Ubuntu 24.04 / Windows 原生 runner；尚未发布 0.1.2。
+- 关联历史故障：TD-20261013-08 为 Windows 条件编译检查，TD-20260916-04 为 CI 时间窗；不能仅因 CI 失败认定相同根因。
+
+### 症状与影响
+
+桌面 Linux Python 套件缺少 Gtk4 namespace，Windows 独立引擎账号路径断言失败；另一 Windows peer 套件的并发数据库测试返回 database is locked。阻断 Release，用户客户端/稳定服务未被修改。
+
+### 触发条件与复现
+
+新源码推送后原生 CI：桌面 38550735306、存储 38550735280、peer 38550735303。本机 Linux 的相同套件此前通过；Windows 账号断言在两个独立任务失败，数据库失败目前一条任务。
+
+### 根因与证据
+
+Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测试，runner 原先仅装 Gtk3，未声明 Gtk4 introspection 依赖。Windows State::new 正常 canonicalize 后产生 verbatim 路径前缀，测试用未 canonicalize 的 temp.path 做词法 starts_with，两个任务重复失败；实际账号目录没有落到稳定配置。这两项分别是 CI 依赖遗漏和跨平台测试断言错误。core 并发写入结果为 database is locked（busy_timeout=10s），尚未还原具体争用轨迹，已单独重跑失败任务，不把它归因于新增云盘代码。
+
+### 解决办法与恢复操作
+
+声明 python3-gi/Gtk4/Adw introspection 依赖；账号回归比较 canonicalize 后的独立目录及确切文件名，保留账号隔离断言。数据库问题仍调查中。无用户桌面、账号、云端文件恢复操作；只处理后台源码与 CI。
+
+### 验证结果与边界
+
+初次 Windows 原断言在两个任务失败；修正后的本机账号隔离测试、fmt 及 scripts 7 项 unittest 通过。修复后的原生验证待执行；数据库单次失败不作为已修复机制。
+
+### 防复发措施与后续
+
+分别核对依赖声明、Windows 路径规范化和数据库争用机制，保留原有断言。
+
+### 交付记录
+
+[初次桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38550735306)。修复提交/Release：待补充。
+
 ## TD-20261014-06：托盘状态面板未固定在任务栏图标正上方
 
 - 日期：2026-10-14
