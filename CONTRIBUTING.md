@@ -81,6 +81,10 @@ python3 scripts/test-isolated-mock.py --cli target/debug/twodrive --daemon targe
 
 Use a focused branch and pull request. Explain behavior, data risks, and tests actually run; add regressions for reproducible bugs. Never report skipped/unrun tests as passing.
 
+The `main` branch requires a pull request, an up-to-date branch, successful `Native checks (Linux)` and `Native checks (Windows)` from GitHub Actions, and resolved review conversations. These rules also apply to administrators; force pushes and branch deletion are blocked. No approving review is mandatory, so the repository owner can merge their own pull requests after the checks pass.
+
+Keep the required check names unique across workflows and run them on every pull request. Do not add a path-filtered workflow as a required check: a skipped workflow can leave unrelated pull requests waiting indefinitely.
+
 Keep English/Chinese homepages and guides aligned. Distinguish implemented behavior from plans, reuse shipped emblems, and publish only authentic sanitized screenshots with accurate captions. Check image paths, language links, and anchors.
 
 The current package documentation allowlist does not include every web guide. The README's [online documentation link](https://github.com/LumiaBlack51/twodrive/tree/main/doc) remains available; do not assume a complete offline copy of this documentation tree is installed with the `.deb`.
