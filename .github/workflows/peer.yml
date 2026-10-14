@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   windows:
+    name: Native checks (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +55,7 @@ jobs:
           name: twodrive-peer-windows-x86_64
           path: dist/
   linux:
+    name: Native checks (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
