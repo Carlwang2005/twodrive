@@ -1,0 +1,17 @@
+{
+  "cloud_files_absent": true,
+  "credential_and_state_isolated": true,
+  "dirty_or_uploading_lock_deletions": 20,
+  "inflight_old_bytes": 16777339,
+  "lock_cycles": 20,
+  "max_unlink_ms": 8,
+  "mock_restart_test_is_separate": true,
+  "owned_cloud_folder_removed": true,
+  "real_fuse": true,
+  "real_onedrive": true,
+  "recreated_bytes": 262175,
+  "recreated_sha256": "1674e9a5167c90710268daddb3c22bfa35c3d011d1d68aade3420ce02feb4bf0",
+  "remaining_pending_deletes": 0,
+  "upload_download_bytes": 8388731,
+  "upload_download_sha256": "592eb3d8165e391e15e2d81a714f939c6bd9e7161c65387a23a2874a5993e20c"
+}

@@ -46,10 +46,45 @@
 
 
 
+## TD-20261014-15：真实验证探针在 FUSE release 完成前误判同步已结束
+
+- 日期：2026-10-14
+- 状态：已验证旧探针条件失败/修正后真实 OneDrive 流程通过；程序源码未因本条改变。
+- 影响版本与环境：本轮忽略目录下的临时真实 OneDrive/FUSE 验证探针，使用 0.2.13 源码及发布锁定依赖。
+- 关联历史故障：TD-20261014-12 区分本地关闭与云端完成；本条为新探针观察条件错误，不是同一产品根因。
+
+### 症状与影响
+
+探针首个 8 MiB+123 字节文件在远端查询时尚不存在，误认为保存验证失败。两轮均清理自己创建的随机云端目录及私有凭据副本；未改生产程序、数据库或用户已有文件。
+
+### 触发条件与复现
+
+std::fs::write 返回并关闭描述符后，FUSE release 仍可能异步等待处理，数据库暂为 Writing。探针只将 Dirty/Uploading/Conflict 计为未完成，在 Writing 时提前结束等待；远端立即查询得到 None。
+
+### 根因与证据
+
+新探针忽略 Writing，而生产恢复代码有意不上传仍在写入的文件。以发布 Cargo.lock 的依赖版本再次运行旧观察条件，得到受控 missing uploaded object 错误。根工作区和程序源码未改变。
+
+### 解决办法与恢复操作
+
+探针等待条件同时包含 Writing，等待 release 发布并完成云端上传后再读回；保留对字节、删除、同名重建和自有云端目录清理的断言。仅修改临时验证辅助程序，无生产恢复操作。
+
+### 验证结果与边界
+
+旧条件失败已确认；等待 Writing/release 后，真实 OneDrive + 隔离 FUSE 完成 8 MiB+123 字节上传/下载比对、20 次 Dirty/Uploading 锁文件关闭删除（本机最大 8ms）、16 MiB+123 字节已认领上传 unlink 后同名重建为 256 KiB+31 字节并读回比对、所有测试文件与随机云端父目录删除确认。[脱敏汇总](unlink-live-validation-2026-10-14.json)。不把替身或成功的本地 write 计为真实云端完成，也不据此断言真实云端存在文件丢失。
+
+### 防复发措施与后续
+
+端到端探针必须等待本地句柄关闭发布和云端确认两个阶段；发布依赖与探针依赖锁定版本一致。
+
+### 交付记录
+
+辅助程序与私有运行目录位于忽略路径 target；凭据副本和临时云端目录已清理，仅把上述脱敏汇总纳入发布验证。记录提交待补充。
+
 ## TD-20261014-14：稳定组件升级后独立工作区锁文件仍引用旧版本
 
 - 日期：2026-10-14
-- 状态：已定位，修复/最终 CI 验证进行中。
+- 状态：已验证独立 locked 解析及最终 Linux/Windows 原生 CI。
 - 影响版本与环境：0.2.13 发布准备提交 eba3604，独立 experiments/twodrive-dev 工作区，Linux/Windows CI。
 - 关联历史故障：TD-20261014-13 为稳定发布基线遗漏，本条为另一套 Cargo.lock 未同步版本；不归因于云端删除机制。
 
@@ -71,7 +106,7 @@
 
 ### 验证结果与边界
 
-原失败证据为两个真实 CI job；新锁的离线 locked metadata 检查和最终 Linux/Windows CI 待补充。不是运行程序测试失败，不能把修复锁文件说成新云端功能验证。
+原失败证据为两个真实 CI job；新锁离线 locked metadata 解析通过，diff 只有三个 path package 的版本。最终 [Linux/Windows 独立工作区 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697140) 均通过；[peer 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697042) 及 [Full/Lite 原生构建和 IPC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697093) 也通过。不是运行程序测试失败，不能把修复锁文件说成新云端功能验证。
 
 ### 防复发措施与后续
 
@@ -79,12 +114,12 @@
 
 ### 交付记录
 
-修复提交及最终 CI 待补充；尚未合并、发布或安装。
+修复提交：[53e0133](https://github.com/LumiaBlack51/twodrive/commit/53e01335f5c92e5e1c978e0fa8d31cc7d5d196a3)；随 PR #13 合入 main，最终 CI 见上文。Release 及本地升级待完成。
 
 ## TD-20261014-13：main 发布基线落后于上一稳定包的 Nautilus 下载反馈
 
 - 日期：2026-10-14
-- 状态：两份已发布源码原字节恢复及 25 项 Nautilus 测试已通过；发布验证进行中。
+- 状态：已验证两份已发布源码原字节恢复、25 项 Nautilus 测试及候选安装包；合入 main，正式发布待完成。
 - 影响版本与环境：main 基线 258438e（稳定组件 0.2.11），上一稳定 Release v0.2.12-1；尚未发布本轮包。
 - 关联历史故障：上一稳定包包含 a749e43 的固定下载反馈修复；与 TD-20261014-12 的删除限制是不同机制。
 
@@ -106,7 +141,7 @@
 
 ### 验证结果与边界
 
-两份源码与 v0.2.12-1 原字节相等，25 项 Nautilus 和 4 项 Settings 测试通过；最终源码与软件包核对待执行。本条只防止发布回退，不重新宣称旧下载反馈全部真机路径得到验证。
+两份源码与 v0.2.12-1 原字节相等，25 项 Nautilus 和 4 项 Settings 测试通过；候选 deb 中的程序/辅助程序/扩展与当前构建源码逐字节一致，包内 CLI/daemon 为 0.2.13，包内程序驱动的 7 项真实 FUSE 和隔离 MockBackend daemon 冒烟通过。本条只防止发布回退，不重新宣称旧下载反馈全部真机路径得到验证。
 
 ### 防复发措施与后续
 
@@ -114,12 +149,12 @@
 
 ### 交付记录
 
-[上一稳定 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。本轮提交/发布待补充，未安装。
+[上一稳定 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。本轮准备提交：[eba3604](https://github.com/LumiaBlack51/twodrive/commit/eba360484cd852834ac9fe797f17497878b032fe)，随 PR #13 合入 main；正式 Release/本地安装待完成。
 
 ## TD-20261014-12：关闭后的待上传文件不能删除，导致 Git 锁文件残留
 
 - 日期：2026-10-14
-- 状态：已验证本机删除/并发/模拟重启机制及隔离真实 FUSE；真实 OneDrive 端到端未验证。最初仅调查阶段的结论和恢复操作保留如下。
+- 状态：已验证本机删除/并发/模拟重启机制及隔离真实 FUSE；真实 OneDrive 本轮隔离文件删除/重建/读回已通过，见后续发布补记。最初仅调查阶段的结论和恢复操作保留如下。
 - 影响版本与环境：本机运行 `twodrive-daemon 0.2.10`，Linux、真实 OneDrive FUSE 挂载。当前源码提交 `ecb05392324275f3e0c4317f6e5937d3a4b52ed7`（daemon 0.2.12）仍包含对应删除限制；未运行该源码构建作版本对照。
 - 关联历史故障：[2026-07-24 可靠性修复](reliability-fix-2026-07-24.md)仅覆盖打开句柄的 dirty 文件删除；[2026-09-03 local-first 设计](local-first-sync-2026-09-03.md)约定 unlink 先更新本地命名空间，再持久排队云端删除。本次是关闭句柄后仍受同步状态限制的遗漏。
 
@@ -178,7 +213,9 @@ twodrive delete file error: cannot delete a file while it is changing
 
 **验证边界和本地恢复**：本轮不操作现用服务、数据库或真实云端文件；最初的 Git 仓库迁移仍单独列于上文。未执行真实 Graph 上传/删除及断网/崩溃探针、Windows 原生运行、多进程完整竞争、外部客户端同名云端并发编辑、未缓存延迟读取句柄的 unlink 语义和正在云端创建目录时的 rmdir。测试中的重启是重开隔离数据库/重新运行恢复函数，不是真实生产进程崩溃。不能据此承诺所有 EIO 均已修复。
 
-**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。修复提交：[4d4f7ae](https://github.com/LumiaBlack51/twodrive/commit/4d4f7aec7424b75b686b60ab67cc1fe258a8fe64)；[指向 main 的草稿 PR #13](https://github.com/LumiaBlack51/twodrive/pull/13)。本机验证结果见上文；远端 CI 尚未取得结果，不能据此宣称 Windows 原生验证通过。未发布、未安装、未合并 main。
+**发布前真实验证补记**：用户随后授权合入 main、Release 和本地升级。使用同一 0.2.13 源码及发布 Cargo.lock 的依赖，在私有凭据/配置/数据库副本和隔离 FUSE 中运行真实 Graph：8 MiB+123 字节上传下载 SHA-256 一致，20 次 Dirty/Uploading 锁文件关闭删除及重建通过（本机最大 unlink 8ms），16 MiB+123 字节已认领上传删除后同名重建为 256 KiB+31 字节并读回一致；Graph 确认所有自有测试文件和随机父目录已删除，隔离队列归零。结果见[脱敏报告](unlink-live-validation-2026-10-14.json)。旧探针提前观察的问题单独记为 TD-20261014-15。此项是真实账号验证，不是 MockBackend；仍未执行真实断网/生产进程崩溃、组织账号、其他云盘、多进程完整竞争、未缓存延迟句柄 unlink 或正在创建云端目录时的 rmdir。Windows CI 为原生构建/单元/IPC，不能视作 Windows FUSE/真实 Graph 本次语义验证。本地 0.2.10 的正式升级、备份和上线检查待执行，将独立记于本条。
+
+**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。修复提交：[4d4f7ae](https://github.com/LumiaBlack51/twodrive/commit/4d4f7aec7424b75b686b60ab67cc1fe258a8fe64)；[指向 main 的草稿 PR #13](https://github.com/LumiaBlack51/twodrive/pull/13)。本机验证结果见上文；[最终 peer 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697042)、[最终独立 WebDAV 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697140) 和 [最终 Windows Full/Lite 构建与 IPC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697093) 的六项任务全部通过，测试代码头为 53e0133。[main 合并提交 a380b48](https://github.com/LumiaBlack51/twodrive/commit/a380b48bf6f9ad5bf8eec517756800d42024420c) 已核实；正式发布/本地安装待完成。
 
 
 ## TD-20261007-03：整合树 Windows 原生 peer 测试失败
@@ -1217,3 +1254,4 @@ Path::parent 对单文件名返回空路径；原子写入尝试在空路径创�
 - 同批发布的既有 Nautilus 修复：[030132f](https://github.com/LumiaBlack51/twodrive/commit/030132f)，与解压故障根因不同。
 - Release：[TwoDrive 0.2.9-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.9-1)
 - 详细调查：[Archive extraction I/O error](archive-extraction-2026-09-15.md)
+
