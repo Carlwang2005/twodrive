@@ -120,3 +120,5 @@ The connection page now supports adding inactive accounts while connected, WebDA
 TwoDrive tray positioning on GNOME/Zorin now uses actual icon bounds for X11 and native Wayland. See [setup and isolated validation](doc/tray-positioning-2026-10-14.md); the GNOME component first loads on a new desktop session.
 
 Future third-party storage integrations follow the [provider, login, upload and supporting-component specification](doc/provider-integration-spec.md), included in the Development release.
+
+Download [Development 0.1.2](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2) for Linux/Windows, source, installers, the provider specification and verification evidence. This is a prerelease.

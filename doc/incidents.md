@@ -80,7 +80,7 @@ Windows 包的安装脚本/说明/规范与 Linux 工作区原始 SHA 比较失�
 
 ### 交付记录
 
-[构建 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+[构建 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。
 
 ## TD-20261014-10：配置落盘失败仍改变内存中的连接列表
 
@@ -115,7 +115,7 @@ Windows 包的安装脚本/说明/规范与 Linux 工作区原始 SHA 比较失�
 
 ### 交付记录
 
-[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。
 
 ## TD-20261014-09：Windows IPC 检查一次配置原子替换被拒绝
 
@@ -150,7 +150,7 @@ Windows 包的安装脚本/说明/规范与 Linux 工作区原始 SHA 比较失�
 
 ### 交付记录
 
-[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173558)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173558)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。
 
 ## TD-20261014-08：既有上传并发测试依赖 100ms 调度窗口
 
@@ -185,7 +185,7 @@ immediate_reopen_during_upload_keeps_the_local_record 在进入重开操作前�
 
 ### 交付记录
 
-[失败原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173503/job/115812503295)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+[失败原生任务](https://github.com/LumiaBlack51/twodrive/actions/runs/38552173503/job/115812503295)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。
 
 ## TD-20261014-07：Development 发布 CI 的跨平台检查失败
 
@@ -220,7 +220,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 交付记录
 
-[初次桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38550735306)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。
+[初次桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38550735306)。[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。
 
 ## TD-20261014-06：托盘状态面板未固定在任务栏图标正上方
 
@@ -261,7 +261,7 @@ Linux 新增全部 scripts unittest 后包含依赖 Gtk4 的既有 Settings 测�
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[定位实现与后台验证](tray-positioning-2026-10-14.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。[定位实现与后台验证](tray-positioning-2026-10-14.md)。
 
 ## TD-20261014-05：连接任意账号后禁止添加或管理其他连接
 
@@ -302,7 +302,7 @@ Rust `connected_account_can_manage_other_profiles_without_changing_active_revisi
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[存储连接使用与验证](storage-connections-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。[存储连接使用与验证](storage-connections-dev.md)。
 
 ## TD-20261014-04：Google 验证脚本的无挂载分支错误限定 time 变量作用域
 
@@ -337,7 +337,7 @@ Python 静态局部变量规则。带挂载的实际成功测试不能覆盖该�
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。[Google Drive 接入](google-drive-dev.md)。
 
 ## TD-20261014-03：Google 全目录逐层请求超过挂载启动时限
 
@@ -372,7 +372,7 @@ Google 全量索引改为分页库存+内存建树，并拒绝重复分页游标
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261014-02：Google 真实下载拒绝元数据 ETag 的 If-Match
 
@@ -407,7 +407,7 @@ Google 全量索引改为分页库存+内存建树，并拒绝重复分页游标
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261014-01：新增 Google 适配器将中文文件名显示为百分号编码
 
@@ -442,7 +442,7 @@ Google 中文名称可能显示为 `%E4…`，影响浏览可读性。本地 HTT
 
 ### 交付记录
 
-[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。Release：待补充。接入说明：[Google Drive dev 接入](google-drive-dev.md)。
+[源码提交 37f8f3b](https://github.com/LumiaBlack51/twodrive/commit/37f8f3b69d25395952cb45e71bf5a1110fa91063)；[最终编译提交 863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)；[最终桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38553734864)。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（预览版，6 个附件；程序来自 863bf6d，源码标签 d39b32e；详见[交付记录](development-0.1.2.md)）。接入说明：[Google Drive dev 接入](google-drive-dev.md)。
 
 ## TD-20261013-18：黄色托盘回归把 Windows ICO 误当 Linux SVG
 

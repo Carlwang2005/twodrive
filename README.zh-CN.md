@@ -118,3 +118,5 @@ Development 桌面通过 IPC 读取提供者表单与能力，WebDAV 细节留�
 GNOME/Zorin 的托盘定位现通过图标实际边界支持 X11 与原生 Wayland。见[安装与隔离验证](doc/tray-positioning-2026-10-14.md)；GNOME 新组件首次安装须在新桌面会话加载。
 
 后续第三方网盘接入须遵循[提供者、登录入口、上传与配套组件设计规范](doc/provider-integration-spec.md)，规范随 Development Release 附带。
+
+下载 [Development 0.1.2](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)：Linux/Windows 完整包、源码、安装器、接入规范、校验和与验证报告。本版为预览版。

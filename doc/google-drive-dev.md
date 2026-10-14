@@ -68,3 +68,5 @@ python3 scripts/verify-google-drive.py \
 本轮不验证在线文档字节编辑、共享盘、Windows 或所有网络；没有重新测试真实 OneDrive。Google 模拟与真实验证结论分开保存，不能承诺所有同类故障永久消失。
 
 Final local checks: 58 Rust tests in the standalone experiment, 13 Flutter tests, one Python verifier regression, Rust formatting and strict Clippy, Flutter analysis and Linux release build passed. These checks include local substitutes; the two linked reports identify the separately executed live Google checks. The stable workspace's full suite and native Windows Google execution were not rerun. Source remains on the local `dev` branch; no GitHub release was created for this work.
+
+发布：[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2)（Linux/Windows、源码、规范、校验和与验证报告）；[最终构建与范围](development-0.1.2.md)。

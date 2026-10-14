@@ -1,6 +1,6 @@
 # Development 0.1.2 发布与验证
 
-日期：2026-10-14。最终编译输入为已推送的 [863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)。后续交付记录仅更新文档；源码标签和资产 SHA-256 见 Release 的 `verification.json` / `SHA256SUMS`。发布链接待补充。
+日期：2026-10-14。最终编译输入为已推送的 [863bf6d](https://github.com/LumiaBlack51/twodrive/commit/863bf6d6218853d79eecb57be6be8c8c2a4f6cef)。后续交付记录仅更新文档；源码标签和资产 SHA-256 见 Release 的 `verification.json` / `SHA256SUMS`。[Development 0.1.2 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.2) 已于 2026-10-14T11:28:53Z 公开发布，预览版不取代稳定版 Latest。发布源码标签指向 [d39b32e](https://github.com/LumiaBlack51/twodrive/commit/d39b32ea6d3aaff1dfc096608defcfc593d84437)。6 个远端附件的 SHA-256 均与本地一致，Linux/Windows 原生程序、DLL、图标仍与 CI 原件逐项一致。
 
 ## 源码与分发
 
