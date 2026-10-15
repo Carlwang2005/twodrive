@@ -50,6 +50,9 @@ def run(args):
                 'username': 'Test account', 'network_route': 'system',
             })
 
+            assert engine.operation_events == 0, 'old clients must not receive unsolicited operation events'
+            assert engine.call('subscribe', {'operations': True})['operations'] is True
+
             def send(request_id, op, args=None):
                 engine.process.stdin.write(json.dumps({'id': request_id, 'op': op, 'args': args or {}}) + '\n')
                 engine.process.stdin.flush()
@@ -100,7 +103,7 @@ def run(args):
             assert not engine.call('status')['connected']
             print(json.dumps({'bounded_queue': True, 'cancel_bypasses_full_queue': True,
                               'cancelled_mutation_skipped': True, 'completion_state_event': True,
-                              'actual_dav_username': True, 'queue_recovers': True}))
+                              'actual_dav_username': True, 'queue_recovers': True, 'notifications_opt_in': True}))
         finally:
             release.set()
             engine.close()

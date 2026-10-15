@@ -163,6 +163,13 @@ class StorageClient extends ChangeNotifier {
         }),
       );
       available = true;
+      // Older engines keep working through single-flight polling. Operation
+      // notifications are opt-in so older frontends never misread them as replies.
+      try {
+        await request('subscribe', {'operations': true});
+      } on StateError {
+        // No subscription operation in earlier engine versions.
+      }
       await loadProfiles();
       await refreshStatus();
       _poll = Timer.periodic(const Duration(seconds: 3), (_) {

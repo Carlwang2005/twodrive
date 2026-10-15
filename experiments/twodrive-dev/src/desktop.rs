@@ -810,6 +810,8 @@ pub fn run() -> anyhow::Result<()> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
     let cancellations: Cancellations = Arc::new(Mutex::new(HashMap::new()));
     let (send, receive) = mpsc::sync_channel::<Request>(32);
+    let notifications = Arc::new(AtomicBool::new(false));
+    let worker_notifications = notifications.clone();
     let worker_out = out.clone();
     let worker_cancel = cancellations.clone();
     let worker = thread::spawn(move || {
@@ -820,7 +822,8 @@ pub fn run() -> anyhow::Result<()> {
                 .get(&req.id)
                 .cloned()
                 .unwrap_or_default();
-            let observable = !matches!(req.op.as_str(), "status" | "profiles" | "list" | "backups");
+            let observable = worker_notifications.load(Ordering::Relaxed)
+                && !matches!(req.op.as_str(), "status" | "profiles" | "list" | "backups");
             if observable {
                 emit(
                     &worker_out,
@@ -864,7 +867,13 @@ pub fn run() -> anyhow::Result<()> {
             Ok(r) => r,
             Err(_) => continue,
         };
-        if req.op == "cancel" {
+        if req.op == "subscribe" {
+            notifications.store(req.args["operations"] == true, Ordering::Relaxed);
+            emit(
+                &out,
+                json!({"id":req.id,"ok":true,"result":{"operations":notifications.load(Ordering::Relaxed)}}),
+            );
+        } else if req.op == "cancel" {
             if let Some(id) = req.args["id"].as_u64()
                 && let Some(cancel) = cancellations.lock().unwrap().get(&id)
             {

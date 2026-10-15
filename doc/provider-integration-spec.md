@@ -87,7 +87,7 @@ flowchart LR
 
 `Connection.account_name` 由适配器提供，在 session 中随 kind/revision 保存；公开 profiles/status 只投影该展示字段，不公开 recipe、binding 或凭据。当前活动连接以引擎 status.profile 为准；名称不得参与身份比较。OneDrive 的展示探测使用 [Microsoft Get user `/me`](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0)，既有 User.Read 权限不变；展示失败不能让已可用的盘连接失败。
 
-IPC 使用可选 `event=operation` 通知（id/op/running，完成时附 status/configuration 公共快照）；调用方须将事件与请求最终回复区分。重复 status/目录轮询必须合并，操作结束与窗口聚焦后刷新，轮询暂时错误在成功后恢复而不掩盖操作失败。队列保持有界且取消绕过排队；执行已取消的等待任务之前必须再次检查取消标志。事件不携带请求参数、秘密或远端正文。
+新版 UI 先请求 `subscribe {operations:true}`，引擎才发送可选 `event=operation` 通知（旧前端默认不接收，新前端遇旧引擎回退轮询）。通知包含 id/op/running，完成时附 status/configuration 公共快照；调用方须将事件与请求最终回复区分。重复 status/目录轮询必须合并，操作结束与窗口聚焦后刷新，轮询暂时错误在成功后恢复而不掩盖操作失败。队列保持有界且取消绕过排队；执行已取消的等待任务之前必须再次检查取消标志。事件不携带请求参数、秘密或远端正文。
 
 刷新令牌需限制并发/重复重试，保存后只属于原账号目录；错误必须脱敏。路由策略、代理支持、权限申请、组织账号限制必须在适配器指南说明，并实际验证所声明范围。
 

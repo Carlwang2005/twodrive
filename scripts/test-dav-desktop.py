@@ -18,6 +18,7 @@ class Engine:
         self.counter = 0
         self.events = queue.Queue()
         self.progress = 0
+        self.operation_events = 0
         self.active_profile = None
         self.active_revision = None
         env = dict(os.environ, XDG_CONFIG_HOME=str(root / 'config'), APPDATA=str(root / 'config'))
@@ -46,6 +47,7 @@ class Engine:
                 self.progress += 1
                 continue
             if message.get('event'):
+                self.operation_events += 1
                 continue
             assert message['id'] == request_id, 'unexpected IPC response'
             if failure:
