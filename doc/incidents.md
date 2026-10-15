@@ -49,6 +49,41 @@
 
 
 
+## TD-20261015-14：并发小文件测试依赖 mock 上传的短时间窗口
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证有界上传门控、受控慢入队对照与单 worker 反例、本机 FUSE crate；最终候选 CI 见 PR #29。
+- 影响版本与环境：稳定 main 既有 filesystem/tests.rs；AGENTS.md 文档候选 a8f8d10、PR #29 的 GitHub Ubuntu 24.04 Debian CI 失败；未发布。
+- 关联历史故障：TD-20261015-13 修复同一 ConcurrentBackend 的重开/替换测试，但遗漏 closed_small_files_upload_concurrently 的时间假设；不是已修复代码回归。已排除 TD-20261015-12 的 vendor clean 和 dev TD-20261015-06 的 Lintian 管道作为本次直接失败点。
+
+### 症状与影响
+
+Debian package 在运行 cargo test 时，closed_small_files_upload_concurrently 报 expected at least two simultaneous uploads。四个文件已全部上传为 Cached，但记录到的上传并发峰值不足二。阻断本轮完整包验收；同源 Linux、Windows Native checks 和 Debian packaging policy 均通过。没有用户数据损坏或生产并发上传回归的证据。
+
+### 触发条件与复现
+
+main 3746b1f 上仅增加 AGENTS.md 七行后，[Debian CI 38728962015](https://github.com/LumiaBlack51/twodrive/actions/runs/38728962015) 的包内工作区测试失败。测试逐个创建/写入/入队四个文件；mock 每次上传只固定 sleep 100ms。文件准备或线程调度较慢时，前一个上传可在下一个入队前完成，因此配置四个 worker 并不保证该短窗口出现重叠。受控实验在每次入队后延迟 200ms：旧测试失败，新门控测试通过。这验证了该时间假设的缺陷，但不是原 runner 调度的逐步重放，未确认原现场具体慢在哪一步。
+
+### 根因与证据
+
+保留的 debian-build.log 显示 filesystem/tests.rs:1777 的并发断言失败，该 crate 43 passed、1 failed、7 ignored；编译与此前其他 crate 测试已通过，尚未进入后续 Lintian/安装步骤。旧测试没有同步上传开始/放行，依赖文件入队速度小于 mock 的 100ms 存活时间。修复只针对测试的重叠保证，不据此修改生产上传队列。
+
+### 解决办法与恢复操作
+
+复用已有 first_upload_gate，在观测到至少两个上传重叠前阻塞第一个上传，再显式放行；保留有界等待、最终四文件完成、并发峰值与本地身份断言。等待上限十秒，到期也先放行，让原并发断言明确失败，避免人为卡住 worker。没有屏蔽检查、放宽断言或修改生产实现、已发布包；没有用户环境恢复操作。
+
+### 验证结果与边界
+
+旧代码加 200ms 慢入队后在原并发断言失败；同样延迟下修复代码通过。临时将修复后的池缩为一个 worker，十秒有界等待后仍在原并发断言失败，证明门控没有掩盖串行退化；两项临时改动均已还原，最终提交不含额外慢入队 sleep 或 worker 数更改。最终源的 cargo test -p twodrive-fs --locked 为 44 passed、7 ignored；格式、该 crate 全目标严格 Clippy 及 git diff --check 通过。完整包构建与双平台最终结果见 PR #29 的最新检查。本机未显式运行七项挂载测试，也未执行真实 OneDrive 端到端验证。
+
+### 防复发措施与后续
+
+保留原失败运行与受控慢入队对照；并发测试必须用明确的开始/放行协议证明重叠，不能靠增加 sleep 或重跑成功宣称机制已修复。
+
+### 交付记录
+
+修复与本记录一并提交至 [PR #29](https://github.com/LumiaBlack51/twodrive/pull/29)，最终提交与 CI 以该 PR 为准；本轮未创建 Release。
+
 ## TD-20261015-13：原生 CI 上传重开测试依赖 100ms 观察窗口
 
 - 日期：2026-10-15（Asia/Shanghai）

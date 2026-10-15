@@ -1725,7 +1725,7 @@ fn closed_small_files_upload_concurrently() {
     fs::create_dir_all(&root).unwrap();
     let db = Database::new(root.join("test.sqlite3"));
     db.init().unwrap();
-    let backend = ConcurrentBackend::new();
+    let (backend, release_upload) = ConcurrentBackend::with_blocked_first_upload();
     sync_metadata(&db, &backend).unwrap();
     let mut fuse =
         TwoDriveFs::new_with_upload_concurrency(db, root.join("cache"), backend, 4).unwrap();
@@ -1747,6 +1747,14 @@ fn closed_small_files_upload_concurrently() {
         fuse.queue_upload_handle(fh).unwrap();
         fuse.write_handles.remove(&fh);
     }
+
+    // Slow file preparation must not let the first upload finish before the
+    // next worker starts. The peak remains observable after that worker exits.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while fuse.backend.max_active_uploads.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(1));
+    }
+    release_upload.send(()).unwrap();
 
     for _ in 0..100 {
         let completed = (0..4)
