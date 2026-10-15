@@ -46,10 +46,49 @@
 
 
 
+## TD-20261015-02：Release 校验失败后仍执行公开操作
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已恢复并验证保护脚本与两次正式发布；保护代码随交付记录同步。
+- 影响版本与环境：本轮 0.2.14-1 的临时发布命令，不是客户端代码缺陷。
+- 关联历史故障：TD-20261015-01 是客户端删除诊断/调度；本条是交付脚本顺序错误，根因不同。
+
+### 症状与影响
+
+草稿的 5 项附件尚未全部上传，版本被提前公开。该阶段未完成附件集校验；是否有人在该窗口下载未核实。未包含令牌、私人数据库或用户文件。
+
+### 触发条件与复现
+
+Python 断言当前附件数量为 5 失败时，临时 shell 的下一行仍调用 gh release edit --draft=false；实际输出同时出现 AssertionError 和公开成功，shell 最终退出 0。
+
+### 根因与证据
+
+校验与公开操作没有退出码/控制流依赖，发布又与未结束的上传命令重叠。错误发生在临时编排命令，不归因于 Graph 403 或 GitHub 附件内容。首次以本地 remote-tracking 名 origin/main 创建草稿亦收到 422，未创建版本，随后改用已核实完整提交 SHA；此项与提前公开分开说明。
+
+### 解决办法与恢复操作
+
+立即退回草稿，确认 Latest 仍是 0.2.13-1；等待原上传完成，核对全部 5 项附件 state/size/digest 与本地一致后重新发布。最终 tag 指向 `6f64df2f9be88a92d5fab6193a06776d0ba98951`，未移动已有标签。
+
+新增 scripts/verify-release-assets.py：精确校验 tag（含实际远端标签解引用）、完整源 SHA、完整附件集、上传状态、大小和 SHA-256；可只读检查，只有全部通过且草稿/通道一致时才从同一 Python 控制流调用公开操作。校验失败不会到达发布调用。Linux 原生 CI 增加保护脚本单元测试。
+
+本地恢复：无客户端安装/服务/数据库操作。只恢复 Release 的草稿状态并完成正确交付。
+
+### 验证结果与边界
+
+首轮 4 项、补充后 6 项保护回归通过，覆盖未完成/额外附件、状态/大小/摘要/目标错配、通道错配、只读不发布及合格草稿仅发布一次。真实草稿经只读校验成功，再用新脚本完整校验并公开成功；公开后再次核实 5 项摘要、tag 与 Latest。不将附件元数据校验说成已完成用户端下载执行。
+
+### 防复发措施与后续
+
+先推送核实的源标签，上传结束后才运行该脚本；默认只读，公开必须显式传 --publish stable/preview。不得使用未受前一步退出码约束的后续 shell 行进行发布。
+
+### 交付记录
+
+[0.2.14-1 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.14-1) 已于 2026-10-15 10:03:50 +08:00 重新公开并设为 Latest；Development 0.1.3 亦已通过同一保护脚本公开，Latest 保持稳定版；6 项单元回归和实际 tag/digest 校验通过，保护代码见 [main PR #17](https://github.com/LumiaBlack51/twodrive/pull/17)。
+
 ## TD-20261015-01：持续 403 删除待办的 main/dev 存续与修改必要性评估
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已完成分支评估及隔离行为验证；原对象拒绝根因未确认，未修改实现。
+- 状态：已验证安全诊断/持久退避（模拟/隔离 FUSE/原生 CI），main/dev 均已交付；原对象拒绝根因未确认。
 - 影响版本与环境：本轮 fetch 核实 origin/main `e62942798cc6ab4b221a31d6d766b16dd4be8edf`、origin/dev `ecb05392324275f3e0c4317f6e5937d3a4b52ed7`；代码与公开脱敏历史证据评估。
 - 关联历史故障：main 的 TD-20261014-16（旧任务持续 403）、TD-20261014-12（本地 unlink 限制）及 TD-20261014-15（探针等待条件）。本轮是对既有问题的分支复核，尚无新的真实账号复发证据。
 
@@ -69,7 +108,7 @@ dev 桌面另有账号/Drive binding 及部分 remoteItem 过滤；直接文件�
 
 ### 解决办法与恢复操作
 
-仅评估与记录，未修改程序；本地恢复操作：无。
+最初仅评估与记录；后续经用户授权实施，见下方补记。本地恢复/安装操作：无。
 
 ### 验证结果与边界
 
@@ -81,7 +120,7 @@ dev 桌面另有账号/Drive binding 及部分 remoteItem 过滤；直接文件�
 
 ### 交付记录
 
-最初为本地[评估报告](pending-delete-403-assessment-2026-10-15.md)与记录；保留评估前已有的 TD-20261014-12 未提交条目。确认修复的机制：无；尚未验证范围：原对象根因、生产当前状态及后续改进能否解除其拒绝。
+最初为本地[评估报告](pending-delete-403-assessment-2026-10-15.md)与记录；保留评估前已有的 TD-20261014-12 未提交条目。评估阶段确认修复的机制：无；后续实施见补记。尚未验证范围：原对象根因、生产当前状态及后续改进能否解除其拒绝。
 
 ### 2026-10-15 实施进度
 
@@ -91,7 +130,20 @@ dev 桌面另有账号/Drive binding 及部分 remoteItem 过滤；直接文件�
 
 dev 已同步 main 的既有本地 unlink 修复和本次共享引擎改动；保留原 dev 的账号/Drive binding、create-only 条件上传、提供者隔离与全部故障历史。Development 升至 0.1.3，Linux 状态页显示删除待确认/被拒绝/退避计数，拒绝进入同步错误状态，提供 retry_deletes IPC 与“重新尝试”按钮；只让任务到期，不发送额外 DELETE 或改目标。桌面文件页直接删除仍同步返回错误，Windows 没有 FUSE 队列。
 
-本机 dev 根工作区 173 项默认 Rust 通过，独立工作区原有 64 项通过，新增删除状态/手动重试回归独立通过；两工作区严格 Clippy 与格式通过。Flutter analyze 通过；Flutter 单元、Linux/Windows 最终原生 CI 和 Release 待完成。稳定 deb 0.2.14-1 已构建，包内 CLI/daemon 实际版本与构建输出逐字节一致，包内 MockBackend daemon 冒烟通过。目标稳定版本 0.2.14-1、Development 0.1.3；最终交付与原生 CI、提交和发布链接待实际产生后补充。原对象具体拒绝根因仍未确认。本地恢复/安装：未执行。
+本机 dev 根工作区 173 项默认 Rust 通过，独立工作区原有 64 项通过，新增删除状态/手动重试回归独立通过；两工作区严格 Clippy 与格式通过。Flutter analyze 通过；后续 Flutter 16 项及最终 Linux/Windows 原生 CI 已通过，正式发布见下方。稳定 deb 0.2.14-1 已构建，包内 CLI/daemon 实际版本与构建输出逐字节一致，包内 MockBackend daemon 冒烟通过。目标稳定版本 0.2.14-1、Development 0.1.3；最终交付、CI 与发布链接见下方补记。原对象具体拒绝根因仍未确认。本地恢复/安装：未执行。
+
+### 2026-10-15 Development 正式交付补记（TD-20261015-01）
+
+[PR #16](https://github.com/LumiaBlack51/twodrive/pull/16) 已合入 dev，合并提交 `bffbe0e7866df8b29b32050d2b7035e135ffb96f`。最终 [Linux/Windows 桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38668500026) 成功：Rust 65/59 项、Flutter 各 16 项、原生 IPC、严格 Clippy/分析/格式、GUI 构建及 Windows 托盘烟测通过；[root 原生](https://github.com/LumiaBlack51/twodrive/actions/runs/38668500005)、[独立 DAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38668499972) 均成功。[Full/Lite 额外 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38668499994) 也已成功。
+
+Linux 直接保留 CI tar，Windows ZIP 的 35 个文件均与 CI 原件逐字节相同，三个 EXE 的 PE x64 和 ZIP CRC 已核对；Linux 包内工具实测 0.1.3，包内引擎/CLI 再次完成 loopback IPC/WebDAV 2 MiB 与签名 UDP/邀请/QUIC 回归。GUI 重试绑定状态中的活动 profile，另有选择其他配置时仍针对当前显示挂载的回归。未执行真实 OneDrive 或原对象权限检查，也没有本地安装。
+
+Development 0.1.3 的源标签为上述 dev 合并提交，CI 代码头 `8f4aa72e1e1b4d83c223fc8839a2c2dae40c8701`；两源码树完全相同。[Development 0.1.3 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.3) 已于 2026-10-15 10:19:03 +08:00 公开为预览版，6 项远端附件 state/size/digest 与本地全部一致；保护脚本核对了实际远端注释标签解引用。Latest 仍是稳定 0.2.14-1。Linux tar SHA-256：`1e2c62620b9f82bd94d87449919fd35a98a3af3e0c4769a9460ac7496296ed50`；Windows ZIP：`b46e31a63476f19db300e2e027ff3669346e4f2dc393fa995617e9ac9d0bba61`。
+
+[稳定版 PR #15](https://github.com/LumiaBlack51/twodrive/pull/15) 合并到 main 的 `6f64df2f9be88a92d5fab6193a06776d0ba98951`，对应 [0.2.14-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.14-1)，5 项附件也已核验；deb SHA-256：`a7000c3c7b8ae6913fd8bc145b5257eb0ff78729190b584641d12b9dd9362c5d`。main 的 [core/backend/peer](https://github.com/LumiaBlack51/twodrive/actions/runs/38667682109)、[独立 DAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38667681924)、[Full/Lite](https://github.com/LumiaBlack51/twodrive/actions/runs/38667682052) 最终六项原生任务成功。
+
+确认修复的是安全诊断和任务退避机制，原对象具体 403 根因与生产当前状态仍未验证。本轮无本地恢复/安装。后续交付记录和发布保护脚本不改变已发布客户端程序源码或资产。完整 Development 验证见 [0.1.3 记录](development-0.1.3.md)。
+
 
 ## TD-20261014-16：升级前既有云端删除待办持续返回 HTTP 403
 

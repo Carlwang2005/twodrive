@@ -68,6 +68,7 @@ jobs:
       - run: TWODRIVE_TEST_UPDATE_EXE="$PWD/target/debug/peer-health-fixture" cargo test -p twodrive-peer --locked native_process_install_health_and_start_failure_rollback -- --ignored
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 -m unittest discover -s packaging/nautilus -p 'test_*.py'
+      - run: python3 -m unittest discover -s scripts -p 'test_release_assets.py'
       - run: cargo build -p twodrive-peer --bin twodrive-peer --release --locked
       - run: target/release/twodrive-peer health-check --output health.json
       - uses: actions/upload-artifact@v4
