@@ -32,6 +32,8 @@ mod backup;
 #[cfg(all(target_os = "linux", feature = "mount"))]
 #[path = "mount.rs"]
 mod mount;
+#[path = "desktop_sharing.rs"]
+mod sharing;
 
 #[derive(Parser)]
 struct Args {
@@ -159,6 +161,7 @@ struct App {
     mounted: Option<Process>,
     backup: Option<Process>,
     network: Arc<Diagnostics>,
+    hosting: sharing::Hosting,
 }
 impl App {
     fn profile(&self, id: &str) -> anyhow::Result<Profile> {
@@ -420,9 +423,10 @@ impl App {
             .as_mut()
             .is_some_and(|p| p.0.try_wait().ok().flatten().is_some());
         let network = self.network.snapshot();
+        let sharing = self.hosting.status(&self.state).unwrap_or_else(|_| json!({"supported":true,"running":false,"error":"共享配置无法读取，请检查私有状态目录"}));
         Ok(
             json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":self.network.fallback(),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
-            "version":env!("CARGO_PKG_VERSION"),
+            "version":env!("CARGO_PKG_VERSION"),"sharing":sharing,
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
             "cache":cache,"network":network,
@@ -438,8 +442,19 @@ impl App {
     ) -> anyhow::Result<Value> {
         let a = &req.args;
         match req.op.as_str() {
+            "share_start" => self.hosting.start(&self.state, &self.args, a, &cancel),
+            "share_stop" => {
+                self.hosting.stop();
+                self.hosting.status(&self.state)
+            }
+            "share_export" => self.hosting.export(
+                &self.state,
+                Path::new(string(a, "output")?),
+                a["replace"] == true,
+            ),
+            "share_revoke" => self.hosting.revoke(&self.state, string(a, "device")?),
             "provider_action" => {
-                providers::action(string(a, "kind")?, string(a, "action")?, &cancel)
+                providers::action(string(a, "kind")?, string(a, "action")?, a, &cancel)
             }
             "profiles" => Ok(self.public_profiles()),
             "save_profile" => {
@@ -509,6 +524,9 @@ impl App {
             "connect" => self.connect(string(a, "id")?, &cancel),
             "disconnect" | "quit" => {
                 self.disconnect()?;
+                if req.op == "quit" {
+                    self.hosting.stop();
+                }
                 Ok(json!({}))
             }
             "status" => self.status(),
@@ -778,6 +796,7 @@ pub fn run() -> anyhow::Result<()> {
         mounted: None,
         backup: None,
         network: Arc::default(),
+        hosting: sharing::Hosting::default(),
     };
     if let Some(id) = &app.args.backup_worker {
         let p = app.profile(id)?;
@@ -951,6 +970,7 @@ mod tests {
             mounted: None,
             backup: None,
             network: Arc::default(),
+            hosting: sharing::Hosting::default(),
         };
         let directory = app.mount_state(&active);
         fs::create_dir_all(&directory).unwrap();
@@ -1021,6 +1041,7 @@ mod tests {
             mounted: None,
             backup: None,
             network: Arc::default(),
+            hosting: sharing::Hosting::default(),
         };
         let session = json!({"kind":app.connected.as_ref().unwrap().kind,
             "revision":"active-revision","account_name":"Actual signed in person",
@@ -1128,6 +1149,7 @@ mod tests {
             mounted: None,
             backup: None,
             network: Arc::default(),
+            hosting: sharing::Hosting::default(),
         };
         let source = temp.path().join("source");
         fs::write(&source, b"opaque IPC bytes").unwrap();

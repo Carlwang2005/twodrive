@@ -20,7 +20,7 @@ pub fn descriptor() -> Value {
     json!({"id":"peer","label":"PC / NAS（设备共享）","account_label":"远程设备","icon":"devices",
     "identity_fields":["peer_state"],"protected_paths":["peer_state"],
     "help":"扫描局域网中的 TwoDrive 设备，或直接导入可信的配对邀请。跨网络通过 QUIC/UDP 打洞连接，直连失败时可使用加密中继。普通 NAS 也可以选择 WebDAV。",
-    "actions":[{"id":"discover","label":"发现局域网设备"}],
+    "actions":[{"id":"discover","label":"发现局域网设备"},{"id":"import","label":"导入连接文件","input":"file"}],
     "capabilities":{"upload":true,"conditional_upload":true,"mkdir":true,"rename":true,"delete":true,"backup":true},
     "fields":[{"key":"invitation_file","label":"配对邀请 JSON（首次连接需要）","type":"file","transient":true},
       {"key":"expected_device","label":"已选择的设备身份","advanced":true,"read_only":true},
@@ -77,7 +77,45 @@ pub fn validate(p: &Profile) -> anyhow::Result<()> {
     }
     Ok(())
 }
-pub fn action(action: &str, cancel: &AtomicBool) -> anyhow::Result<Value> {
+pub fn action(action: &str, args: &Value, cancel: &AtomicBool) -> anyhow::Result<Value> {
+    if action == "import" {
+        ensure!(!cancel.load(Ordering::Relaxed), "导入已取消");
+        let path = Path::new(args["file"].as_str().context("请选择连接文件")?);
+        ensure!(path.is_absolute(), "请选择连接文件的绝对路径");
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(65537)
+            .read_to_end(&mut bytes)?;
+        ensure!(bytes.len() <= 65536, "连接文件过大");
+        let value: Value = serde_json::from_slice(&bytes).context("连接文件格式无效")?;
+        let invitation: twodrive_dev::state::Invitation =
+            serde_json::from_value(value.clone()).context("连接文件不包含有效的配对邀请")?;
+        ensure!(
+            invitation.version == twodrive_dev::state::VERSION
+                && invitation.expires > twodrive_dev::state::now(),
+            "连接文件已过期或版本不支持，请向共享端重新导出"
+        );
+        let expected = args["expected_device"].as_str().unwrap_or_default();
+        ensure!(
+            expected.is_empty() || expected == invitation.address.id.to_string(),
+            "连接文件不属于所选设备"
+        );
+        let mut name = "TwoDrive 设备共享";
+        let mut writable = false;
+        if let Some(hint) = value.get("connection") {
+            ensure!(hint["schema"] == 1, "连接文件版本不支持");
+            name = hint["name"].as_str().context("连接文件缺少共享名称")?;
+            ensure!(
+                !name.trim().is_empty() && name.len() <= 120 && !name.chars().any(char::is_control),
+                "连接文件名称无效"
+            );
+            writable = hint["writable"].as_bool().context("连接文件权限格式无效")?;
+        }
+        return Ok(json!({"message":"连接信息已填好，保存并连接即可使用。",
+            "expires":invitation.expires,"options":{"name":name,"writable":writable,
+                "expected_device":invitation.address.id.to_string(),"invitation_file":path}}));
+    }
     ensure!(action == "discover", "unsupported device action");
     let devices = twodrive_dev::discovery::scan(cancel)?;
     Ok(
@@ -176,6 +214,43 @@ pub fn connect(
 mod tests {
     use super::*;
     use twodrive_dev::state::{Invitation, VERSION, now};
+    #[test]
+    fn connection_preview_fills_public_hints_without_returning_the_invitation_secret() {
+        let root = tempfile::tempdir().unwrap();
+        let state = State::new(root.path().join("private")).unwrap();
+        let shared = root.path().join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        state
+            .save(
+                "share.json",
+                &twodrive_dev::state::Share {
+                    root: shared,
+                    writable: true,
+                    address: iroh::EndpointAddr::new(state.identity().unwrap().public()),
+                },
+            )
+            .unwrap();
+        let file = root.path().join("connection.json");
+        state.export_connection(&file, "Shared PC", false).unwrap();
+        let bytes = std::fs::read(&file).unwrap();
+        let invitation: Invitation = serde_json::from_slice(&bytes).unwrap();
+        let args = json!({"file":file});
+        let result = action("import", &args, &AtomicBool::new(false)).unwrap();
+        assert_eq!(result["options"]["name"], "Shared PC");
+        assert_eq!(result["options"]["writable"], true);
+        assert_eq!(
+            result["options"]["expected_device"],
+            invitation.address.id.to_string()
+        );
+        assert!(!result.to_string().contains(&invitation.secret));
+        let mut mismatch = args.clone();
+        mismatch["expected_device"] = json!(iroh::SecretKey::generate().public().to_string());
+        assert!(action("import", &mismatch, &AtomicBool::new(false)).is_err());
+        let mut expired: Value = serde_json::from_slice(&bytes).unwrap();
+        expired["expires"] = json!(now() - 1);
+        std::fs::write(&file, serde_json::to_vec(&expired).unwrap()).unwrap();
+        assert!(action("import", &args, &AtomicBool::new(false)).is_err());
+    }
     #[test]
     fn imported_invitation_is_private_and_pinned_to_selected_device() {
         let root = tempfile::tempdir().unwrap();

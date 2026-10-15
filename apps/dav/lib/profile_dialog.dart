@@ -110,7 +110,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                                 ],
                               ))?.path;
                         if (mounted && path != null) {
-                          fields[key]!.text = path;
+                          setState(() => fields[key]!.text = path);
                         }
                       },
               )
@@ -147,6 +147,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
   }
 
   Future<void> providerAction(Json action) async {
+    final targetKind = action['provider'] as String? ?? kind;
     setState(() {
       runningAction = true;
       actionMessage = null;
@@ -154,15 +155,50 @@ class _ProfileDialogState extends State<ProfileDialog> {
       pickedItem = null;
     });
     try {
+      String? file;
+      if (action['input'] == 'file') {
+        file = (await openFile(
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'TwoDrive 连接文件', extensions: ['json']),
+          ],
+        ))?.path;
+        if (file == null || !mounted) return;
+      }
       final result = await widget.client!.request('provider_action', {
-        'kind': kind,
+        'kind': targetKind,
         'action': action['id'],
+        'file': ?file,
+        if (targetKind == kind && fields.containsKey('expected_device'))
+          'expected_device': fields['expected_device']!.text,
       });
       if (!mounted) return;
       setState(() {
         actionItems = ((result['items'] as List?) ?? []).cast<Json>();
         actionMessage = result['message'] as String?;
         selectionMessage = result['selection_message'] as String?;
+        if (result['options'] is Map) {
+          final previousLabel = provider?['label'];
+          final keepName =
+              widget.original != null || fields['name']!.text != previousLabel;
+          if (kind != targetKind) {
+            for (final field in providerFields.where(
+              (f) => f['secret'] == true,
+            )) {
+              fields[field['key']]!.clear();
+            }
+          }
+          kind = targetKind;
+          normalizeRoute();
+          for (final option in (result['options'] as Map).entries) {
+            if (option.key == 'writable' && option.value is bool) {
+              writable = option.value as bool;
+            } else if (fields.containsKey(option.key) &&
+                option.value is String &&
+                !(option.key == 'name' && keepName)) {
+              fields[option.key]!.text = option.value as String;
+            }
+          }
+        }
       });
     } catch (e) {
       if (mounted) setState(() => actionMessage = '$e');
@@ -182,8 +218,34 @@ class _ProfileDialogState extends State<ProfileDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (widget.original == null &&
+                  widget.providers.any(
+                    (p) =>
+                        p['id'] == 'peer' &&
+                        ((p['actions'] as List?) ?? []).any(
+                          (a) => a['id'] == 'import',
+                        ),
+                  ))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonalIcon(
+                      onPressed: runningAction || widget.client == null
+                          ? null
+                          : () => providerAction({
+                              'id': 'import',
+                              'input': 'file',
+                              'provider': 'peer',
+                            }),
+                      icon: const Icon(Icons.file_open),
+                      label: const Text('从 TwoDrive 连接文件添加'),
+                    ),
+                  ),
+                ),
               field('name', '连接名称', required: true),
               DropdownButtonFormField<String>(
+                key: ValueKey('provider-$kind'),
                 initialValue: kind,
                 decoration: const InputDecoration(labelText: '存储提供者'),
                 items: [
@@ -234,7 +296,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.radar),
+                        : Icon(
+                            action['input'] == 'file'
+                                ? Icons.file_open
+                                : Icons.radar,
+                          ),
                     label: Text(action['label'] as String),
                   ),
                 ),
@@ -330,6 +396,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
             : () {
                 if (form.currentState!.validate()) {
                   Navigator.pop(context, {
+                    if (widget.original == null &&
+                        kind == 'peer' &&
+                        fields['invitation_file']?.text.isNotEmpty == true)
+                      '_connect': true,
                     'id': widget.original?['id'] ?? '',
                     'kind': kind,
                     'network_route': route,
@@ -345,7 +415,13 @@ class _ProfileDialogState extends State<ProfileDialog> {
                   });
                 }
               },
-        child: const Text('保存'),
+        child: Text(
+          widget.original == null &&
+                  kind == 'peer' &&
+                  fields['invitation_file']?.text.isNotEmpty == true
+              ? '保存并连接'
+              : '保存',
+        ),
       ),
     ],
   );

@@ -21,6 +21,63 @@ pub struct State {
     pub dir: PathBuf,
 }
 
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+    #[test]
+    fn exported_connection_is_private_single_use_and_replacement_is_explicit() {
+        let root = tempfile::tempdir().unwrap();
+        let state = State::new(root.path().join("private")).unwrap();
+        let shared = root.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        state
+            .save(
+                "share.json",
+                &Share {
+                    root: shared.clone(),
+                    writable: true,
+                    address: EndpointAddr::new(state.identity().unwrap().public()),
+                },
+            )
+            .unwrap();
+        let output = root.path().join("connection.json");
+        state.export_connection(&output, "My PC", false).unwrap();
+        let original = fs::read(&output).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        assert_eq!(value["connection"]["name"], "My PC");
+        assert_eq!(value["connection"]["writable"], true);
+        assert!(
+            !String::from_utf8(original.clone())
+                .unwrap()
+                .contains(&root.path().to_string_lossy().to_string())
+        );
+        let first: Invitation = serde_json::from_slice(&original).unwrap();
+        assert!(state.export_connection(&output, "My PC", false).is_err());
+        assert_eq!(fs::read(&output).unwrap(), original);
+        assert!(state.authorize("first", Some(&first.secret)).unwrap());
+        assert!(!state.authorize("second", Some(&first.secret)).unwrap());
+        state.export_connection(&output, "My PC", true).unwrap();
+        let second: Invitation = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_ne!(first.secret, second.secret);
+        assert!(!state.authorize("second", Some(&first.secret)).unwrap());
+        assert!(state.authorize("second", Some(&second.secret)).unwrap());
+        assert!(!state.authorize("third", Some(&second.secret)).unwrap());
+        assert!(
+            state
+                .export_connection(&shared.join("leak.json"), "My PC", false)
+                .is_err()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(output).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Invitation {
     pub version: u8,
@@ -208,13 +265,39 @@ impl State {
     }
 
     pub fn invite(&self, output: &Path) -> anyhow::Result<()> {
+        self.issue_invitation(output, None, false).map(|_| ())
+    }
+
+    /// Export a backwards-compatible invitation with public client setup hints.
+    /// Never include the host path, private identity or an existing peer's keys.
+    pub fn export_connection(
+        &self,
+        output: &Path,
+        name: &str,
+        replace: bool,
+    ) -> anyhow::Result<u64> {
+        ensure!(
+            !name.trim().is_empty() && name.len() <= 120 && !name.chars().any(char::is_control),
+            "invalid share name"
+        );
+        self.issue_invitation(output, Some(name), replace)
+    }
+
+    fn issue_invitation(
+        &self,
+        output: &Path,
+        name: Option<&str>,
+        replace: bool,
+    ) -> anyhow::Result<u64> {
         let share: Share = self.read("share.json")?;
         let parent = output
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
         ensure!(
-            !parent.canonicalize()?.starts_with(&share.root),
+            !parent
+                .canonicalize()?
+                .starts_with(share.root.canonicalize()?),
             "invitation must be outside the shared directory"
         );
         let invitation = Invitation {
@@ -224,12 +307,33 @@ impl State {
             expires: now() + 600,
         };
         self.control(|control| {
-            write_new_json(output, &invitation)?;
+            if let Some(name) = name {
+                let mut value = serde_json::to_value(&invitation)?;
+                value["connection"] =
+                    serde_json::json!({"schema":1,"name":name,"writable":share.writable});
+                if output.exists() {
+                    let metadata = fs::symlink_metadata(output)?;
+                    ensure!(
+                        replace && metadata.is_file() && !metadata.is_symlink(),
+                        "连接文件已存在，请选择新文件或确认替换"
+                    );
+                }
+                let mut file = tempfile::NamedTempFile::new_in(parent)?;
+                file.write_all(&serde_json::to_vec_pretty(&value)?)?;
+                file.as_file().sync_all()?;
+                if replace {
+                    file.persist(output)?;
+                } else {
+                    file.persist_noclobber(output)?;
+                }
+            } else {
+                write_new_json(output, &invitation)?;
+            }
             control.invitation = Some(InvitationHash {
                 hash: Sha256::digest(invitation.secret.as_bytes()).into(),
                 expires: invitation.expires,
             });
-            Ok(())
+            Ok(invitation.expires)
         })
     }
 

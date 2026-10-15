@@ -6,6 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'status_tray.dart';
 import 'tray_panel.dart';
 import 'backup_page.dart';
+import 'sharing_page.dart';
 import 'package:window_manager/window_manager.dart';
 import 'client.dart';
 import 'profile_dialog.dart';
@@ -350,7 +351,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
         onSignOut: signOut,
       );
     }
-    final titles = ['文件', '传输', '连接', '备份', '设置'];
+    final titles = ['文件', '传输', '连接', '备份', '共享', '设置'];
     return Scaffold(
       body: Row(
         children: [
@@ -365,10 +366,10 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                     key: const ValueKey('navigation'),
                     children: [
                       const Padding(
-                        padding: EdgeInsets.fromLTRB(22, 32, 20, 8),
+                        padding: EdgeInsets.fromLTRB(22, 16, 20, 8),
                         child: Icon(
                           Icons.cloud_outlined,
-                          size: 42,
+                          size: 32,
                           color: Color(0xff326bd6),
                         ),
                       ),
@@ -381,7 +382,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                         ),
                       ),
                       const Padding(
-                        padding: EdgeInsets.only(bottom: 32, top: 3),
+                        padding: EdgeInsets.only(bottom: 12, top: 3),
                         child: Text(
                           '文件与同步',
                           textAlign: TextAlign.center,
@@ -392,9 +393,10 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                         Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
-                            vertical: 3,
+                            vertical: 2,
                           ),
                           child: ListTile(
+                            dense: true,
                             selected: page == i,
                             selectedTileColor: const Color(0xffedf3ff),
                             shape: RoundedRectangleBorder(
@@ -406,6 +408,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                                 Icons.swap_vert,
                                 Icons.dns_outlined,
                                 Icons.backup_outlined,
+                                Icons.share_outlined,
                                 Icons.tune,
                               ][i],
                             ),
@@ -564,6 +567,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                       1 => transfersPage(),
                       2 => connectionsPage(),
                       3 => BackupPage(key: ValueKey(c.selected), client: c),
+                      4 => SharingPage(client: c),
                       _ => settingsPage(),
                     },
                   ),
@@ -1140,7 +1144,9 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
           ProfileDialog(original: original, providers: c.providers, client: c),
     );
     if (profile != null) {
-      await c.save(profile);
+      final connect = profile.remove('_connect') == true;
+      final id = await c.save(profile);
+      if (connect && id != null) await c.connect(id);
     }
   }
 }

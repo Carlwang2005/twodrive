@@ -4,7 +4,7 @@
 
 这是 `dev` 分支上的独立实验入口 `twodrive-dev`。正在使用的稳定 TwoDrive、配置、数据库和原 main 工作目录保持原样。dev 现已整合 Windows 预览及 OneDrive peer-control 源码，见[组合指南](../../doc/dev-integration.md)。这里使用已有的文件系统引擎，但有独立 Cargo workspace、锁文件、设备状态和挂载缓存。
 
-已实现：连接现有 HTTPS WebDAV；将显式目录共享；一次邀请完成设备配对；QUIC/TLS 加密、可靠 UDP 直连、NAT 打洞和加密中继回退；设备撤销；本机 WebDAV 网关；可选 Linux FUSE 挂载。没有 VPN、虚拟网卡或路由配置。它不是 Syncthing 式的双向目录镜像。[Development 桌面](../../doc/storage-connections-dev.md)可管理客户端连接；共享服务仍通过命令行启动。[两机连接流程、自动更新检查与发行准备](../../doc/distribution-preparation.md)。
+已实现：连接现有 HTTPS WebDAV；将显式目录共享；一次邀请完成设备配对；QUIC/TLS 加密、可靠 UDP 直连、NAT 打洞和加密中继回退；设备撤销；本机 WebDAV 网关；可选 Linux FUSE 挂载。没有 VPN、虚拟网卡或路由配置。它不是 Syncthing 式的双向目录镜像。最新 `dev` 的 [Development 桌面](../../doc/storage-connections-dev.md)可在“共享”中选目录、启停服务及导出连接文件，另一台电脑在“添加连接”中导入并连接；命令行服务保留。该功能晚于已发布的 0.1.4。[两机连接流程、自动更新检查与发行准备](../../doc/distribution-preparation.md)。
 
 ## 构建
 
