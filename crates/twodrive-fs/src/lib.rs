@@ -31,3 +31,5 @@ pub use recovery::{
 };
 
 pub use recovery::recover_dirty_record;
+#[cfg(test)]
+mod delete_retry_tests;

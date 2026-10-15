@@ -115,3 +115,13 @@ pub(crate) fn logout(paths: &AppPaths) -> anyhow::Result<()> {
 pub(crate) fn use_mock_backend() -> bool {
     env::var("TWODRIVE_BACKEND").as_deref() == Ok("mock")
 }
+
+pub(crate) fn retry_deletes(paths: &AppPaths) -> anyhow::Result<()> {
+    let db = Database::new(&paths.db_path);
+    db.init()?;
+    let count = db.retry_pending_deletes()?;
+    println!(
+        "made {count} retained deletion task(s) eligible for the next background scan; cloud deletion is not yet confirmed"
+    );
+    Ok(())
+}

@@ -7,6 +7,7 @@ use crate::{FileRecord, FileState, MetadataEntry};
 
 mod cache;
 pub mod cloud;
+mod delete_retry;
 mod metadata;
 mod mutations;
 mod pins;

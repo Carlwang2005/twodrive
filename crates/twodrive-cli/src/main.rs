@@ -25,6 +25,7 @@ fn main() -> anyhow::Result<()> {
         "status" => print_status(&paths),
         "known-folders" => known_folders::command(&paths, &args),
         "sync" => sync(&paths),
+        "retry-deletes" => commands::retry_deletes(&paths),
         "mount" => mount(paths),
         "pin" => pin(&paths, required_path(&args)?),
         "unpin" => unpin(&paths, required_path(&args)?),

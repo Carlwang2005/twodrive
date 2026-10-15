@@ -371,6 +371,7 @@ fn failed_delete_keeps_bound_upload_and_cache_for_restart_retry() {
     reopened.init().unwrap();
     backend.fail_delete = false;
     backend.fail_upload = true; // Retry must not upload it again.
+    reopened.retry_pending_deletes().unwrap();
     assert_eq!(recover_pending_deletes(&reopened, &backend).unwrap(), 1);
     assert!(!cache.exists());
     assert!(
