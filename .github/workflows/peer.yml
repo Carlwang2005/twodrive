@@ -21,7 +21,7 @@ jobs:
         run: |
           for ($attempt = 1; $attempt -le 8; $attempt++) {
             Write-Host "Database contention diagnostic attempt $attempt"
-            cargo test -p twodrive-core --locked
+            cargo test -p twodrive-core --locked -- --test-threads=32
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - run: cargo build -p twodrive-peer --features test-fixture --bin peer-health-fixture --locked
