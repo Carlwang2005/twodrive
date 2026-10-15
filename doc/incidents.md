@@ -46,10 +46,45 @@
 
 
 
+## TD-20261015-09：共享退出烟测在 quit 后继续复用 IPC
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证测试修正；未发现本项对应的产品退出缺陷。
+- 影响版本与环境：本次尚未提交的退出烟测草稿；本机 Windows 隔离临时目录。
+- 关联历史故障：无；测试生命周期问题。
+
+### 症状与影响
+
+加固退出检查时，在 `quit` 后继续发送 `status`，测试等待无响应。没有操作用户配置或真实文件。
+
+### 触发条件与复现
+
+同一 Engine fixture 发出 `quit` 后又调用 `status`。worker 已按协议退出，不能再处理后续请求；reader 仍等待关闭标准输入。
+
+### 根因与证据
+
+既有 desktop worker 明确在成功 quit 后 break。新烟测误把 quit 当作仅停止共享，与产品协议不符。不是 GUI 的常规状态轮询死锁。
+
+### 解决办法与恢复操作
+
+使用 fixture.close 发送 quit、关闭 stdin 并等待进程退出，再创建新的引擎检查共享未启动及运行锁释放。本地只终止已核实为该草稿烟测的 Python 进程；测试引擎/共享子进程当时已退出。
+
+### 验证结果与边界
+
+修正后真实 IPC/本机 QUIC 六组检查全部通过，包括同引擎同时作为客户端/服务端，以及退出后新引擎立即恢复相同共享。未修改产品 quit 行为。
+
+### 防复发措施与后续
+
+保留进程重启而非 quit 后复用 IPC 的验收步骤；双平台 CI 运行相同脚本。
+
+### 交付记录
+
+代码与后续原生 CI 见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)，尚未发布新版 Release。
+
 ## TD-20261015-08：新增共享导航使最小窗口的设置入口被裁剪
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已验证 Flutter 最小窗口回归；原生桌面 CI 待补充。
+- 状态：已验证 Flutter 最小窗口回归；原生桌面 CI 结论见 PR #22。
 - 影响版本与环境：本次尚未发布的桌面共享 GUI；840×580 管理窗口。
 - 关联历史故障：无同根因已知条目；此次为第六个导航项目带来的新回归，触发现有最小窗口测试。
 
@@ -79,12 +114,12 @@
 
 ### 交付记录
 
-尚未提交、未发布；最终提交及 CI 链接待补充。
+实现 [d3a40f3](https://github.com/LumiaBlack51/twodrive/commit/d3a40f307de116d4a868ee3874a1fd2b6de96db3)，原生 CI 结论见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)；尚未发布新版 Release。
 
 ## TD-20261015-07：邀请导出边界比较混用 Windows 路径形式
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已验证本机 Windows 单元及实际 IPC/QUIC 边界；Linux CI 待补充。
+- 状态：已验证本机 Windows 单元及实际 IPC/QUIC 边界；Linux CI 结论见 PR #22。
 - 影响版本与环境：新增 GUI 导出测试；既有 State.invite 的路径边界比较。正常 serve 会保存 canonical 根路径，尚未证明正常发布流程存在泄露。
 - 关联历史故障：无；与 TD-20261015-04 打包路径不同。
 
@@ -114,7 +149,7 @@ Windows fixture 的共享根为普通盘符路径，输出父目录 canonicalize
 
 ### 交付记录
 
-尚未提交、未发布；最终提交及 CI 链接待补充。
+实现 [d3a40f3](https://github.com/LumiaBlack51/twodrive/commit/d3a40f307de116d4a868ee3874a1fd2b6de96db3)，原生 CI 结论见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)；尚未发布新版 Release。
 
 ## TD-20261015-06：Lintian 输出管道掩盖失败退出码
 
