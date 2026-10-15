@@ -21,6 +21,114 @@ pub struct State {
     pub dir: PathBuf,
 }
 
+fn persist_atomic(output: tempfile::NamedTempFile, destination: &Path) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    {
+        persist_windows(output, destination, std::thread::sleep)
+    }
+    #[cfg(not(windows))]
+    {
+        output.persist(destination)?;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn persist_windows(
+    mut output: tempfile::NamedTempFile,
+    destination: &Path,
+    mut wait: impl FnMut(std::time::Duration),
+) -> anyhow::Result<()> {
+    for retry in 0..=6 {
+        match output.persist(destination) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                // Windows readers may temporarily omit FILE_SHARE_DELETE.
+                // Keep the same synced temporary file and old destination;
+                // never delete the old file or retry permanent failures forever.
+                if retry == 6 || !matches!(error.error.raw_os_error(), Some(5 | 32 | 33)) {
+                    return Err(error.into());
+                }
+                output = error.file;
+                wait(std::time::Duration::from_millis(25 * (retry + 1)));
+            }
+        }
+    }
+    unreachable!()
+}
+
+#[cfg(all(test, windows))]
+mod atomic_windows_tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    #[test]
+    fn temporary_delete_denial_recovers_without_removing_old_content() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("config.json");
+        fs::write(&target, b"old content").unwrap();
+        let mut lock = Some(
+            OpenOptions::new()
+                .read(true)
+                .share_mode(3)
+                .open(&target)
+                .unwrap(),
+        );
+        let mut output = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+        output.write_all(b"new content").unwrap();
+        output.as_file().sync_all().unwrap();
+        // This is the prior unretried replacement behavior, against a real handle.
+        let denied = output.persist(&target).unwrap_err();
+        assert!(matches!(denied.error.raw_os_error(), Some(5 | 32 | 33)));
+        assert_eq!(fs::read(&target).unwrap(), b"old content");
+        let mut retries = 0;
+        persist_windows(denied.file, &target, |_| {
+            retries += 1;
+            assert_eq!(fs::read(&target).unwrap(), b"old content");
+            drop(lock.take());
+        })
+        .unwrap();
+        assert_eq!(retries, 1);
+        assert_eq!(fs::read(&target).unwrap(), b"new content");
+    }
+
+    #[test]
+    fn persistent_delete_denial_is_bounded_and_keeps_previous_configuration() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("config.json");
+        fs::write(&target, b"old content").unwrap();
+        let _lock = OpenOptions::new()
+            .read(true)
+            .share_mode(3)
+            .open(&target)
+            .unwrap();
+        let mut output = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+        output.write_all(b"new content").unwrap();
+        let mut retries = 0;
+        assert!(persist_windows(output, &target, |_| retries += 1).is_err());
+        assert_eq!(retries, 6);
+        assert_eq!(fs::read(&target).unwrap(), b"old content");
+        let state = State::new(root.path().join("private")).unwrap();
+        state
+            .save("profiles.json", &serde_json::json!({"name":"old"}))
+            .unwrap();
+        let _state_lock = OpenOptions::new()
+            .read(true)
+            .share_mode(3)
+            .open(state.dir.join("profiles.json"))
+            .unwrap();
+        assert!(
+            state
+                .save("profiles.json", &serde_json::json!({"name":"new"}))
+                .is_err()
+        );
+        assert_eq!(
+            state.read::<serde_json::Value>("profiles.json").unwrap()["name"],
+            "old"
+        );
+    }
+}
+
 #[cfg(test)]
 mod export_tests {
     use super::*;
@@ -198,7 +306,7 @@ impl State {
         }
         output.write_all(&serde_json::to_vec_pretty(value)?)?;
         output.as_file().sync_all()?;
-        output.persist(self.dir.join(name))?;
+        persist_atomic(output, &self.dir.join(name))?;
         #[cfg(unix)]
         File::open(&self.dir)?.sync_all()?;
         Ok(())
@@ -322,7 +430,7 @@ impl State {
                 file.write_all(&serde_json::to_vec_pretty(&value)?)?;
                 file.as_file().sync_all()?;
                 if replace {
-                    file.persist(output)?;
+                    persist_atomic(file, output)?;
                 } else {
                     file.persist_noclobber(output)?;
                 }

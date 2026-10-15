@@ -1,14 +1,15 @@
 {
   "date": "2026-10-15",
-  "runtime_source_commit": "d3a40f307de116d4a868ee3874a1fd2b6de96db3",
   "pull_request": "https://github.com/LumiaBlack51/twodrive/pull/22",
   "environment": "native Windows; isolated disposable state; Flutter 3.41.8",
   "rust": {
-    "library_tests_passed": 38,
+    "library_tests_passed": 40,
     "desktop_tests_passed": 9,
     "clippy": "all targets; warnings denied; passed",
     "fmt": "passed",
-    "release_engine_build": "passed"
+    "release_engine_build": "passed",
+    "full_suite_tests_passed": 64,
+    "windows_atomic_replacement": "real non-delete-sharing handle: temporary denial recovers; persistent denial bounded; previous bytes retained"
   },
   "flutter": {
     "analysis": "passed",
@@ -34,8 +35,8 @@
   },
   "msix": {
     "type": "local Windows build, unsigned test MSIX",
-    "bytes": 24911401,
-    "sha256": "5dcba4b5b05358d4f11acb1fa9d566867532b3b6d850cfef62aa96508682d760",
+    "bytes": 24907742,
+    "sha256": "e478a2fde6a57b74caaf99de14a743ce28c4655599a7a54abb875855d4d7672e",
     "crc_verified": true,
     "retained_files_verified": [
       {
@@ -44,11 +45,11 @@
       },
       {
         "path": "twodrive-dev.exe",
-        "sha256": "574c1e6633dd143802bad1a6cc950f7e228030a2a69f2cc49c9bf5e83e2cf85a"
+        "sha256": "c7f9f2a11f800034afd7ca88e61c905d2706523599edd7ec587cd9a51c0e7fd1"
       },
       {
         "path": "twodrive-dav-engine.exe",
-        "sha256": "a9562696ee2159b8cbfb46aa95422c22fe85dc30dea009f3f4a1f203fbbc0d94"
+        "sha256": "3edb14ae6c4cef9a429201db448465d8e0cc376bc54f41279fb2f80ba45ae555"
       },
       {
         "path": "flutter_windows.dll",
@@ -56,7 +57,7 @@
       },
       {
         "path": "docs/desktop-sharing-validation.md",
-        "sha256": "af6b080babc8badc1c77cb04334ca1509540299fd016c631b792638a23ff481c"
+        "sha256": "a91b56b4214f61797a190fa6374e5d184fb2d3a8a31aea0e1c677a22d2711ff5"
       }
     ],
     "signed": false,
@@ -70,5 +71,9 @@
     "signed MSIX installation",
     "Microsoft Store certification",
     "live cloud accounts in this change"
-  ]
+  ],
+  "runtime_source_base_commit": "d3a40f307de116d4a868ee3874a1fd2b6de96db3",
+  "runtime_source_overrides": {
+    "experiments/twodrive-dev/src/state.rs": "723d13999d0ecbe5c3fe7255769305e072b239a1"
+  }
 }
