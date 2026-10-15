@@ -93,4 +93,4 @@ See [debian/README.source](../debian/README.source),
 | [Windows dual preview](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583597) | 既有 Windows 组合预览兼容性 |
 | [Debian package](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583450) | 离线构建/测试、旧包反例、完整上传清单、Lintian、安装/移除与源码归档 |
 
-CI MSIX SHA-256：`8189e50a6ba4c0f6381228de3f72ead6479276874d978d98885066ee2dc6223f`；Debian 主包 SHA-256：`3ad1720c56d76eedbd16d7cc1a820294626d441e0c135618795fd545921b2c0e`。这些是准备阶段的 CI 产物，现有 Release 仍为 Development 0.1.4 / 稳定版 0.2.14-1。
+CI MSIX SHA-256：`8189e50a6ba4c0f6381228de3f72ead6479276874d978d98885066ee2dc6223f`；Debian 主包 SHA-256：`3ad1720c56d76eedbd16d7cc1a820294626d441e0c135618795fd545921b2c0e`。以上保留 PR #21 准备阶段的 CI 证据。后续 [Development 0.1.5](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.5) 已发布，最终产物哈希和 MSIX/Deb 实际安装验证见 Release 的 verification.json、runtime-validation.json 及 [0.1.5 说明](development-0.1.5.md)。
