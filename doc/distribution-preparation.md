@@ -76,7 +76,19 @@ See [debian/README.source](../debian/README.source),
 
 - 本机 Windows：Development 37 个库测试与 7 个桌面引擎测试通过。
 - Flutter 3.41.8 锁定依赖、analyze、30 项测试与 Windows release 构建通过；真实公开 GitHub 检查识别 Development 0.1.4。
-- 最新代码 MSIX 通过 SDK 校验；四个核心程序/DLL 哈希与构建目录一致，三个图标尺寸、测试身份和更新通道标记核对通过。输出 24,774,758 字节，未签名。
-- 桌面 IPC 文件/备份测试及本机两个进程的 QUIC/UDP/WebDAV 传输通过。本机托盘 smoke 未获得前台焦点，原生 CI 对照待完成，不能宣称本机完整 UI 通过。
-- Debian CI：待本轮完成后补充。
+- 本机 MSIX 通过 SDK 校验，输出 24,774,758 字节；后续下载原生 CI 的 MSIX（24,777,256 字节），校验 SHA-256、CRC、测试身份、未签名状态、更新通道标记与三个图标尺寸。保留的 33 个 bundle 文件逐一与同一 CI 的 Windows 便携目录比对哈希一致。
+- 桌面 IPC 文件/备份测试及本机两个进程的 QUIC/UDP/WebDAV 传输通过。本机托盘 smoke 未获得前台焦点，原因仍未确认；独立 Windows CI 的重复展开、背景隐藏、位置稳定、外部焦点收起和 Escape 通知检查全部通过。后者是 Shell 通知模拟，不代替用户硬件点击验收。
+- Debian 0.2.14-2 二进制包、调试包、quilt 源码包、实际依赖/权限检查、安装 smoke 和移除均通过。下载后重新核对 `.changes`、`.dsc` 两份清单及其引用文件的大小与 SHA-256，全部一致。二进制 Lintian 日志为空，源码无 E 级错误，仅保留 `newer-standards-version 4.7.4 (current is 4.6.2)`，来自 CI 旧版检查器。
 - 尚未验证：商店提交/认证、签名安装后的全流程、Debian 官方依赖闭包及 sbuild、真实异地 NAT。
+
+已核实源码提交：`f22a1213a360b095405087a63bb13250f673ce6a`。以下五组 CI 全部成功；后续收尾仅补充文档记录。精确产物大小、哈希和验证边界见[机器可读记录](distribution-validation-2026-10-15.json)。
+
+| CI | 已通过的范围 |
+| --- | --- |
+| [TwoDrive desktop](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583401) | Linux/Windows 桌面、Rust 65/59 项、Flutter 检查和构建、IPC/备份/自启动隔离、Windows 原生托盘及 MSIX |
+| [Peer native builds](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583553) | Linux/Windows 原生检查 |
+| [WebDAV / QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583461) | Linux/Windows 协议、双进程传输与原生检查 |
+| [Windows dual preview](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583597) | 既有 Windows 组合预览兼容性 |
+| [Debian package](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583450) | 离线构建/测试、旧包反例、完整上传清单、Lintian、安装/移除与源码归档 |
+
+CI MSIX SHA-256：`8189e50a6ba4c0f6381228de3f72ead6479276874d978d98885066ee2dc6223f`；Debian 主包 SHA-256：`3ad1720c56d76eedbd16d7cc1a820294626d441e0c135618795fd545921b2c0e`。这些是准备阶段的 CI 产物，现有 Release 仍为 Development 0.1.4 / 稳定版 0.2.14-1。
