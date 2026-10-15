@@ -46,6 +46,41 @@
 
 
 
+## TD-20261015-06：Lintian 输出管道掩盖失败退出码
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已定位，修复后等待 CI 复验。
+- 影响版本与环境：本次新增 Debian workflow 至 b190d36；没有据此上传正式 Release 或 Debian archive。
+- 关联历史故障：TD-20261015-02 同样涉及校验未阻止后续动作，但这里根因是 shell 管道状态，非 Python 发布逻辑。
+
+### 症状与影响
+
+CI 显示成功，下载的 lintian.log 却有 E 级错误：历史 changelog 使用 noreply@localhost；源码中的紧凑原型 HTML 被判定 source-is-missing。首条进展曾依据 CI 绿色状态报告 Lintian 通过，下载日志后已纠正。
+
+### 触发条件与复现
+
+lintian --fail-on error ... | tee ... 位于未显式指定 shell 的 run 中；没有 pipefail 时退出码来自 tee。38688223783 保存了二进制和源码的实际错误。
+
+### 根因与证据
+
+流水线缺失显式 bash/pipefail，失败检查仍允许安装烟测与源码打包继续。原型是库内自包含 HTML/CSS/JS 源码，但极长压缩式行触发 Lintian 启发式检查；不是可以省略来源证明的外部二进制。
+
+### 解决办法与恢复操作
+
+设置 job 的 shell: bash，并在两个 Lintian 步骤显式 set -euo pipefail。早期手工包 changelog 原文移至 doc/legacy-debian-changelog.txt 保留，不篡改其作者与邮箱；debian/changelog 从本次标准化包装开始。原型用固定版本 Prettier 展开为可读源码；pkg-config Build-Depends 更新为 pkgconf。无用户数据恢复。
+
+### 验证结果与边界
+
+此前 CI 的 debhelper 构建、实际依赖/权限检查、安装/移除及源码归档已通过，但 Lintian 未通过，不能引用旧绿色状态作为规范合格证据。修复后将重新获取真实日志核对，仍不代表官方入库。
+
+### 防复发措施与后续
+
+保留显式 pipefail；上传二进制/源码 Lintian 日志，人工复核错误及警告，禁止以覆盖或 continue-on-error 隐藏发现。最终结果见发行准备记录。
+
+### 交付记录
+
+[受影响 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38688223783)、[PR #21](https://github.com/LumiaBlack51/twodrive/pull/21)。
+
 ## TD-20261015-05：本机 Windows 托盘烟测未获得前台焦点
 
 - 日期：2026-10-15（Asia/Shanghai）

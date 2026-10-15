@@ -10,12 +10,15 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Debian tooling and native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper dh-python cargo rustc pkg-config libsqlite3-dev lintian python3-gi gir1.2-gtk-4.0
+          sudo apt-get install -y debhelper dh-python cargo rustc pkgconf libsqlite3-dev lintian python3-gi gir1.2-gtk-4.0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -28,6 +31,7 @@ jobs:
         run: bash scripts/build-deb.sh -d -j2
       - name: Verify archive metadata and Lintian
         run: |
+          set -euo pipefail
           curl --fail --location --output /tmp/old-twodrive.deb https://github.com/LumiaBlack51/twodrive/releases/download/v0.2.14-1/twodrive_0.2.14-1_amd64.deb
           if python3 scripts/test-debian-package.py /tmp/old-twodrive.deb > dist/debian/old-package-regression.log 2>&1; then
             echo 'Expected old package dependency failure was not reproduced'; exit 1
@@ -42,6 +46,7 @@ jobs:
           sudo apt-get remove -y twodrive
       - name: Build quilt source package from a clean source tree
         run: |
+          set -euo pipefail
           upstream=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
           stage=$(mktemp -d)
           mkdir "$stage/twodrive-$upstream"
