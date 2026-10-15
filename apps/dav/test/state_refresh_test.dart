@@ -139,4 +139,19 @@ void main() {
     expect(c.calls, ['status', 'list', 'status']);
     c.dispose();
   });
+
+  test(
+    'disposing during a poll does not enqueue a directory request',
+    () async {
+      final c = DelayedClient()..available = true;
+      c.selected = 'p';
+      c.status = {'connected': true, 'profile': 'p'};
+      final poll = c.pollNow();
+      await Future<void>.delayed(Duration.zero);
+      c.dispose();
+      c.replies.single.complete({'connected': true, 'profile': 'p'});
+      await poll;
+      expect(c.calls, ['status']);
+    },
+  );
 }

@@ -75,7 +75,7 @@
 
 ### 验证结果与边界
 
-旧 Flutter 两项回归分别以 100 != 1、old != new 失败；新实现通过。队列旧 worker 变体退出 1（取消后的等待任务仍成功），新受控 IPC 检查通过，覆盖队列满/取消通道/跳过任务/完成快照/用户名/恢复。前端另覆盖轮询错误恢复且保留操作错误、外部操作同步、整轮刷新合并、明确登录/切换/当前标记及原生托盘参数；Rust 覆盖 /me 请求与名称回退、session kind/revision 和秘密不公开。
+旧 Flutter 两项回归分别以 100 != 1、old != new 失败；新实现通过。队列旧 worker 变体退出 1（取消后的等待任务仍成功），新受控 IPC 检查通过，覆盖队列满/取消通道/跳过任务/完成快照/用户名/恢复。前端另覆盖轮询错误恢复且保留操作错误、外部操作同步、整轮刷新合并、销毁后不继续刷新、明确登录/切换/当前标记及原生托盘参数；Rust 覆盖 /me 请求与名称回退、session kind/revision 和秘密不公开。
 
 根工作区默认 Rust、独立实验完整 mount 套件、两工作区严格 Clippy/格式、Flutter analyze 与测试、Linux 原生构建、25 Nautilus/13 scripts 单元测试通过（最终新增检查数量见交付补记）。实际隔离 WebDAV IPC/FUSE 完成 2 MiB 字节往返、读写、暂停与恢复、缓存/备份/冲突保护；本机签名 UDP/QUIC 发现、邀请、读写、重连和切回原连接通过。
 
@@ -87,7 +87,7 @@
 
 ### 交付记录
 
-提交、PR、CI、Release：待补充。
+[实现提交 b928b10](https://github.com/LumiaBlack51/twodrive/commit/b928b10d799b3dbcb5e0a603cd16e9e1a1839e0e)；[PR #19](https://github.com/LumiaBlack51/twodrive/pull/19) 已创建。CI 与 Release：待补充。
 
 ## TD-20261015-02：Release 校验失败后仍执行公开操作
 

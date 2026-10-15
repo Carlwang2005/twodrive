@@ -324,6 +324,7 @@ class StorageClient extends ChangeNotifier {
       if (busy || !available || quitting || _disposed) return;
       final previous = selected;
       await refreshStatus();
+      if (_disposed || quitting || !available) return;
       if (selected != previous) await loadProfiles();
       if (!busy &&
           connected &&
@@ -398,7 +399,7 @@ class StorageClient extends ChangeNotifier {
     final generation = ++_browseGeneration;
     final identity = this.target;
     final result = await request('list', {'path': target, ...identity});
-    if (generation != _browseGeneration || !available) {
+    if (generation != _browseGeneration || !available || _disposed) {
       return;
     }
     _directoryChecked = DateTime.now();
