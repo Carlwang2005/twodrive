@@ -16,7 +16,7 @@ class ReleaseAssets(unittest.TestCase):
         self.file = Path(self.directory.name, 'package.bin')
         self.file.write_bytes(b'public synthetic package')
         self.release = {'tagName': 'test-v1', 'targetCommitish': 'a' * 40,
-                        'isDraft': True, 'isPrerelease': False,
+                        'isDraft': True, 'isPrerelease': False, 'resolvedTagCommit': 'a' * 40,
                         'assets': [{'name': self.file.name, 'state': 'uploaded',
                                     'size': self.file.stat().st_size,
                                     'digest': 'sha256:' + hashlib.sha256(self.file.read_bytes()).hexdigest()}]}
@@ -55,6 +55,19 @@ class ReleaseAssets(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.publish()
         self.assertEqual(self.calls, [])
+
+    def test_existing_tag_cannot_point_to_a_different_commit(self):
+        self.release['resolvedTagCommit'] = 'b' * 40
+        with self.assertRaises(ValueError):
+            self.publish()
+        self.assertEqual(self.calls, [])
+
+    def test_preview_publication_does_not_replace_stable_latest(self):
+        self.release['isPrerelease'] = True
+        module.check_and_publish(self.release, 'test-v1', 'a' * 40, [self.file],
+                                 'preview', run=lambda *args, **kwargs: self.calls.append(args))
+        self.assertIn('--latest=false', self.calls[0][0])
+        self.assertIn('--prerelease', self.calls[0][0])
 
     def test_valid_draft_publishes_once_and_read_only_check_does_not(self):
         module.check_and_publish(self.release, 'test-v1', 'a' * 40, [self.file])
