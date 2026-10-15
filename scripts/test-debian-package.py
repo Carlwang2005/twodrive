@@ -5,6 +5,32 @@ from pathlib import Path
 import subprocess
 import tarfile
 import io
+import hashlib
+
+
+def verify_manifests(directory):
+    manifests = list(directory.glob('*.changes')) + list(directory.glob('*.dsc'))
+    assert manifests, 'missing Debian upload manifests'
+    for manifest in manifests:
+        active = False
+        checked = 0
+        for line in manifest.read_text().splitlines():
+            if line == 'Checksums-Sha256:':
+                active = True
+                continue
+            if not line.startswith(' '):
+                active = False
+            if active:
+                digest, size, name = line.split()
+                assert Path(name).name == name, 'unexpected manifest path'
+                path = directory / name
+                assert path.is_file(), f'missing manifest member: {name}'
+                assert path.stat().st_size == int(size), f'wrong size: {name}'
+                with path.open('rb') as stream:
+                    assert hashlib.file_digest(stream, 'sha256').hexdigest() == digest, f'wrong SHA-256: {name}'
+                checked += 1
+        assert checked, f'missing SHA-256 entries: {manifest.name}'
+    print(f'Verified all members of {len(manifests)} Debian upload manifests')
 
 
 def verify(package):
@@ -24,6 +50,7 @@ def verify(package):
                      'usr/lib/systemd/user/twodrive-daemon.service']:
             assert name in names, f'missing payload: {name}'
     print(f'Verified Debian dependencies, ownership and payload: {package.name}')
+    verify_manifests(package.parent)
 
 
 if __name__ == '__main__':

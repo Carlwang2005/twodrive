@@ -10,7 +10,7 @@ dpkg-buildpackage --build=binary --no-sign "$@"
 version="$(dpkg-parsechangelog -S Version)"
 mkdir -p dist/debian
 shopt -s nullglob
-outputs=(../twodrive*"_${version}_"*.deb ../twodrive_"${version}_"*.buildinfo ../twodrive_"${version}_"*.changes)
+outputs=(../twodrive*"_${version}_"*.deb ../twodrive*"_${version}_"*.ddeb ../twodrive_"${version}_"*.buildinfo ../twodrive_"${version}_"*.changes)
 if ((${#outputs[@]} == 0)); then echo 'No Debian build outputs found' >&2; exit 1; fi
 cp -- "${outputs[@]}" dist/debian/
 printf 'Debian build outputs: %s/dist/debian\n' "$project_root"

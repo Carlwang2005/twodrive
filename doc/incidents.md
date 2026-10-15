@@ -75,7 +75,7 @@ lintian --fail-on error ... | tee ... 位于未显式指定 shell 的 run 中；
 
 ### 防复发措施与后续
 
-保留显式 pipefail；上传二进制/源码 Lintian 日志，人工复核错误及警告，禁止以覆盖或 continue-on-error 隐藏发现。最终结果见发行准备记录。
+保留显式 pipefail；上传二进制/源码 Lintian 日志，人工复核错误及警告，禁止以覆盖或 continue-on-error 隐藏发现。[732c7f6 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38689723105) 已实现二进制 Lintian 空日志、源码无 E 级错误，仅有旧检查器不识别 Standards-Version 4.7.4 的 W 级提示。下载后对 .changes 做完整校验时又发现 helper 未复制其引用的自动生成 .ddeb；主 deb 可安装但上传集合不完整。已补齐 debug 包复制，并把 .changes/.dsc 的所有文件存在性、大小和 SHA-256 纳入 CI 门禁。最终结果见发行准备记录。
 
 ### 交付记录
 

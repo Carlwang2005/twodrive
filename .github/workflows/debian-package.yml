@@ -54,6 +54,7 @@ jobs:
           git archive --prefix="twodrive-$upstream/" HEAD -- . ':!debian' | xz -T2 > "$stage/twodrive_$upstream.orig.tar.xz"
           (cd "$stage" && dpkg-source --build "twodrive-$upstream")
           cp "$stage"/*.dsc "$stage"/*.tar.xz dist/debian/
+          python3 scripts/test-debian-package.py dist/debian/twodrive_*_amd64.deb
           lintian --fail-on error dist/debian/*.dsc | tee dist/debian/lintian-source.log
       - uses: actions/upload-artifact@v4
         if: always()
