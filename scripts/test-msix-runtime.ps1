@@ -54,6 +54,7 @@ namespace TwoDriveMsixSmoke {
     delegate bool Callback(IntPtr window, IntPtr data);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll", SetLastError=true)] static extern bool PostThreadMessage(uint thread, uint message, UIntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
     public static uint Activate(string id, string args) {
       var manager = (IActivation)new ActivationManager();
       try { uint pid; Marshal.ThrowExceptionForHR(manager.ActivateApplication(id, args, 6, out pid)); return pid; }
@@ -72,11 +73,21 @@ namespace TwoDriveMsixSmoke {
       } finally { CloseHandle(process); }
     }
     public static void Close(uint target) {
+      bool found=false;
       EnumWindows((window, data) => {
         uint pid; uint thread=GetWindowThreadProcessId(window, out pid);
-        if (pid==target) { PostThreadMessage(thread, 0x12, UIntPtr.Zero, IntPtr.Zero); return false; }
-        return true;
+        if (pid!=target) return true;
+        var name=new StringBuilder(256);
+        if (GetClassName(window, name, name.Capacity)==0) throw new System.ComponentModel.Win32Exception();
+        Console.WriteLine("MSIX close candidate: class=" + name + " thread=" + thread);
+        // COM/OLE helper windows may precede the Flutter runner and live on
+        // other threads. Only the runner owns the GUI message loop under test.
+        if (name.ToString()!="FLUTTER_RUNNER_WIN32_WINDOW") return true;
+        if (!PostThreadMessage(thread, 0x12, UIntPtr.Zero, IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+        found=true;
+        return false;
       }, IntPtr.Zero);
+      if (!found) throw new InvalidOperationException("No Flutter runner window belongs to the activated package process.");
     }
   }
 }
