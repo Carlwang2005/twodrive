@@ -88,5 +88,10 @@ Main implementation PR #24 merged as e003ec2eb4438677b58abcaa928b8cfa30018e42;
 release source/tag v0.2.14-2 is 408370942c39473688813935e46579fa84e9bbe8,
 with the same Git tree. Dev policy PR #25 merged as
 4942f2ded44cdb805c397c90b932ca06c23dae0e. Active GitHub ruleset 25148176
-requires `Debian packaging policy` on both main and dev. Release publication
-verification is being finalized; see the incident log for the confirmed result.
+requires `Debian packaging policy` on both main and dev. [Release 0.2.14-2](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.14-2)
+was published as stable Latest at 2026-10-15 17:16:54 +08:00. All 11 assets,
+source tag and hashes passed the publication guard before and after publication.
+See [machine-readable verification](debian-packaging-validation-2026-10-15.json)
+and the incident log. The CLI continues reporting 0.2.14 because -2 is the
+packaging revision. The laptop remains a per-user installation updated from
+this standard package, rather than a newly registered system-wide dpkg install.

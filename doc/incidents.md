@@ -124,7 +124,7 @@ scripts/test-debian-vendor.py 验证每个 vendored 文件 SHA-256，CI 在提�
 ## TD-20261015-11：stable main Debian 打包流程与用户安装兼容性迁移
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已验证标准源码/二进制构建、离线重建、隔离升级及 laptop 用户安装更新；Release 保护校验进行中。
+- 状态：已验证标准源码/二进制构建、离线重建、隔离升级及 laptop 用户安装更新；Release 保护校验及公开后复核通过。
 - 影响版本与环境：main 7eb7f3d，稳定手工包 0.2.14-1；目标 0.2.14-2。Zorin 18.1 laptop 原为用户目录安装。
 - 关联历史故障：dev TD-20261015-04 已处理相同手工打包机制，但尚未同步 main；本轮是稳定分支迁移，不是原修复代码回归。TD-20261015-02/06 要求发布校验和管道退出码必须阻断后续动作。
 
@@ -161,7 +161,7 @@ main/dev 同步 AGENTS.md、CONTRIBUTING.md 和长期打包规范；CI 验证真
 
 [main PR #24](https://github.com/LumiaBlack51/twodrive/pull/24) 已合入 `e003ec2eb4438677b58abcaa928b8cfa30018e42`；源标签 v0.2.14-2 指向 `408370942c39473688813935e46579fa84e9bbe8`，与合并树相同。最终 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178838)、[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178926)、[协议 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178859) 与 [Windows 组合 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178895) 全部通过。[dev policy PR #25](https://github.com/LumiaBlack51/twodrive/pull/25) 已合入 `4942f2ded44cdb805c397c90b932ca06c23dae0e`；GitHub active ruleset 25148176 要求 main/dev 均通过 Debian packaging policy。
 
-deb SHA-256：`e8bef619fb3253c2cbd2ebb2a08dd703763306a19992cad83728deb0b6875859`。11 项 Release 附件正在完整校验，公开时间待实测后补记。实际 laptop 已使用同一 deb 的程序字节。详见 [Debian 打包迁移](debian-packaging.md)。
+deb SHA-256：`e8bef619fb3253c2cbd2ebb2a08dd703763306a19992cad83728deb0b6875859`。[Release 0.2.14-2](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.14-2) 已于 2026-10-15 17:16:54 +08:00 公开为稳定 Latest；11 项附件公开前完整校验、保护脚本公开及公开后复核均通过（集合、state、size、SHA-256、实际远端标签和源 SHA）。实际 laptop 已使用同一 deb 的程序字节。详见 [Debian 打包迁移](debian-packaging.md)与[机器可读验证](debian-packaging-validation-2026-10-15.json)。
 
 
 ## TD-20261015-02：Release 校验失败后仍执行公开操作
