@@ -83,6 +83,8 @@ Use a focused branch and pull request. Explain behavior, data risks, and tests a
 
 The `main` branch requires a pull request, an up-to-date branch, successful `Native checks (Linux)` and `Native checks (Windows)` from GitHub Actions, and resolved review conversations. These rules also apply to administrators; force pushes and branch deletion are blocked. No approving review is mandatory, so the repository owner can merge their own pull requests after the checks pass.
 
+Both `main` and `dev` also require the **Debian packaging policy** check through the repository ruleset.
+
 Keep the required check names unique across workflows and run them on every pull request. Do not add a path-filtered workflow as a required check: a skipped workflow can leave unrelated pull requests waiting indefinitely.
 
 Keep English/Chinese homepages and guides aligned. Distinguish implemented behavior from plans, reuse shipped emblems, and publish only authentic sanitized screenshots with accurate captions. Check image paths, language links, and anchors.
