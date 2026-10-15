@@ -71,7 +71,7 @@ lintian --fail-on error ... | tee ... 位于未显式指定 shell 的 run 中；
 
 ### 验证结果与边界
 
-此前 CI 的 debhelper 构建、实际依赖/权限检查、安装/移除及源码归档已通过，但 Lintian 未通过，不能引用旧绿色状态作为规范合格证据。修复后将重新获取真实日志核对，仍不代表官方入库。
+此前 CI 的 debhelper 构建、实际依赖/权限检查、安装/移除及源码归档已通过，但 Lintian 未通过，不能引用旧绿色状态作为规范合格证据。[修正管道后的 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38689079843) 二进制 Lintian 日志为空，源码检查仍报原型长行且正确失败，证明错误会阻断任务。Prettier 未拆分模板字面量中的 HTML，最长仍为 1425；再用 JavaScript 行续接保留原字符串值，最长降到 341，删除新增续接后的文本一致且 node --check 通过。最终源码 Lintian 待复验，仍不代表官方入库。
 
 ### 防复发措施与后续
 
