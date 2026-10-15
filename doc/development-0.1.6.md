@@ -46,3 +46,18 @@ NAT, Store certification or a Debian archive upload.
 本版修复同实例 SQLite 元数据写者竞争，并沿用完整离线 Debian 源码/二进制
 标准构建。Deb 为 GNOME 客户端，Flutter 桌面提供 Linux/Windows 便携包和
 明确标注的未签名开发测试 MSIX。实际检查结果与边界以 Release 附件为准。
+
+The application/package build input is
+[`e64bd76485c225c460c8189f54477a9e22728a3f`](https://github.com/LumiaBlack51/twodrive/commit/e64bd76485c225c460c8189f54477a9e22728a3f).
+Later evidence-only documentation does not alter those build inputs. The
+[direct-source Debian workflow](https://github.com/LumiaBlack51/twodrive/actions/runs/38739280494)
+passed full offline compilation/tests, archive/manifest checks, Lintian,
+upgrade/remove/reinstall/purge and extracted-source clean/vendor validation.
+The [native checks](https://github.com/LumiaBlack51/twodrive/actions/runs/38739010221)
+and [WebDAV/QUIC tests](https://github.com/LumiaBlack51/twodrive/actions/runs/38739010210)
+also passed. Final desktop/preview results and downloaded artifact checks are
+recorded in the release verification report after execution.
+
+Packaging references: [Debian Policy, source packages and rules](https://www.debian.org/doc/debian-policy/ch-source.html),
+[Debian Policy, shared-library dependencies](https://www.debian.org/doc/debian-policy/ch-sharedlibs.html),
+[Microsoft unsigned MSIX test packages](https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package).
