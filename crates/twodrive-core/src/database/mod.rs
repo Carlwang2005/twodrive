@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::{FileRecord, FileState, MetadataEntry};
@@ -17,12 +18,14 @@ mod schema;
 #[derive(Debug, Clone)]
 pub struct Database {
     db_path: PathBuf,
+    metadata_write_lock: Arc<Mutex<()>>,
 }
 
 impl Database {
     pub fn new(db_path: impl Into<PathBuf>) -> Self {
         Self {
             db_path: db_path.into(),
+            metadata_write_lock: Arc::new(Mutex::new(())),
         }
     }
 
