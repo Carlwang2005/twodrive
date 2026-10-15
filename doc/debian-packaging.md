@@ -61,3 +61,19 @@ and clean Debian distribution build/autopkgtest/piuparts validation.
 See [build instructions](../debian/README.source) and
 [stable incident and verification record](https://github.com/LumiaBlack51/twodrive/blob/main/doc/incidents.md).
 Validation and delivery results are added below only after execution.
+
+## Development 0.1.6
+
+Development uses the same complete source-package preparation and debhelper
+build path as main. The GNOME package version is `0.2.14+dev0.1.6-1`; its
+separate upstream version prevents reusing a stable original tarball for different
+Development sources. The GNOME CLI version remains 0.2.14. The Flutter desktop
+is supplied as portable Linux/Windows bundles and an unsigned test MSIX.
+
+The build retains a locked vendor component and third-party license texts,
+uses a fresh Cargo home offline, checks all source/binary manifests, and tests
+upgrade, removal and purge with synthetic account/cache/recovery sentinels.
+Ubuntu CI explicitly records its newer rustup compiler dependency-check bypass;
+this upstream distribution is not an official Debian archive upload. Normal
+Debian builds must satisfy all declared Build-Depends. See the
+[0.1.6 release record](development-0.1.6.md).

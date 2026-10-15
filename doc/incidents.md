@@ -46,6 +46,54 @@
 
 
 
+## TD-20261015-17：dev 发布工作流仍沿用不完整的 Debian 源码准备
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证完整离线源码/二进制构建、Lintian、清单、安装升级/移除/purge 与源码解包 clean 校验。
+- 影响版本与环境：dev 截至 c577813 的 Debian preparation 工作流及 Development 0.1.5 源码附件；不影响 MSIX 或既有用户数据。
+- 关联历史故障：main 的 Debian 标准打包迁移；本条记录 dev 尚未移植完整路径的差异。
+
+### 症状与影响
+
+旧 dev 工作流只从预先填充的 Cargo cache 离线构建二进制，再独立生成没有
+vendor 组件的源码包。接收源码包者无法在空 Cargo home 中离线重建。
+二进制可运行并不证明源码输入闭包完整。
+
+### 触发条件与复现
+
+检查旧 scripts/build-deb.sh、debian/rules 和 debian-package.yml：binary-only
+构建与后续 git archive 源码打包分开，未提供锁定依赖源组件。尚未执行新的
+完整源 CI；不将静态证据写为已完成运行验证。
+
+### 根因与证据
+
+main 已增加完整源码准备、vendor 和许可证输出；dev 只合入强制政策文档，
+仍保留先前的 preparation 实现，因此政策与执行路径不一致。
+
+### 解决办法与恢复操作
+
+移植 main 的源码准备、debhelper、完整清单校验、vendor 清理保护、包内容
+和生命周期检查；保留 dev VCS 元数据并使用独立 upstream 版本
+0.2.14+dev0.1.6，避免以稳定版原 tarball 名覆盖不同源。无用户恢复操作。
+
+### 验证结果与边界
+
+构建输入为 e64bd76485c225c460c8189f54477a9e22728a3f；[直接源 Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38739280494) 已成功：完整 dpkg-buildpackage/debhelper 构建、包内容/权限/自动依赖、所有源码与二进制清单、Lintian 无 error、旧包升级及 remove/reinstall/purge 保留合成用户状态、从 .dsc 解包后的全部 vendor 文件校验、clean 后复验和空 Cargo home 离线依赖解析。
+
+[原生 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38739010221) 与 [双平台 QUIC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38739010210) 已成功。本机额外执行 Nautilus 25 项、Linux verifier fixture 1 项与 Windows 发布附件 6 项/进程清理 fixture 1 项回归通过。Windows 的 POSIX 远端路径 fixture 不能替代 Linux 执行；本机缺少 GTK 依赖的全脚本 discovery 不记为通过，带完整依赖的 Linux CI 已验证相应套件。
+
+Ubuntu CI 的 rustup 编译器依赖检查旁路继续明确记录，不据此声称通过 Debian 官方入库、sbuild 或完整 Rust 授权审计。最终下载附件及额外安装运行检查以 Release 的 verification.json/runtime-validation.json 为准。
+
+### 防复发措施与后续
+
+main/dev 共用同一 build-deb.sh 入口；从 .dsc 解包后检查全部 vendor 校验和，
+执行 clean 再复验，并在空 Cargo home 中离线解析锁定依赖。上传全部 source/
+binary/debug/buildinfo/changes，发布前校验每份清单与远端附件。
+
+### 交付记录
+
+代码与打包输入提交 [e64bd76](https://github.com/LumiaBlack51/twodrive/commit/e64bd76485c225c460c8189f54477a9e22728a3f)，[PR #33](https://github.com/LumiaBlack51/twodrive/pull/33)。后续提交仅补充本文验证证据，不改变该构建输入。发布源、最终公开状态与附件哈希以 Release 机器报告为准；详情见 [发布记录](development-0.1.6.md)。
+
 ## TD-20261015-16：同实例元数据写者竞争耗尽 SQLite 锁等待
 
 - 日期：2026-10-15（Asia/Shanghai）

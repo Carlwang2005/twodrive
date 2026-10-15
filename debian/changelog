@@ -1,3 +1,13 @@
+twodrive (0.2.14+dev0.1.6-1) unstable; urgency=medium
+
+  * Package the dev branch metadata-writer contention fix for GNOME.
+  * Build complete offline quilt source and binary artifacts with debhelper.
+  * Include locked vendor sources, dependency licenses and debug symbols.
+  * Validate upgrade/removal/purge preserve user data and service opt-in.
+  * Use a distinct upstream version for the Development source snapshot.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Thu, 15 Oct 2026 21:00:00 +0800
+
 twodrive (0.2.14-2) UNRELEASED; urgency=medium
 
   * Build with debhelper instead of manually assembling the binary archive.
