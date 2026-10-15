@@ -49,8 +49,8 @@
 ## TD-20261015-03：桌面状态轮询堆积与连接身份展示不足
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：本地相关回归、严格检查、Linux 构建/隔离挂载已验证；最终原生 CI 与交付待补充。
-- 影响版本与环境：Development 0.1.3 桌面客户端；本轮基线 dev `52d7f42`，拟交付 Development 0.1.4。
+- 状态：已验证本地及 Linux/Windows 原生 CI 的相关机制；真实云端本轮未复验。
+- 影响版本与环境：Development 0.1.3 桌面客户端；本轮基线 dev `52d7f42`，修复交付于 Development 0.1.4。
 - 关联历史故障：TD-20261014-05（在线管理连接）、TD-20261013-02（操作目标绑定）、TD-20261014-03（Google 冷索引时间）。不是云端删除待办 TD-20261015-01 的同一队列。
 
 ### 症状与影响
@@ -77,9 +77,9 @@
 
 旧 Flutter 两项回归分别以 100 != 1、old != new 失败；新实现通过。队列旧 worker 变体退出 1（取消后的等待任务仍成功），新受控 IPC 检查通过，覆盖队列满/取消通道/跳过任务/完成快照/用户名/恢复。前端另覆盖轮询错误恢复且保留操作错误、外部操作同步、整轮刷新合并、销毁后不继续刷新、明确登录/切换/当前标记及原生托盘参数；Rust 覆盖 /me 请求与名称回退、session kind/revision 和秘密不公开。
 
-根工作区默认 Rust、独立实验完整 mount 套件、两工作区严格 Clippy/格式、Flutter analyze 与测试、Linux 原生构建、25 Nautilus/13 scripts 单元测试通过（最终新增检查数量见交付补记）。实际隔离 WebDAV IPC/FUSE 完成 2 MiB 字节往返、读写、暂停与恢复、缓存/备份/冲突保护；本机签名 UDP/QUIC 发现、邀请、读写、重连和切回原连接通过。
+根工作区默认 Rust、独立实验完整 mount 套件、两工作区严格 Clippy/格式、Flutter analyze 与 24 项测试、Linux 原生构建、25 Nautilus/13 scripts 单元测试通过。实际隔离 WebDAV IPC/FUSE 完成 2 MiB 字节往返、读写、暂停与恢复、缓存/备份/冲突保护；本机签名 UDP/QUIC 发现、邀请、读写、重连和切回原连接通过。
 
-不将上述本机协议/FUSE 或模拟 Graph 当作真实 OneDrive/Google 端到端；本轮未访问真实账号、重新浏览器登录或验证原生产截图时序。根工作区默认忽略的 7 项 FUSE 与原生更新进程测试本轮未显式运行，独立桌面 FUSE 冒烟另已运行。原生 Windows 构建/托盘待最终 CI，用户实体桌面交互未验收。
+不将上述本机协议/FUSE 或模拟 Graph 当作真实 OneDrive/Google 端到端；本轮未访问真实账号、重新浏览器登录或验证原生产截图时序。根工作区默认忽略的 7 项 FUSE 与原生更新进程测试本轮未显式运行，独立桌面 FUSE 冒烟另已运行。原生 Linux/Windows 桌面 CI 均通过（Rust 65/59 项、Flutter 各 24 项、两平台队列/取消/订阅兼容回归、Windows 托盘 Shell 通知模拟）；用户实体桌面交互未验收。
 
 ### 防复发措施与后续
 
@@ -87,7 +87,11 @@
 
 ### 交付记录
 
-[实现提交 b928b10](https://github.com/LumiaBlack51/twodrive/commit/b928b10d799b3dbcb5e0a603cd16e9e1a1839e0e)；[PR #19](https://github.com/LumiaBlack51/twodrive/pull/19) 已创建。CI 与 Release：待补充。
+[PR #19](https://github.com/LumiaBlack51/twodrive/pull/19) 已合入 dev，合并提交 `41929a9e36aaaa7b973df4ab8dcaaf59f2c057a8`。最终源提交/标签 `dev-v0.1.4` 指向 `791a006187856bb9d5eb81f3eca3990382f855a7`；合并时两树逐字节等价（Git tree 相同）。[桌面 Linux/Windows CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38675643955)、[必需原生检查](https://github.com/LumiaBlack51/twodrive/actions/runs/38675644048)、[独立 WebDAV/QUIC](https://github.com/LumiaBlack51/twodrive/actions/runs/38675644035) 和 [Windows 综合预览](https://github.com/LumiaBlack51/twodrive/actions/runs/38675643947) 均成功。
+
+[Development 0.1.4 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.4) 已于 2026-10-15 11:38:42 +08:00 公开为预览版，稳定 Latest 核实仍为 0.2.14-1。6 项附件经过保护脚本的公开前后校验：集合、上传状态、大小、SHA-256 与实际远端标签/源 SHA 均匹配。Linux tar 是 CI 原件；Windows ZIP 的 35 个文件与 CI 原件逐字节相同、CRC 通过，三个 EXE 为 PE x64。详见[交付记录](development-0.1.4.md)和 Release verification.json；本轮未安装用户本机程序。
+
+Linux 包 SHA-256：`02384eefc6a1dc5430ee7aa2d8b4b44d63d78015c12f39e6717bdb81811431fe`；Windows ZIP：`50baf3ad6ed5991ad1dc20cb598d9e20a38583ea3fb9b22ddea2193ac2b680a5`。
 
 ## TD-20261015-02：Release 校验失败后仍执行公开操作
 
