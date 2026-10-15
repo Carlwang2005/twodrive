@@ -5,6 +5,11 @@ if [ "${TWODRIVE_DISPOSABLE_PACKAGE_TEST:-}" != 1 ]; then
     echo 'Requires TWODRIVE_DISPOSABLE_PACKAGE_TEST=1 in a disposable system' >&2
     exit 1
 fi
+# Minimal Ubuntu container images deliberately exclude manuals/docs during dpkg
+# unpack. Package QA needs the complete installed payload, as on a normal desktop.
+if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then
+    sed -i '\|^path-exclude=/usr/share/man/|d; \|^path-exclude=/usr/share/doc/|d' /etc/dpkg/dpkg.cfg.d/excludes
+fi
 old=$(realpath "$1")
 new=$(realpath "$2")
 export DEBIAN_FRONTEND=noninteractive
