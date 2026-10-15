@@ -57,6 +57,8 @@ class StorageClient extends ChangeNotifier {
   int? activeId;
   Timer? _poll;
   bool get connected => status['connected'] == true;
+  Json get sharing => (status['sharing'] as Json?) ?? {};
+  bool get hosting => sharing['running'] == true;
   bool get syncError =>
       status['backup_failed'] == true ||
       status['backup']?['state'] == 'error' ||
@@ -104,9 +106,12 @@ class StorageClient extends ChangeNotifier {
             profile?['account_name'] as String? ??
             '账号名称暂不可用')
       : '未登录';
-  String get trayTitle => connected
-      ? 'TwoDrive Development · $providerLabel · $account'
-      : 'TwoDrive Development · 未连接';
+  String get trayTitle {
+    final connection = connected ? ' · $providerLabel · $account' : '';
+    final host = hosting ? ' · 正在共享 ${sharing['settings']?['name'] ?? ''}' : '';
+    return 'TwoDrive Development$connection$host${!connected && !hosting ? ' · 未连接' : ''}';
+  }
+
   String get trayState => error != null || syncError
       ? 'error'
       : connected && proxyFallback
@@ -115,7 +120,7 @@ class StorageClient extends ChangeNotifier {
       ? 'paused'
       : syncing
       ? 'syncing'
-      : connected
+      : connected || hosting
       ? 'connected'
       : 'offline';
   Json get target => {
@@ -479,10 +484,33 @@ class StorageClient extends ChangeNotifier {
     await request(mounted ? 'unmount' : 'mount', {}, activeId);
     await refreshStatus();
   });
-  Future<void> save(Json profile) => action('保存连接', () async {
-    await request('save_profile', profile);
-    await loadProfiles();
-  });
+  Future<String?> save(Json profile) async {
+    String? id;
+    await action('保存连接', () async {
+      final result = await request('save_profile', profile);
+      id = result['id'] as String?;
+      await loadProfiles();
+    });
+    return id;
+  }
+
+  Future<Json?> shareAction(String op, Json args) async {
+    Json? result;
+    await action(
+      op == 'share_start'
+          ? '正在启动共享'
+          : op == 'share_export'
+          ? '正在导出连接文件'
+          : '正在更新共享',
+      () async {
+        activeId = ++_id;
+        result = await request(op, args, activeId);
+        await refreshStatus();
+      },
+    );
+    return result;
+  }
+
   Future<void> remove(String id) => action('删除连接配置', () async {
     await request('remove_profile', {'id': id});
     await loadProfiles();

@@ -16,7 +16,13 @@ Google 登录见 [Google Drive 指南](google-drive-dev.md)。私有登录目录
 
 ## PC / NAS 的 TwoDrive 设备共享
 
-对方运行 TwoDrive `twodrive-dev serve`，显式选择共享目录。普通 NAS 无法运行此程序时，优先使用它的 WebDAV 服务。
+最新 `dev` 的 Development 桌面同时提供服务端 GUI：打开左侧 **共享**，选择目录，按需开启“允许对方修改文件”，点击 **启动共享 → 导出连接文件**。另一台电脑在 **连接 → 添加连接 → 从 TwoDrive 连接文件添加** 选择该文件，名称、设备身份和权限会自动填入，点击 **保存并连接**。无需手工填写 IP、端口或密钥。该功能尚未包含在已发布的 Development 0.1.4 中。
+
+连接文件是十分钟有效、仅能首次使用一次的配对邀请，包含访问秘密，请通过可信渠道传递。配对成功后客户端记住设备，后续重连无需再次导入；重新导出会替换未使用的旧邀请。服务端可在“已授权设备”撤销访问。默认只读；修改目录或读写权限后使用新的共享身份，需要重新导出。关闭窗口后共享继续在托盘运行，退出应用会停止；重启应用后需点击“启动共享”。已保存目录和选项会恢复。
+
+服务端和客户端可在同一个应用中同时运行，断开客户端连接不会停止本机共享。底层仍使用 QUIC/TLS；TwoDrive 客户端自动管理自己的本机 WebDAV 网关。第三方 WebDAV 客户端不能仅凭远端主机的 IP 直接连接 QUIC 服务，需先在客户端电脑运行 TwoDrive 网关，再连接它输出的本机 URL 和凭据。普通 NAS 无法运行此程序时，优先使用它的现有 WebDAV 服务。
+
+保留命令行服务，适用于无桌面主机：
 
 Linux 分享端示例（状态目录须独立；`--write` 显式允许修改）：
 
@@ -54,7 +60,9 @@ Windows 分享端示例：
 
 The Development desktop supports adding and managing inactive connections while another account is connected. Each saved connection has an explicit Sign in and use / Switch action and a Current marker; switching preserves pending-write protection. The active signed-in account is shown separately from the custom connection name, including the tray panel and native tooltip. Configure WebDAV/NAS using its service URL and credentials; HTTPS is the default. Numeric private-IP HTTP requires explicit opt-in and uses OS routing without claiming VPN bypass. OneDrive uses the existing Microsoft OAuth/Graph engine with independent Development account state; Google setup is described in its guide.
 
-For PC/NAS sharing, run the updated `twodrive-dev serve` on the sharing device with an explicit directory, optional `--write`, and opt-in `--discoverable --device-name NAME`. The GUI scans IPv4 LAN UDP port 49183. Select the device and import a trusted, ten-minute, single-use invitation; discovery alone never authorizes access. Invitations can also connect across networks without discovery. QUIC/TLS transport attempts UDP NAT traversal and can fall back to encrypted relay. Native Windows, physical NAS and independent-network hole punching are separate unverified scopes for this change. The local regression scripts isolate their state and touch only disposable data.
+The latest `dev` desktop includes a **Sharing** page: choose a directory, start sharing, then export a connection file. On the other PC, use **Connections → Add → Import TwoDrive connection file → Save and connect**. The name, public device identity and write permission are filled automatically. This is newer than the published Development 0.1.4. Invitations expire after ten minutes and authorize one new device; subsequent connections reuse that identity. Exporting again replaces an unused invitation. The host can revoke devices. Sharing is read-only by default, continues in the tray, and stops when the app quits. Restarting the app restores settings but requires Start. Changing the directory or write permission creates a new host identity. Client disconnect does not stop hosting.
+
+Headless servers can still use `twodrive-dev serve`. The GUI scans IPv4 LAN UDP port 49183; discovery alone never authorizes access. QUIC/TLS attempts UDP NAT traversal and can fall back to encrypted relay. A third-party WebDAV client requires the local TwoDrive gateway; it cannot connect directly to the host's QUIC port. Native Windows local IPC/QUIC transfer and widget interaction were tested; Linux CI, physical NAS and independent-network hole punching are separately recorded scopes. The regression scripts isolate state and touch disposable data. See [sharing validation](desktop-sharing-validation.md).
 
 Protocol references: [Microsoft upload session](https://learn.microsoft.com/graph/api/driveitem-createuploadsession?view=graph-rest-1.0), [driveItem conflict policy](https://learn.microsoft.com/graph/api/resources/driveitem?view=graph-rest-1.0).
 

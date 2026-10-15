@@ -52,10 +52,15 @@ pub fn prepare(p: &mut Profile, state: &twodrive_dev::state::State) -> anyhow::R
         _ => Ok(()),
     }
 }
-pub fn action(kind: &str, action: &str, cancel: &AtomicBool) -> anyhow::Result<Value> {
+pub fn action(
+    kind: &str,
+    action: &str,
+    args: &Value,
+    cancel: &AtomicBool,
+) -> anyhow::Result<Value> {
     descriptor(kind)?;
     match kind {
-        "peer" => paired::action(action, cancel),
+        "peer" => paired::action(action, args, cancel),
         _ => anyhow::bail!("此提供者不支持该操作"),
     }
 }

@@ -46,6 +46,146 @@
 
 
 
+## TD-20261015-10：Windows 配置替换拒绝再次阻断桌面 CI
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证受控短时占用恢复与持续拒绝保护；CI 原拒绝来源仍未确认，最终原生结果见 PR #22。
+- 影响版本与环境：PR #22 的 d3a40f3，Windows 原生 runner；旧连接管理测试在编辑非活动配置时失败，尚未进入本次共享烟测。
+- 关联历史故障：TD-20261014-09 同为 persist 的 os error 5，但未采集竞争句柄，不能确认具体来源相同。TD-20261014-10 的内存配置保护仍保留。
+
+### 症状与影响
+
+`test-dav-desktop.py` 编辑非活动连接时返回 `failed to persist temporary file: Access is denied. (os error 5)`。CI 正确中止；没有用户数据操作。
+
+### 触发条件与复现
+
+[失败运行 38694139035](https://github.com/LumiaBlack51/twodrive/actions/runs/38694139035) 的 Windows IPC 步骤；Linux 相同步骤通过。与历史类似的错误再次出现，因此补充实际 Windows 句柄占用测试，不仅重跑检查。
+
+### 根因与证据
+
+可以确认配置原子替换被操作系统拒绝；原 runner 的占用句柄/属性/竞争者仍未知，不断言是防护软件。受控测试用缺少 FILE_SHARE_DELETE 的真实只读句柄重现替换拒绝，证明这种短时占用机制及旧内容保留边界；不把它当成已还原原 CI 竞争者。
+
+### 解决办法与恢复操作
+
+Windows 在错误 5/32/33 时重用同一已写入并同步的临时文件，最多重试六次，总等待 525 ms，仍失败则返回原错误；其他错误立即返回。始终使用原子替换，不先删除旧文件，不改变 ACL、关闭防护或忽略测试。共享连接文件的显式替换同样使用此机制。失败时内存配置仍在落盘成功前保持旧值。没有用户恢复操作。
+
+### 验证结果与边界
+
+Windows 两项新测试通过：同一真实句柄先证明无重试的 persist 失败、旧内容保持，再于第一次重试等待中确定性释放句柄并成功替换；持续占用严格尝试六次等待后失败，实际 State::save 也返回错误且旧 JSON 保持。严格 Clippy、完整 Rust 64 项测试均通过。最终双平台 CI 结论见 PR #22。不能承诺所有 Windows 原子替换拒绝已消失；永久占用和权限拒绝仍应明确报错。
+
+### 防复发措施与后续
+
+保留短时占用释放后成功、持续占用重试有界/旧字节保持两项 Windows 回归，以及已有配置持久化失败时内存不变化测试。最终记录在 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)。
+
+### 交付记录
+
+修正代码、验证产物与最终原生 CI 见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)。没有发布新版 Release。
+
+## TD-20261015-09：共享退出烟测在 quit 后继续复用 IPC
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证测试修正；未发现本项对应的产品退出缺陷。
+- 影响版本与环境：本次尚未提交的退出烟测草稿；本机 Windows 隔离临时目录。
+- 关联历史故障：无；测试生命周期问题。
+
+### 症状与影响
+
+加固退出检查时，在 `quit` 后继续发送 `status`，测试等待无响应。没有操作用户配置或真实文件。
+
+### 触发条件与复现
+
+同一 Engine fixture 发出 `quit` 后又调用 `status`。worker 已按协议退出，不能再处理后续请求；reader 仍等待关闭标准输入。
+
+### 根因与证据
+
+既有 desktop worker 明确在成功 quit 后 break。新烟测误把 quit 当作仅停止共享，与产品协议不符。不是 GUI 的常规状态轮询死锁。
+
+### 解决办法与恢复操作
+
+使用 fixture.close 发送 quit、关闭 stdin 并等待进程退出，再创建新的引擎检查共享未启动及运行锁释放。本地只终止已核实为该草稿烟测的 Python 进程；测试引擎/共享子进程当时已退出。
+
+### 验证结果与边界
+
+修正后真实 IPC/本机 QUIC 六组检查全部通过，包括同引擎同时作为客户端/服务端，以及退出后新引擎立即恢复相同共享。未修改产品 quit 行为。
+
+### 防复发措施与后续
+
+保留进程重启而非 quit 后复用 IPC 的验收步骤；双平台 CI 运行相同脚本。
+
+### 交付记录
+
+代码与后续原生 CI 见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)，尚未发布新版 Release。
+
+## TD-20261015-08：新增共享导航使最小窗口的设置入口被裁剪
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证 Flutter 最小窗口回归；原生桌面 CI 结论见 PR #22。
+- 影响版本与环境：本次尚未发布的桌面共享 GUI；840×580 管理窗口。
+- 关联历史故障：无同根因已知条目；此次为第六个导航项目带来的新回归，触发现有最小窗口测试。
+
+### 症状与影响
+
+新增“共享”后，原设置页测试点击未命中，无法找到自启动开关。导航文本存在于树中，但被下方状态区裁剪。没有文件或配置损坏。
+
+### 触发条件与复现
+
+原有 `minimum-height window keeps long errors and navigation usable` 及更新提示/MSIX 测试在 840×580 稳定失败；点击坐标落入底部状态容器。
+
+### 根因与证据
+
+侧栏品牌区域较高，六项默认高度的 ListTile 超过可用高度；原测试的 scrollUntilVisible 判断元素已存在，未使可点击中心进入视口。没有放宽测试或忽略 hit-test 警告。
+
+### 解决办法与恢复操作
+
+缩短品牌留白并使用 dense 导航行，使六项在最小窗口可点击。共享页继续独立滚动。没有用户数据恢复。
+
+### 验证结果与边界
+
+修复后完整 33 项 Flutter 测试通过；新增共享测试也在 840×580 覆盖选择目录、启动/导出/停止。首次新 widget 测试另因 fake-async 区内等待异步临时目录创建停滞，改为同步隔离临时目录并保留文件导出异步等待；这是测试 harness 修正，不是产品 IO 卡死证据。Flutter analyze 通过。
+
+### 防复发措施与后续
+
+保留原最小窗口/设置回归及新增共享页交互测试。原生 Windows 构建、托盘及 Linux CI 结果见[共享验证](desktop-sharing-validation.md)。
+
+### 交付记录
+
+实现 [d3a40f3](https://github.com/LumiaBlack51/twodrive/commit/d3a40f307de116d4a868ee3874a1fd2b6de96db3)，原生 CI 结论见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)；尚未发布新版 Release。
+
+## TD-20261015-07：邀请导出边界比较混用 Windows 路径形式
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证本机 Windows 单元及实际 IPC/QUIC 边界；Linux CI 结论见 PR #22。
+- 影响版本与环境：新增 GUI 导出测试；既有 State.invite 的路径边界比较。正常 serve 会保存 canonical 根路径，尚未证明正常发布流程存在泄露。
+- 关联历史故障：无；与 TD-20261015-04 打包路径不同。
+
+### 症状与影响
+
+新测试手工保存非 canonical 的 share.root 后，把连接文件写到共享目录内没有被拒绝。若使用这种异常状态，访问邀请可能放进已共享目录；没有使用私人配置或发生实际用户泄露。
+
+### 触发条件与复现
+
+Windows fixture 的共享根为普通盘符路径，输出父目录 canonicalize 后带扩展路径前缀。新增导出测试的 inside-share 拒绝断言在旧比较方式失败。
+
+### 根因与证据
+
+代码 canonicalize 输出父目录，但直接与保存的 share.root 作 starts_with 比较。文本形式不一致使包含判断漏过。实际 serve 的 prepare_share 已 canonicalize，因此不把 fixture 结果扩大为所有正常服务都能复现。
+
+### 解决办法与恢复操作
+
+两边都 canonicalize 后判断。GUI 额外禁止共享私有状态目录及导出到私有状态；导出采用同目录临时文件和禁止静默覆盖，显式替换后才轮换邀请。没有本地用户数据恢复操作。
+
+### 验证结果与边界
+
+旧比较方式在新增 Windows 导出测试失败，修复后通过。Rust 38 个库测试和 9 个 desktop 引擎测试通过；实际隔离 IPC 烟测证明共享目录内导出被拒绝、原文件不被静默替换、单次邀请授权、撤销及权限轮换。Unix 0600 断言仅在 Unix CI 执行，不能依据 Windows 结果宣称已验证。
+
+### 防复发措施与后续
+
+保留非 canonical fixture、导出/导入秘密边界测试及双平台真实 QUIC 烟测。公开文档不得包含邀请文件实际秘密。
+
+### 交付记录
+
+实现 [d3a40f3](https://github.com/LumiaBlack51/twodrive/commit/d3a40f307de116d4a868ee3874a1fd2b6de96db3)，原生 CI 结论见 [PR #22](https://github.com/LumiaBlack51/twodrive/pull/22)；尚未发布新版 Release。
+
 ## TD-20261015-06：Lintian 输出管道掩盖失败退出码
 
 - 日期：2026-10-15（Asia/Shanghai）

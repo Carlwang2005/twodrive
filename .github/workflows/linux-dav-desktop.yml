@@ -16,6 +16,7 @@ on:
       - 'scripts/test_dav_installer.py'
       - 'scripts/test-storage-connections.py'
       - 'scripts/test-desktop-queue.py'
+      - 'scripts/test-desktop-sharing.py'
       - '.github/workflows/linux-dav-desktop.yml'
       - 'packaging/msix/**'
       - 'scripts/build-msix.ps1'
@@ -61,6 +62,7 @@ jobs:
           python3 scripts/test-dav-desktop.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
           python3 scripts/test-desktop-queue.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
           python3 scripts/test-storage-connections.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
+          python3 scripts/test-desktop-sharing.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
       - name: Tray positioning regression
         run: |
           clang++ -std=c++17 -Wall -Wextra -Werror apps/dav/linux/runner/tray_geometry_test.cc -o /tmp/tray-geometry-test
@@ -80,7 +82,7 @@ jobs:
           cp -r packaging/gnome-tray-anchor apps/dav/build/linux/x64/release/bundle/
           cp scripts/install-dav-desktop.py apps/dav/build/linux/x64/release/bundle/
           mkdir -p apps/dav/build/linux/x64/release/bundle/docs
-          cp doc/provider-integration-spec.md doc/storage-connections-dev.md doc/google-drive-dev.md doc/tray-positioning-2026-10-14.md apps/dav/build/linux/x64/release/bundle/docs/
+          cp doc/provider-integration-spec.md doc/storage-connections-dev.md doc/desktop-sharing-validation.md doc/google-drive-dev.md doc/tray-positioning-2026-10-14.md apps/dav/build/linux/x64/release/bundle/docs/
           cp packaging/development/INSTALL-LINUX.md apps/dav/build/linux/x64/release/bundle/INSTALL.md
           tar -C apps/dav/build/linux/x64/release -cJf twodrive-development-linux-x64.tar.xz bundle
       - uses: actions/upload-artifact@v4
@@ -125,6 +127,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-desktop-queue.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test-desktop-sharing.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Flutter checks and native Windows build
         working-directory: apps/dav
         run: |
@@ -141,7 +145,7 @@ jobs:
           Copy-Item experiments/twodrive-dev/target/release/twodrive-dev.exe,experiments/twodrive-dev/target/release/twodrive-dav-engine.exe apps/dav/build/windows/x64/runner/Release/
           Copy-Item scripts/install-desktop-windows.ps1 apps/dav/build/windows/x64/runner/Release/
           New-Item -ItemType Directory -Force apps/dav/build/windows/x64/runner/Release/docs | Out-Null
-          Copy-Item doc/provider-integration-spec.md,doc/storage-connections-dev.md,doc/google-drive-dev.md,doc/tray-positioning-2026-10-14.md apps/dav/build/windows/x64/runner/Release/docs/
+          Copy-Item doc/provider-integration-spec.md,doc/storage-connections-dev.md,doc/desktop-sharing-validation.md,doc/google-drive-dev.md,doc/tray-positioning-2026-10-14.md apps/dav/build/windows/x64/runner/Release/docs/
           Copy-Item packaging/development/INSTALL-WINDOWS.md apps/dav/build/windows/x64/runner/Release/INSTALL.md
       - name: Windows native tray smoke
         run: python scripts/test-desktop-windows-ui.py apps/dav/build/windows/x64/runner/Release/twodrive_dav.exe

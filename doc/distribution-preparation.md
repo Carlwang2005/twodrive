@@ -12,16 +12,18 @@ flowchart LR
     S --> F[A 显式选定的共享目录]
 ```
 
-A、B 都运行 TwoDrive 传输程序。A 选择目录并运行 `serve`，把一次性邀请通过可信渠道传给 B。B 桌面选择“PC / NAS（设备共享）”、导入邀请并“登录并使用”，程序自动启动网关。后续用原状态目录重连，不必反复邀请。发现局域网设备是可选步骤，不是授权步骤。
+A、B 都运行 TwoDrive 传输程序。最新 `dev` 的桌面上，A 打开“共享”，选择目录、点击“启动共享 → 导出连接文件”，通过可信渠道传给 B。B 在“连接 → 添加连接 → 从 TwoDrive 连接文件添加”中选择文件并“保存并连接”，程序自动启动网关。后续用原状态目录重连，不必反复邀请。发现局域网设备是可选步骤，不是授权步骤。命令行 `serve` 仍保留；桌面共享功能晚于已发布的 0.1.4。
 
 如果 B 使用第三方 WebDAV 客户端，则先运行 `twodrive-dev --state <B的私有目录> connect --ticket-file <邀请文件>`，再连接该命令输出的 `http://127.0.0.1:4918/` 和私有凭据文件中的用户名/密码。网关只监听 B 的回环接口；不能把 A 的 UDP 端口当作 WebDAV URL。首次配对后省略 `--ticket-file`，保持 A 的服务和 B 的网关运行。邀请十分钟有效、只能使用一次；需要写入时 A 显式加 `--write`。命令及邀请更新详见[中文共享指南](../experiments/twodrive-dev/README.zh-CN.md#两台机器快速配对)。
 
-复杂度集中在 A 的服务启动和一次邀请传递；B 的 TwoDrive 桌面已自动管理网关。当前 A 的共享服务配置仍为命令行。没有固定公网 IP 也可尝试打洞/中继，但两端须可达发现/中继基础设施；不能保证任何 NAT、校园网或防火墙都能 UDP 直连。本轮本机测试不能代表两台异地 NAT 主机的实际体验。
+首次使用需要 A 选择共享目录和传递一次邀请；双方桌面负责管理进程与网关。没有固定公网 IP 也可尝试打洞/中继，但两端须可达发现/中继基础设施；不能保证任何 NAT、校园网或防火墙都能 UDP 直连。本轮本机测试不能代表两台异地 NAT 主机的实际体验。共享 GUI 的范围见[验证记录](desktop-sharing-validation.md)。
 
 In English: a third-party WebDAV client talks to a password-protected loopback
 gateway on computer B. TwoDrive connects that gateway to computer A over
 encrypted QUIC, with relay fallback. The desktop's PC/NAS provider starts the
-gateway automatically after a one-time invitation. Hosting still uses `serve`.
+gateway automatically after a one-time invitation. The latest dev desktop also
+starts hosting and exports invitations from its Sharing page; `serve` remains
+available for headless use. This GUI is newer than released Development 0.1.4.
 
 ## 自动检查更新
 
