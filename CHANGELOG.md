@@ -4,6 +4,12 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## 0.2.15 — Metadata writer contention
+
+Metadata imports through clones of the same Database now queue the complete write operation, including pin recomputation, to avoid exhausting SQLite's lock wait under shared storage contention. Reads remain concurrent; independent instances and processes still use SQLite's normal lock arbitration. The schema and recovery formats are unchanged.
+
+The controlled regression failed on the old code and passes with the fix; Windows CI also repeats the core suite at higher concurrency. This does not establish a real OneDrive end-to-end test or eliminate every possible SQLite Busy error. See [TD-20261015-16](doc/incidents.md#td-20261015-16同实例元数据写者竞争耗尽-sqlite-锁等待).
+
 ## 0.2.14 — Diagnose and defer rejected cloud deletions
 
 Ordinary Graph/OAuth failures retain bounded, safe error codes and request correlation without remote messages or URLs. Pending deletions back off durably across restart while retaining caches and same-name protection. Status distinguishes local removal from unconfirmed cloud deletion; `retry-deletes` makes retained work eligible again. This does not establish or bypass the original object's access restriction.

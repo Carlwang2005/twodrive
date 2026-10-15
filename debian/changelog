@@ -1,3 +1,14 @@
+twodrive (0.2.15-1) unstable; urgency=medium
+
+  * Serialize metadata updates across Database clones to prevent same-instance
+    writers exhausting SQLite lock waits under shared storage contention.
+  * Preserve read concurrency, SQLite timeout, database schema and recovery data.
+  * Add failure-release and controlled slow-sync regressions, and repeat native
+    Windows database tests at higher concurrency.
+  * Keep standard offline Debian source/binary builds and desktop integration.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Thu, 15 Oct 2026 20:43:56 +0800
+
 twodrive (0.2.14-2) unstable; urgency=medium
 
   * Migrate stable packaging to dpkg-buildpackage and debhelper.
