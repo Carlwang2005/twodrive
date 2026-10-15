@@ -349,7 +349,7 @@ class StorageClient extends ChangeNotifier {
     status = await request('autostart', {'enabled': enabled});
   });
   Future<void> retryDeletes() => action('安排云端删除重试', () async {
-    await request('retry_deletes', {'id': selected});
+    await request('retry_deletes', {'id': status['profile'] ?? selected});
     await refreshStatus();
   });
   Future<void> clearCache() => action('释放已同步缓存', () async {
