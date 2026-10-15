@@ -276,9 +276,10 @@ void main() {
     expect(find.text('上传'), findsNothing);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    final toggle = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    final autostart = find.widgetWithText(SwitchListTile, '登录后自动启动');
+    final toggle = tester.widget<SwitchListTile>(autostart);
     expect(toggle.value, isFalse);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(autostart);
     await tester.pumpAndSettle();
     expect(c.calls, contains('autostart'));
     expect(c.status['autostart'], isTrue);
@@ -304,7 +305,8 @@ void main() {
     await tester.scrollUntilVisible(find.text('设置'), 80, scrollable: sidebar);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    expect(find.byType(SwitchListTile), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, '登录后自动启动'), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, '自动检查更新'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     c.dispose();

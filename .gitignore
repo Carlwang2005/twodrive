@@ -1,6 +1,14 @@
 /target/
 target/
 /dist/
+/debian/.debhelper/
+/debian/cargo-target/
+/debian/twodrive/
+/debian/twodrive-dbgsym/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper
 
 # Local twodrive runtime/config artifacts. Real config may contain a local
 # Azure app id and tokens must never enter the repository.

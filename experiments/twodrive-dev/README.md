@@ -4,7 +4,7 @@
 
 The `dev` branch introduces the independent `twodrive-dev` executable. The installed stable TwoDrive, its configuration/database and the original main checkout are unchanged. The dev branch also combines the Windows preview and OneDrive peer-control sources; see the [combined guide](../../doc/dev-integration.md). The experiment reuses the filesystem engine through a separate Cargo workspace, lockfile, device state and mount cache.
 
-Implemented: existing HTTPS WebDAV connections, explicit directory sharing, single-use device invitations, QUIC/TLS encryption, reliable UDP/direct connectivity with NAT traversal and encrypted relay fallback, device revocation, an authenticated loopback WebDAV gateway, and optional Linux FUSE mounts. No VPN, virtual network interface or routing configuration is required. This is remote filesystem access, with no Syncthing-style bidirectional directory mirroring or settings GUI.
+Implemented: existing HTTPS WebDAV connections, explicit directory sharing, single-use device invitations, QUIC/TLS encryption, reliable UDP/direct connectivity with NAT traversal and encrypted relay fallback, device revocation, an authenticated loopback WebDAV gateway, and optional Linux FUSE mounts. No VPN, virtual network interface or routing configuration is required. This is remote filesystem access, with no Syncthing-style bidirectional directory mirroring. The [Development desktop](../../doc/storage-connections-dev.md) manages client connections; hosting still uses the CLI. See [connection flow, update checks and distribution preparation](../../doc/distribution-preparation.md).
 
 ## Build
 

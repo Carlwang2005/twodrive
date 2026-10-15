@@ -1,3 +1,29 @@
 #!/usr/bin/make -f
+export CARGO_TARGET_DIR = $(CURDIR)/debian/cargo-target
+export CARGO_NET_OFFLINE = true
+export CARGO_INCREMENTAL = 0
+# Use the distribution's SQLite, even though portable builds enable bundled.
+export LIBSQLITE3_SYS_USE_PKG_CONFIG = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/buildflags.mk
+export RUSTFLAGS = $(shell dpkg-buildflags --get RUSTFLAGS) --remap-path-prefix=$(CURDIR)=/usr/src/twodrive
+export CARGO_BUILD_JOBS = $(if $(filter parallel=%,$(DEB_BUILD_OPTIONS)),$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1)
+
 %:
-	dh $@
+	dh $@ --buildsystem=none
+
+override_dh_auto_build:
+	cargo build --offline --locked --release -p twodrive-cli -p twodrive-daemon
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cargo test --offline --locked -p twodrive-core -p twodrive-backend -p twodrive-fs -p twodrive-cli -p twodrive-daemon
+	python3 -m unittest discover -s packaging/nautilus -p 'test_*.py'
+	python3 -m unittest discover -s scripts -p 'test_twodrive_settings.py'
+endif
+
+override_dh_auto_clean:
+	rm -rf debian/cargo-target
+
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable --no-start

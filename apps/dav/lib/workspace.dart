@@ -567,6 +567,18 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                       _ => settingsPage(),
                     },
                   ),
+                  if (c.updates.available)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.system_update_alt),
+                      title: Text(
+                        'Development ${c.updates.latest!.version} 可用',
+                      ),
+                      trailing: TextButton(
+                        onPressed: c.updates.openRelease,
+                        child: const Text('查看更新'),
+                      ),
+                    ),
                   const SizedBox(height: 10),
                   Text(
                     c.mounted
@@ -939,6 +951,66 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
     final network = (c.status['network'] as List?)?.cast<String>() ?? [];
     return ListView(
       children: [
+        Card(
+          color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '软件更新 · Development ${c.updates.current}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (c.updates.managed)
+                  const Text(
+                    '此 MSIX 安装包通过其分发渠道更新。商店安装请在 Microsoft Store 中检查更新。',
+                  )
+                else ...[
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('自动检查更新'),
+                    subtitle: const Text(
+                      '每 24 小时向 GitHub 检查 Development 新版本，不自动下载或安装。',
+                    ),
+                    value: c.updates.enabled,
+                    onChanged: c.updates.checking ? null : c.updates.setEnabled,
+                  ),
+                  if (c.updates.error != null) Text(c.updates.error!),
+                  if (c.updates.lastSuccess != null)
+                    Text(
+                      c.updates.available
+                          ? '发现新版本 ${c.updates.latest!.version}'
+                          : '本次检查未发现更新版本',
+                    ),
+                  if (c.updates.latest != null)
+                    SelectableText(c.updates.latest!.url),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    children: [
+                      OutlinedButton(
+                        onPressed:
+                            c.updates.checking || c.updates.current.isEmpty
+                            ? null
+                            : () => c.updates.check(manual: true),
+                        child: Text(c.updates.checking ? '检查中…' : '立即检查'),
+                      ),
+                      if (c.updates.available)
+                        FilledButton.tonal(
+                          onPressed: c.updates.openRelease,
+                          child: const Text('打开发布页面'),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
         Card(
           color: Colors.white,
           child: SwitchListTile(

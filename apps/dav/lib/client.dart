@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'updates.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -18,6 +19,10 @@ class Transfer {
 }
 
 class StorageClient extends ChangeNotifier {
+  StorageClient() {
+    updates.addListener(notifyListeners);
+  }
+  final updates = UpdateChecker();
   Process? _process;
   final Map<int, Completer<Json>> _pending = {};
   final List<Transfer> transfers = [];
@@ -172,6 +177,18 @@ class StorageClient extends ChangeNotifier {
       }
       await loadProfiles();
       await refreshStatus();
+      final version = status['version'];
+      if (version is String) {
+        unawaited(
+          updates.start(
+            version,
+            File('$state/update-settings.json'),
+            managed: File(
+              '${File(engine).parent.path}/distribution-msix',
+            ).existsSync(),
+          ),
+        );
+      }
       _poll = Timer.periodic(const Duration(seconds: 3), (_) {
         unawaited(pollNow());
       });
@@ -492,6 +509,7 @@ class StorageClient extends ChangeNotifier {
         await request('quit');
       }
       quitting = true;
+      updates.dispose();
       _poll?.cancel();
       await _process?.stdin.close();
       return true;
@@ -505,6 +523,7 @@ class StorageClient extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    if (!quitting) updates.dispose();
     _poll?.cancel();
     super.dispose();
   }

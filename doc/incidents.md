@@ -46,6 +46,41 @@
 
 
 
+## TD-20261015-04：Debian 手工包缺少自动依赖与源码打包流程
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已定位并调整打包；实际 Debian CI 验证待完成。
+- 影响版本与环境：dev 47e264f，原 scripts/build-deb.sh 与 debian/；稳定版 0.2.14-1 的现有资产未修改。
+- 关联历史故障：TD-20261015-02 是发布校验错误；本项是包内容生成与元数据问题，根因不同。
+
+### 症状与影响
+
+原脚本直接 dpkg-deb 打包，独立 control 写死 amd64/版本且缺少 ELF 运行库依赖；debian/rules 仅 dh，无 Cargo 构建过程；不存在 source/format、DEP-5 版权、manpages。可以生成可解压的 deb，但不足以作为 Debian 规范源码打包及官方入库依据。
+
+### 触发条件与复现
+
+静态检查 scripts/build-deb.sh、packaging/deb/control、debian/control 与 debian/rules 即可确认两份元数据和缺少构建规则。新 tests 检查真实产物的 libc/SQLite/Python 依赖、root 权限与必需文档；旧版二进制检查结果待补充。
+
+### 根因与证据
+
+手工归档绕过 dh_shlibdeps、dh_python3 和标准文档处理。另在本次新增 MSIX 首轮校验时，PackageDependency 使用了 foundation schema 不支持的 ProcessorArchitecture，MakeAppx 报 0x80080204；删除该属性后同一工具通过。它是新打包脚本的开发错误，不是既有发布故障。
+
+### 解决办法与恢复操作
+
+改用 debhelper、dpkg-buildpackage、唯一 debian/control；加入离线构建、系统 SQLite、标准源码格式和安装 smoke。不启动用户服务。新增 MSIX 脚本用 Windows SDK 校验，并要求正式包提供 Partner Center 身份。无用户数据恢复操作。
+
+### 验证结果与边界
+
+Windows 37 个库测试及 7 个引擎测试通过，旧发布 bundle 的 MSIX 通过 SDK 校验。Flutter 首轮因本机 SDK 3.47.4 与锁文件不兼容停止，已下载 CI 同版 3.41.8 且 enforce-lockfile 通过；没有升级项目依赖。新更新代码首轮分析发现三处缺少花括号，正在修正后复验。本机 WSL WSAETIMEDOUT，未重启用户环境；Linux 验证交由 CI。官方依赖闭包、完整第三方版权审计、Debian unstable sbuild、商店认证/签名安装尚未完成。
+
+### 防复发措施与后续
+
+CI 执行 MakeAppx、Debian 实际包检查、Lintian 和隔离安装/移除；保留 Development 通道隔离、节流、关闭持久化与失败测试。不得将“能打包”表述成已进入微软商店或 Debian 官方源。详见 [发行准备](distribution-preparation.md)。
+
+### 交付记录
+
+本轮提交、PR 与 CI 链接待完成后补充。
+
 ## TD-20261015-03：桌面状态轮询堆积与连接身份展示不足
 
 - 日期：2026-10-15（Asia/Shanghai）
