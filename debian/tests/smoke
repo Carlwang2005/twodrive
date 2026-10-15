@@ -5,7 +5,14 @@ export XDG_DATA_HOME="$AUTOPKGTEST_TMP/data"
 export XDG_CACHE_HOME="$AUTOPKGTEST_TMP/cache"
 twodrive --version
 twodrive help
+twodrive init-mock
+twodrive status
+python3 - "$XDG_DATA_HOME/twodrive/twodrive.sqlite3" <<'CHECK'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+CHECK
+test ! -e "$XDG_CONFIG_HOME/twodrive/tokens.json"
 test -x /usr/bin/twodrive-daemon
 test -r /usr/share/doc/twodrive/copyright
 test -r /usr/share/man/man1/twodrive.1.gz
-ldd /usr/bin/twodrive | grep 'libsqlite3.so'

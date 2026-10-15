@@ -6,6 +6,8 @@ import subprocess
 import tarfile
 import io
 import hashlib
+import gzip
+import re
 
 
 def verify_manifests(directory):
@@ -47,8 +49,24 @@ def verify(package):
                      'usr/share/doc/twodrive/copyright',
                      'usr/share/doc/twodrive/changelog.Debian.gz',
                      'usr/share/man/man1/twodrive.1.gz',
+                     'usr/bin/twodrive-tray', 'usr/bin/twodrive-settings',
+                     'usr/share/nautilus-python/extensions/twodrive_nautilus.py',
+                     'etc/xdg/autostart/twodrive-tray.desktop',
+                     'usr/share/doc/twodrive/third-party-notices.txt.gz',
                      'usr/lib/systemd/user/twodrive-daemon.service']:
             assert name in names, f'missing payload: {name}'
+        assert not any(n.startswith(('home/', 'root/', 'usr/local/')) for n in names), 'user/local payload'
+        assert not any(n.endswith(('tokens.json', 'config.toml', '.sqlite3')) for n in names), 'runtime state in package'
+        notes = gzip.decompress(stream.extractfile('./usr/share/doc/twodrive/third-party-notices.txt.gz').read())
+        assert b'=== rusqlite ' in notes and b'Permission is hereby granted' in notes
+    control = subprocess.check_output(['dpkg-deb', '--ctrl-tarfile', str(package)])
+    with tarfile.open(fileobj=io.BytesIO(control)) as stream:
+        conffiles = stream.extractfile('./conffiles').read().decode()
+        assert '/etc/xdg/autostart/twodrive-tray.desktop' in conffiles
+        for item in stream.getmembers():
+            if Path(item.name).name in ('preinst', 'postinst', 'prerm', 'postrm'):
+                script = stream.extractfile(item).read().decode()
+                assert not re.search(r'(?:/home/|/root/|\$HOME|\$\{HOME\})', script), 'maintainer script accesses user data'
     print(f'Verified Debian dependencies, ownership and payload: {package.name}')
     verify_manifests(package.parent)
 

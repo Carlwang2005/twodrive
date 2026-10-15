@@ -1,64 +1,68 @@
-name: Debian package preparation
+name: Debian package
 on:
   push:
-    branches: [dev]
+    branches: [main, dev]
   pull_request:
-    paths: ['debian/**', 'scripts/build-deb.sh', 'scripts/test-debian-package.py', 'crates/**', 'Cargo.*', '.github/workflows/debian-package.yml']
   workflow_dispatch:
+concurrency:
+  group: debian-package-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   package:
+    name: Debian package
     runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Debian tooling and native build dependencies
+      - name: Install Debian tooling and native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y debhelper dh-python cargo rustc pkgconf libsqlite3-dev lintian python3-gi gir1.2-gtk-4.0
+          sudo apt-get install -y debhelper dh-python pkgconf libsqlite3-dev lintian python3-gi gir1.2-gtk-4.0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: '. -> debian/cargo-target'
-      - name: Provision upstream Cargo cache outside the offline package build
-        run: cargo fetch --locked
-      - name: Build binary package using debhelper
-        # Ubuntu's dpkg database lists an older rustc; the verified rustup
-        # toolchain is used here only. Debian archive builds must use apt tools.
-        run: bash scripts/build-deb.sh -d -j2
-      - name: Verify archive metadata and Lintian
+      - name: Build complete Debian artifacts
+        # Ubuntu's dpkg database cannot describe the newer rustup compiler.
+        # -d is restricted to this upstream CI; all native dependencies above
+        # are provisioned. Official distribution builds must satisfy Build-Depends.
+        run: bash scripts/build-deb.sh -d -j2 > /tmp/debian-build.log 2>&1
+      - name: Check artifacts, unchanged runtime payload and Lintian
         run: |
           set -euo pipefail
           curl --fail --location --output /tmp/old-twodrive.deb https://github.com/LumiaBlack51/twodrive/releases/download/v0.2.14-1/twodrive_0.2.14-1_amd64.deb
-          if python3 scripts/test-debian-package.py /tmp/old-twodrive.deb > dist/debian/old-package-regression.log 2>&1; then
-            echo 'Expected old package dependency failure was not reproduced'; exit 1
+          if python3 scripts/test-debian-package.py /tmp/old-twodrive.deb > /tmp/old-package-regression.log 2>&1; then
+            echo 'Old package unexpectedly passed dependency regression'; exit 1
           fi
-          grep 'missing generated/runtime dependency: libc6' dist/debian/old-package-regression.log
+          grep 'missing generated/runtime dependency: libc6' /tmp/old-package-regression.log
           python3 scripts/test-debian-package.py dist/debian/twodrive_*_amd64.deb
-          lintian --fail-on error dist/debian/twodrive_*_amd64.deb | tee dist/debian/lintian.log
-      - name: Install, smoke test and remove in the disposable runner
+          python3 scripts/test-debian-compatibility.py /tmp/old-twodrive.deb dist/debian/twodrive_*_amd64.deb
+          lintian --profile debian --fail-on error dist/debian/*.changes | tee dist/debian/lintian.log
+      - name: Disposable install and upgrade lifecycle
         run: |
-          sudo apt-get install -y ./dist/debian/twodrive_*_amd64.deb
-          AUTOPKGTEST_TMP=$(mktemp -d) sh debian/tests/smoke
-          sudo apt-get remove -y twodrive
-      - name: Build quilt source package from a clean source tree
+          docker run --rm -v "$PWD:/source:ro" -v /tmp/old-twodrive.deb:/old.deb:ro ubuntu:24.04 bash -ec '
+            apt-get update
+            TWODRIVE_DISPOSABLE_PACKAGE_TEST=1 /source/scripts/test-debian-lifecycle.sh /old.deb /source/dist/debian/twodrive_*_amd64.deb
+          '
+      - name: Confirm source package extracts without dependency caches
         run: |
-          set -euo pipefail
-          upstream=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
-          stage=$(mktemp -d)
-          mkdir "$stage/twodrive-$upstream"
-          git archive HEAD | tar -x -C "$stage/twodrive-$upstream"
-          git archive --prefix="twodrive-$upstream/" HEAD -- . ':!debian' | xz -T2 > "$stage/twodrive_$upstream.orig.tar.xz"
-          (cd "$stage" && dpkg-source --build "twodrive-$upstream")
-          cp "$stage"/*.dsc "$stage"/*.tar.xz dist/debian/
-          python3 scripts/test-debian-package.py dist/debian/twodrive_*_amd64.deb
-          lintian --fail-on error dist/debian/*.dsc | tee dist/debian/lintian-source.log
+          mkdir /tmp/source-rebuild
+          dpkg-source -x dist/debian/twodrive_*.dsc /tmp/source-rebuild/twodrive
+          python3 scripts/test-debian-vendor.py /tmp/source-rebuild/twodrive
+          cd /tmp/source-rebuild/twodrive
+          debian/rules clean
+          python3 "$GITHUB_WORKSPACE/scripts/test-debian-vendor.py" "$PWD"
+          CARGO_HOME="$PWD/debian/cargo-home" cargo --config 'source.crates-io.replace-with="vendored-sources"' --config 'source.vendored-sources.directory="vendor"' metadata --offline --locked --format-version 1 > /dev/null
+      - name: Retain build diagnostics
+        if: always()
+        run: |
+          mkdir -p dist/debian
+          cp /tmp/debian-build.log dist/debian/
+          test ! -f /tmp/old-package-regression.log || cp /tmp/old-package-regression.log dist/debian/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: twodrive-debian-preparation
-          path: dist/debian/
+          name: twodrive-debian
+          path: dist/debian/*.*
           if-no-files-found: error

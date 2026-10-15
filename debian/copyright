@@ -1,6 +1,10 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: TwoDrive
 Source: https://github.com/LumiaBlack51/twodrive
+Comment: Vendored dependency sources retain their own license and copyright
+ notices. The generated third-party-notices.txt installed alongside this file
+ reproduces their upstream attribution and license documents. Official Debian
+ archive submission still requires a full dependency copyright review.
 
 Files: *
 Copyright: 2026 TwoDrive contributors
