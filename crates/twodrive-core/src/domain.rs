@@ -149,6 +149,45 @@ pub struct PendingDelete {
     pub upload_cache_path: Option<PathBuf>,
     /// The acknowledged cloud path can differ after a concurrent local rename.
     pub uploaded_path: Option<String>,
+    pub attempt_count: u32,
+    pub next_retry_unix: i64,
+    pub last_status: Option<u16>,
+    pub failure_kind: Option<DeleteFailureKind>,
+}
+
+impl PendingDelete {
+    pub fn retry_due(&self, now: i64) -> bool {
+        self.next_retry_unix <= now
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteFailureKind {
+    Authentication,
+    Permission,
+    Throttled,
+    Transient,
+    Rejected,
+}
+impl DeleteFailureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Authentication => "authentication",
+            Self::Permission => "permission",
+            Self::Throttled => "throttled",
+            Self::Transient => "transient",
+            Self::Rejected => "rejected",
+        }
+    }
+    pub(crate) fn parse(value: &str) -> Self {
+        match value {
+            "authentication" => Self::Authentication,
+            "permission" => Self::Permission,
+            "throttled" => Self::Throttled,
+            "transient" => Self::Transient,
+            _ => Self::Rejected,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

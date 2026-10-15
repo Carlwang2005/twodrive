@@ -6,6 +6,47 @@ use std::{
 };
 
 struct Sandbox(PathBuf);
+
+#[test]
+fn pending_deletion_status_and_manual_retry_preserve_the_tombstone() {
+    let sandbox = Sandbox::new();
+    assert!(sandbox.run(&["init-mock"]).status.success());
+    let db = twodrive_core::Database::new(sandbox.0.join("data/twodrive/twodrive.sqlite3"));
+    db.queue_remote_delete("private-old-id", "/deleted-file")
+        .unwrap();
+    db.defer_pending_delete(
+        "private-old-id",
+        Some(403),
+        twodrive_core::DeleteFailureKind::Permission,
+        0,
+    )
+    .unwrap();
+    let output = sandbox.run(&["status-path", "/deleted-file"]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    for field in [
+        "state=delete_pending",
+        "cloud_delete=unconfirmed",
+        "delete_attempts=1",
+        "delete_failure=permission",
+        "delete_http_status=403",
+    ] {
+        assert!(text.contains(field), "{text}");
+    }
+    assert!(!text.contains("private-old-id"));
+    let output = sandbox.run(&["status"]);
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("pending deletes waiting for retry: 1")
+    );
+    let output = sandbox.run(&["retry-deletes"]);
+    assert!(output.status.success());
+    assert_eq!(db.pending_deletes().unwrap().len(), 1);
+    assert_eq!(db.pending_deletes().unwrap()[0].next_retry_unix, 0);
+    assert_eq!(db.pending_deletes().unwrap()[0].remote_id, "private-old-id");
+    assert!(!sandbox.0.join("config/twodrive/tokens.json").exists());
+}
 impl Sandbox {
     fn new() -> Self {
         Self(std::env::temp_dir().join(format!(

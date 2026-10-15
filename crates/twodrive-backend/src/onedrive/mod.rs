@@ -493,10 +493,13 @@ impl CloudBackend for GraphBackend {
 
     fn delete(&self, remote_id: &str) -> anyhow::Result<()> {
         let url = format!("https://graph.microsoft.com/v1.0/me/drive/items/{remote_id}");
-        retry_optional_request(|| {
-            let access_token = self.access_token()?;
-            Ok(self.client.delete(&url).bearer_auth(access_token))
-        })?;
+        http::retry_optional_request_named(
+            crate::diagnostics::RequestOperation::DriveItemDelete,
+            || {
+                let access_token = self.access_token()?;
+                Ok(self.client.delete(&url).bearer_auth(access_token))
+            },
+        )?;
         Ok(())
     }
 }
@@ -511,3 +514,6 @@ pub(crate) fn is_conflict_error(err: &anyhow::Error) -> bool {
 }
 
 mod control;
+
+#[cfg(test)]
+mod diagnostic_tests;

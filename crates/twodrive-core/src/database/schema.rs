@@ -130,6 +130,26 @@ impl Database {
              WHERE local_id IS NULL AND cloud_remote_id IS NULL AND remote_id NOT LIKE 'local-upload-%'",
             [],
         )?;
+        for (column, sql) in [
+            (
+                "attempt_count",
+                "ALTER TABLE pending_deletes ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "next_retry_unix",
+                "ALTER TABLE pending_deletes ADD COLUMN next_retry_unix INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "last_status",
+                "ALTER TABLE pending_deletes ADD COLUMN last_status INTEGER",
+            ),
+            (
+                "failure_kind",
+                "ALTER TABLE pending_deletes ADD COLUMN failure_kind TEXT",
+            ),
+        ] {
+            ensure_column(&conn, "pending_deletes", column, sql)?;
+        }
         let migrated = conn
             .query_row(
                 "SELECT value FROM app_state WHERE key = 'pin_policy_v1_migrated'",

@@ -494,6 +494,10 @@ impl Database {
             upload_target_id,
             upload_cache_path,
             uploaded_path: None,
+            attempt_count: 0,
+            next_retry_unix: 0,
+            last_status: None,
+            failure_kind: None,
         })
     }
 
@@ -516,7 +520,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT remote_id, path, cache_path, queued_unix, local_id,
                 COALESCE(cloud_remote_id, CASE WHEN local_id IS NULL AND remote_id NOT LIKE 'local-upload-%' THEN remote_id END),
-                upload_path, upload_target_id, upload_cache_path, uploaded_path FROM pending_deletes ORDER BY queued_unix, path",
+                upload_path, upload_target_id, upload_cache_path, uploaded_path, attempt_count, next_retry_unix, last_status, failure_kind FROM pending_deletes ORDER BY queued_unix, path",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -531,6 +535,13 @@ impl Database {
                     upload_target_id: row.get(7)?,
                     upload_cache_path: row.get::<_, Option<String>>(8)?.map(PathBuf::from),
                     uploaded_path: row.get(9)?,
+                    attempt_count: row.get(10)?,
+                    next_retry_unix: row.get(11)?,
+                    last_status: row.get(12)?,
+                    failure_kind: row
+                        .get::<_, Option<String>>(13)?
+                        .as_deref()
+                        .map(crate::DeleteFailureKind::parse),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

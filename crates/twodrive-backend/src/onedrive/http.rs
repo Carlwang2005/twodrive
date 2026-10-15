@@ -1,19 +1,9 @@
+pub(super) use crate::diagnostics::RequestFailure as HttpFailure;
+use crate::diagnostics::{RequestOperation, TransportFailure};
 use reqwest::blocking::RequestBuilder;
 use reqwest::header::RETRY_AFTER;
 use std::thread::sleep;
 use std::time::Duration;
-
-#[derive(Debug)]
-pub(super) struct HttpFailure {
-    pub status: u16,
-    pub retry_after: Duration,
-}
-impl std::fmt::Display for HttpFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HTTP {}", self.status)
-    }
-}
-impl std::error::Error for HttpFailure {}
 
 pub(super) fn retry_request<F>(build: F) -> anyhow::Result<reqwest::blocking::Response>
 where
@@ -21,7 +11,16 @@ where
 {
     retry_request_checked(build, &mut || Ok(()))
 }
-
+pub(super) fn retry_request_named<F>(
+    operation: RequestOperation,
+    mut build: F,
+) -> anyhow::Result<reqwest::blocking::Response>
+where
+    F: FnMut() -> RequestBuilder,
+{
+    retry_impl(operation, || Ok(build()), &mut || Ok(()), false)?
+        .ok_or_else(|| anyhow::anyhow!("missing HTTP response"))
+}
 pub(super) fn checked_delay(
     delay: Duration,
     check: &mut dyn FnMut() -> anyhow::Result<()>,
@@ -37,7 +36,6 @@ pub(super) fn checked_delay(
     }
     check()
 }
-
 pub(super) fn retry_request_checked<F>(
     mut build: F,
     check: &mut dyn FnMut() -> anyhow::Result<()>,
@@ -45,91 +43,79 @@ pub(super) fn retry_request_checked<F>(
 where
     F: FnMut() -> RequestBuilder,
 {
-    let mut last_error = None;
-    for attempt in 1..=3 {
-        check()?;
-        match build().send() {
-            Ok(response) if response.status().is_success() => return Ok(response),
-            Ok(response)
-                if response.status().as_u16() == 429 || response.status().is_server_error() =>
-            {
-                let status = response.status();
-                let delay = retry_after_delay(response.headers(), attempt);
-                last_error = Some(
-                    HttpFailure {
-                        status: status.as_u16(),
-                        retry_after: delay,
-                    }
-                    .into(),
-                );
-                if attempt == 3 || delay > Duration::from_secs(30) {
-                    break;
-                }
-                eprintln!("twodrive: Graph request attempt {attempt} failed; retrying");
-                checked_delay(delay, check)?;
-                continue;
-            }
-            Ok(response) => {
-                let status = response.status();
-                return Err(HttpFailure {
-                    status: status.as_u16(),
-                    retry_after: Duration::ZERO,
-                }
-                .into());
-            }
-            Err(err) => last_error = Some(err.into()),
-        }
-
-        checked_delay(Duration::from_millis(250 * attempt), check)?;
-    }
-
-    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Graph request failed")))
+    retry_impl(RequestOperation::Graph, || Ok(build()), check, false)?
+        .ok_or_else(|| anyhow::anyhow!("missing HTTP response"))
 }
-
 pub(super) fn retry_optional_request<F>(
+    build: F,
+) -> anyhow::Result<Option<reqwest::blocking::Response>>
+where
+    F: FnMut() -> anyhow::Result<RequestBuilder>,
+{
+    retry_optional_request_named(RequestOperation::Graph, build)
+}
+pub(super) fn retry_optional_request_named<F>(
+    operation: RequestOperation,
+    build: F,
+) -> anyhow::Result<Option<reqwest::blocking::Response>>
+where
+    F: FnMut() -> anyhow::Result<RequestBuilder>,
+{
+    retry_impl(operation, build, &mut || Ok(()), true)
+}
+fn retry_impl<F>(
+    operation: RequestOperation,
     mut build: F,
+    check: &mut dyn FnMut() -> anyhow::Result<()>,
+    optional: bool,
 ) -> anyhow::Result<Option<reqwest::blocking::Response>>
 where
     F: FnMut() -> anyhow::Result<RequestBuilder>,
 {
     let mut last_error = None;
     for attempt in 1..=3 {
-        match build().and_then(|request| request.send().map_err(Into::into)) {
+        check()?;
+        // Building may refresh credentials. Do not turn a rejected refresh into
+        // three additional token attempts or discard its original operation.
+        let request = build().map_err(|error| {
+            if error.is::<HttpFailure>() || error.is::<TransportFailure>() {
+                error
+            } else {
+                anyhow::Error::new(TransportFailure {
+                    operation,
+                    code: "request-build",
+                })
+            }
+        })?;
+        match request.send() {
             Ok(response) if response.status().is_success() => return Ok(Some(response)),
-            Ok(response) if response.status().as_u16() == 404 => return Ok(None),
-            Ok(response)
-                if response.status().as_u16() == 429 || response.status().is_server_error() =>
-            {
-                let status = response.status();
-                let delay = retry_after_delay(response.headers(), attempt);
-                last_error = Some(
-                    HttpFailure {
-                        status: status.as_u16(),
-                        retry_after: delay,
-                    }
-                    .into(),
-                );
-                if attempt == 3 || delay > Duration::from_secs(30) {
-                    break;
+            Ok(response) if optional && response.status().as_u16() == 404 => return Ok(None),
+            Ok(response) => {
+                let transient =
+                    response.status().as_u16() == 429 || response.status().is_server_error();
+                let delay = if transient {
+                    retry_after_delay(response.headers(), attempt)
+                } else {
+                    response
+                        .headers()
+                        .get(RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(parse_retry_after_seconds)
+                        .unwrap_or(Duration::ZERO)
+                };
+                let error = HttpFailure::response(response, operation, delay);
+                if !transient || attempt == 3 || delay > Duration::from_secs(30) {
+                    return Err(error.into());
                 }
-                eprintln!("twodrive: Graph request attempt {attempt} failed; retrying");
-                sleep(delay);
+                eprintln!("twodrive: {error}; retrying");
+                last_error = Some(error.into());
+                checked_delay(delay, check)?;
                 continue;
             }
-            Ok(response) => {
-                let status = response.status();
-                return Err(HttpFailure {
-                    status: status.as_u16(),
-                    retry_after: Duration::ZERO,
-                }
-                .into());
-            }
-            Err(err) => last_error = Some(err),
+            Err(error) => last_error = Some(TransportFailure::request(&error, operation).into()),
         }
-
-        sleep(Duration::from_millis(250 * attempt));
+        checked_delay(Duration::from_millis(250 * attempt), check)?;
     }
-
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Graph request failed")))
 }
 

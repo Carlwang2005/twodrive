@@ -10,6 +10,18 @@ Create, edit, rename, move, and delete through the mount. Changes are committed 
 
 ## Keep or release content
 
+Cloud deletion can remain pending after a path disappears locally. `twodrive status`
+reports retained/deferred deletions; `twodrive status-path /old/path` shows
+`state=delete_pending`, the failure category and next retry time while that path
+has no newer local object. Permission/authentication failures retry after 5 minutes,
+doubling up to 6 hours; temporary failures start at 1 minute, up to 1 hour. A longer
+server Retry-After is respected. Restarting does not erase this schedule or the task.
+After resolving access/sign-in issues, `twodrive retry-deletes` makes retained tasks
+eligible on the next background scan, or run `twodrive sync` afterward for a pass.
+This does not confirm cloud completion, change deletion targets, or discard tasks/cache.
+Ordinary `sync` respects existing retry schedules. HTTP diagnostics expose only
+bounded, allowlisted fields; never share tokens, private databases or raw unrelated logs.
+
 | Nautilus action | Behavior |
 | --- | --- |
 | **Always keep on this device** | Sets an explicit pin policy and downloads existing eligible files, recursively for folders. Pinned content is protected from automatic cache cleanup. |

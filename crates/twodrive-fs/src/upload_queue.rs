@@ -175,7 +175,10 @@ pub(crate) fn run_upload_worker<B: CloudBackend>(
             UploadCommand::Delete(cloud_remote_id) => {
                 if let Err(err) = recover_pending_delete_id(&db, backend.as_ref(), &cloud_remote_id)
                 {
-                    eprintln!("twodrive: queued delete failed for {cloud_remote_id}: {err:#}");
+                    eprintln!(
+                        "twodrive: queued delete remains pending: {}",
+                        twodrive_backend::diagnostics::safe_error(&err)
+                    );
                 }
                 continue;
             }
