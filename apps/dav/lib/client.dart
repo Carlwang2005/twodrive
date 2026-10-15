@@ -27,9 +27,24 @@ class StorageClient extends ChangeNotifier {
   Json status = {};
   String? selected;
   String path = '/';
-  String? error;
+  String? _error;
+  String? _pollError;
+  String? get error => _error ?? _pollError;
+  set error(String? value) {
+    _error = value;
+    if (value == null) _pollError = null;
+  }
+
   String activity = '';
-  bool busy = false;
+  bool _busy = false;
+  final Set<int> _engineOperations = {};
+  bool get busy => _busy || _engineOperations.isNotEmpty;
+  set busy(bool value) => _busy = value;
+  Future<void>? _statusRefresh;
+  Future<void>? _polling;
+  bool _disposed = false;
+  DateTime? _directoryChecked;
+  bool _directoryStale = true;
   bool available = false;
   bool quitting = false;
   int _id = 0;
@@ -79,8 +94,14 @@ class StorageClient extends ChangeNotifier {
   String get providerLabel =>
       profile?['provider_label'] as String? ?? 'TwoDrive';
   String get accountLabel => profile?['account_label'] as String? ?? '账号';
-  String get account =>
-      profile?['account'] as String? ?? profile?['name'] as String? ?? '未登录';
+  String get account => connected
+      ? (status['account_name'] as String? ??
+            profile?['account_name'] as String? ??
+            '账号名称暂不可用')
+      : '未登录';
+  String get trayTitle => connected
+      ? 'TwoDrive Development · $providerLabel · $account'
+      : 'TwoDrive Development · 未连接';
   String get trayState => error != null || syncError
       ? 'error'
       : connected && proxyFallback
@@ -142,17 +163,17 @@ class StorageClient extends ChangeNotifier {
         }),
       );
       available = true;
+      // Older engines keep working through single-flight polling. Operation
+      // notifications are opt-in so older frontends never misread them as replies.
+      try {
+        await request('subscribe', {'operations': true});
+      } on StateError {
+        // No subscription operation in earlier engine versions.
+      }
       await loadProfiles();
       await refreshStatus();
       _poll = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (!busy && available && !quitting) {
-          unawaited(
-            refreshStatus().catchError((Object e) {
-              error = '$e';
-              notifyListeners();
-            }),
-          );
-        }
+        unawaited(pollNow());
       });
     } catch (e) {
       fail('无法启动本地引擎：$e');
@@ -161,7 +182,37 @@ class StorageClient extends ChangeNotifier {
 
   @visibleForTesting
   void accept(Json message) {
+    if (_disposed) return;
     final id = message['id'] as int;
+    if (id > _id) _id = id;
+    if (message['event'] == 'operation') {
+      if (message['running'] == true) {
+        _engineOperations.add(id);
+        if (!_busy) {
+          activeId = id;
+          activity = '正在处理连接或文件操作';
+        }
+      } else {
+        _engineOperations.remove(id);
+        if (!_busy && activeId == id) {
+          activeId = null;
+          activity = '';
+        }
+        if (message['configuration'] is Map) {
+          _applyProfiles(
+            Map<String, dynamic>.from(message['configuration'] as Map),
+          );
+        }
+        if (message['status'] is Map) {
+          _applyStatus(Map<String, dynamic>.from(message['status'] as Map));
+        }
+        _directoryStale = true;
+        _browseGeneration++;
+        if (!quitting && message['op'] != 'quit') unawaited(pollNow());
+      }
+      notifyListeners();
+      return;
+    }
     if (message['event'] == 'progress') {
       final task = transfers.where((t) => t.id == id).firstOrNull;
       if (task != null) {
@@ -171,6 +222,7 @@ class StorageClient extends ChangeNotifier {
       }
       return;
     }
+    if (message.containsKey('event')) return;
     final reply = _pending.remove(id);
     if (reply == null) {
       return;
@@ -185,6 +237,7 @@ class StorageClient extends ChangeNotifier {
   @visibleForTesting
   void fail(String message) {
     available = false;
+    _engineOperations.clear();
     status = {};
     entries = [];
     _browseGeneration++;
@@ -200,35 +253,104 @@ class StorageClient extends ChangeNotifier {
     if (!available || _process == null) {
       return Future.error(StateError('本地引擎未运行'));
     }
+    if (_pending.length >= 32 && op != 'cancel') {
+      return Future.error(StateError('请求正在处理中，请稍后重试'));
+    }
     final id = requestId ?? ++_id;
+    if (_pending.containsKey(id)) {
+      return Future.error(StateError('请求编号重复'));
+    }
     final completer = Completer<Json>();
     _pending[id] = completer;
-    _process!.stdin.writeln(jsonEncode({'id': id, 'op': op, 'args': args}));
+    try {
+      _process!.stdin.writeln(jsonEncode({'id': id, 'op': op, 'args': args}));
+    } catch (e) {
+      _pending.remove(id);
+      completer.completeError(e);
+    }
     return completer.future;
   }
 
-  Future<void> loadProfiles() async {
-    final result = await request('profiles');
+  void _applyProfiles(Json result) {
     profiles = (result['profiles'] as List).cast<Json>();
     providers = ((result['providers'] as List?) ?? []).cast<Json>();
     selected = connected
         ? status['profile'] as String?
         : result['selected'] as String?;
+  }
+
+  Future<void> loadProfiles() async {
+    _applyProfiles(await request('profiles'));
     notifyListeners();
   }
 
-  Future<void> refreshStatus() async {
-    status = await request('status');
-    if (!connected) {
+  void _applyStatus(Json next) {
+    final previous = status['profile'];
+    final wasConnected = connected;
+    status = next;
+    if (connected) selected = status['profile'] as String? ?? selected;
+    if (!connected ||
+        previous != status['profile'] ||
+        wasConnected != connected) {
       entries = [];
+      path = '/';
+      _browseGeneration++;
+      _directoryStale = true;
     }
-    if (status['gateway_failed'] == true) {
-      error = '配对连接已断开，请重连。';
+    _pollError = status['gateway_failed'] == true
+        ? '配对连接已断开，请重连。'
+        : status['mount_failed'] == true
+        ? '挂载进程已退出；请卸载后重试。缓存已保留。'
+        : null;
+  }
+
+  // Keep the in-flight request until its reply arrives, including time spent
+  // behind a long engine operation. A timer tick must never enqueue another.
+  Future<void> refreshStatus() => _statusRefresh ??= _readStatus();
+  Future<void> _readStatus() async {
+    try {
+      final next = await request('status');
+      if (!_disposed) _applyStatus(next);
+    } catch (e) {
+      if (!_disposed) _pollError = '$e'.replaceFirst('Bad state: ', '');
+      rethrow;
+    } finally {
+      _statusRefresh = null;
+      if (!_disposed) notifyListeners();
     }
-    if (status['mount_failed'] == true) {
-      error = '挂载进程已退出；请卸载后重试。缓存已保留。';
+  }
+
+  Future<void> pollNow({bool forceDirectory = false}) {
+    if (forceDirectory) _directoryStale = true;
+    return _polling ??= _pollOnce();
+  }
+
+  Future<void> _pollOnce() async {
+    await Future<void>.value();
+    try {
+      if (busy || !available || quitting || _disposed) return;
+      final previous = selected;
+      await refreshStatus();
+      if (_disposed || quitting || !available) return;
+      if (selected != previous) await loadProfiles();
+      if (!busy &&
+          connected &&
+          available &&
+          !quitting &&
+          (_directoryStale ||
+              _directoryChecked == null ||
+              DateTime.now().difference(_directoryChecked!) >=
+                  const Duration(seconds: 15))) {
+        await readDirectory(path);
+      }
+    } catch (e) {
+      if (!_disposed) {
+        _pollError = '$e'.replaceFirst('Bad state: ', '');
+        notifyListeners();
+      }
+    } finally {
+      _polling = null;
     }
-    notifyListeners();
   }
 
   Future<void> action(String label, Future<void> Function() run) async {
@@ -248,6 +370,7 @@ class StorageClient extends ChangeNotifier {
       activity = '';
       activeId = null;
       notifyListeners();
+      unawaited(pollNow());
     }
   }
 
@@ -283,9 +406,11 @@ class StorageClient extends ChangeNotifier {
     final generation = ++_browseGeneration;
     final identity = this.target;
     final result = await request('list', {'path': target, ...identity});
-    if (generation != _browseGeneration || !available) {
+    if (generation != _browseGeneration || !available || _disposed) {
       return;
     }
+    _directoryChecked = DateTime.now();
+    _directoryStale = false;
     path = target;
     entries = (result['entries'] as List)
         .map((e) => {...e as Json, ...identity})
@@ -379,6 +504,7 @@ class StorageClient extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _poll?.cancel();
     super.dispose();
   }

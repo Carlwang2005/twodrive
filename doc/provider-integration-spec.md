@@ -1,6 +1,6 @@
 # 第三方存储接入与配套组件设计规范
 
-规范版本：1.0 · 对应 Development 0.1.2 的实现。本文中的“必须”是后续适配器的验收条件；标为“规划”的接口尚未实现，不能据此宣称产品已支持。WebDAV/NAS、配对设备、Google Drive、OneDrive 为现有适配器，新增网盘按相同边界扩展。
+规范版本：1.1 · 对应 Development 0.1.4 的实现。本文中的“必须”是后续适配器的验收条件；标为“规划”的接口尚未实现，不能据此宣称产品已支持。WebDAV/NAS、配对设备、Google Drive、OneDrive 为现有适配器，新增网盘按相同边界扩展。
 
 ## 1. 组件边界
 
@@ -73,7 +73,7 @@ flowchart LR
 
 ## 3. 登录入口与凭据生命周期
 
-当前统一入口是 **添加连接 → 保存 → 点击该行/连接按钮**。OAuth 在适配器 `connect` 中完成；Google 要求外部导入桌面应用 JSON，OneDrive 使用既有公开应用 ID，WebDAV 使用显式服务地址与凭据，设备共享使用可信邀请。不能为了接入网盘再增加一个具有重复连接状态的独立登录页面。
+当前统一入口是 **添加连接 → 保存 → 登录并使用（或切换使用）**。OAuth 在适配器 `connect` 中完成；Google 要求外部导入桌面应用 JSON，OneDrive 使用既有公开应用 ID，WebDAV 使用显式服务地址与凭据，设备共享使用可信邀请。不能为了接入网盘再增加一个具有重复连接状态的独立登录页面。
 
 登录必须遵守以下顺序：
 
@@ -81,9 +81,13 @@ flowchart LR
 2. 生成随机 attempt/state 与 PKCE；严格校验回调方法、路径、state 和授权结果。回调监听限回环，授权 scope 与固定可信端点由适配器声明；导入文件中的任意 URL 不得覆盖 token 接收地址。
 3. 浏览器启动参数作为 argv/环境数据，不能作为 shell 源码；父/子进程 stdout 必须保持仅 IPC JSON，禁止输出授权 URL、code 或令牌。
 4. 保存登录必须采用现有私有文件组件：Unix 目录 0700/秘密文件 0600，Windows 使用支持的私有凭据保护/当前用户目录；不得提交用户 client JSON、令牌、身份私钥或上传会话。
-5. 登录后探测稳定的账号/盘身份，生成 binding；不可仅按账号显示名称或 URL 判断同一身份。保存 worker session，恢复时校验 `kind + revision + binding`。
+5. 登录后探测稳定的账号/盘身份和用于展示的 `account_name`，生成 binding；不可仅按账号显示名称或 URL 判断同一身份。保存 worker session，恢复时校验 `kind + revision + binding`。
 6. 取消或失败须释放回调监听、终止所属进程，保持已有缓存；不能将登录成功但盘不可用显示为已连接。暂时网络失败不能自动删令牌或反复弹浏览器。
 7. 退出登录走通用入口并通过适配器移除本地登录；不删除云文件/备份源，设备配对的独立授权须按其明确生命周期处理。
+
+`Connection.account_name` 由适配器提供，在 session 中随 kind/revision 保存；公开 profiles/status 只投影该展示字段，不公开 recipe、binding 或凭据。当前活动连接以引擎 status.profile 为准；名称不得参与身份比较。OneDrive 的展示探测使用 [Microsoft Get user `/me`](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0)，既有 User.Read 权限不变；展示失败不能让已可用的盘连接失败。
+
+新版 UI 先请求 `subscribe {operations:true}`，引擎才发送可选 `event=operation` 通知（旧前端默认不接收，新前端遇旧引擎回退轮询）。通知包含 id/op/running，完成时附 status/configuration 公共快照；调用方须将事件与请求最终回复区分。重复 status/目录轮询必须合并，操作结束与窗口聚焦后刷新，轮询暂时错误在成功后恢复而不掩盖操作失败。队列保持有界且取消绕过排队；执行已取消的等待任务之前必须再次检查取消标志。事件不携带请求参数、秘密或远端正文。
 
 刷新令牌需限制并发/重复重试，保存后只属于原账号目录；错误必须脱敏。路由策略、代理支持、权限申请、组织账号限制必须在适配器指南说明，并实际验证所声明范围。
 
@@ -143,7 +147,7 @@ Linux FUSE 使用通用 Backend 与持久缓存，挂载完成前有独立冷索
 
 ## English contract summary
 
-Add third-party drives only at the provider composition boundary. Flutter consumes schemas and capabilities; adapters own authentication, identity, private state, routing and worker recipes. The current login entry is save-then-connect, not a separate generic login API. Public IPC must omit secrets. Restore binds provider kind, profile revision and account/drive identity.
+Add third-party drives only at the provider composition boundary. Flutter consumes schemas and capabilities; adapters own authentication, identity, private state, routing and worker recipes. The current login entry is save, then explicit Sign in and use / Switch; it reuses the guarded connect API. Public IPC must omit secrets. Restore binds provider kind, profile revision and account/drive identity.
 
 Enable writing only with atomic create-only and version-checked replacement, bounded streaming, cancellation and recoverable ambiguous outcomes. Paths select entries; opaque IDs select remote objects; metadata and media versions may differ. Shared backup/FUSE services must use the same guarantees. Preserve pending local work on conflicts, logout, account changes and upgrades.
 

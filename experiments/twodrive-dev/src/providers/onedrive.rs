@@ -67,8 +67,18 @@ pub fn connect(
     }
     let backend = OneDrive::open(&directory(p), p.writable)?;
     let binding = binding(&backend, cancel)?;
+    // A display-only probe must not make an otherwise usable drive unavailable.
+    let account_name = backend
+        .graph
+        .readonly_account_name(&mut || {
+            ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
+            Ok(())
+        })
+        .unwrap_or_default();
+    ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
     network.record("network: OneDrive route=system");
     Ok(Connection {
+        account_name,
         backend: Backend::new(backend),
         binding: binding.clone(),
         worker: json!({"kind":"onedrive","revision":p.revision,"binding":binding}),

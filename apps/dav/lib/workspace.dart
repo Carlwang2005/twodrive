@@ -84,14 +84,17 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
 
   Future<void> updateTray() async {
     final signature =
-        '${c.connected}:${c.busy}:${c.error}:${c.mounted}:${c.proxyFallback}:${c.paused}:${c.syncing}:${c.syncError}';
+        '${c.connected}:${c.busy}:${c.error}:${c.mounted}:${c.proxyFallback}:${c.paused}:${c.syncing}:${c.syncError}:${c.trayTitle}';
     if (_traySignature == signature) {
       return;
     }
     _traySignature = signature;
     final icon = c.trayState;
-    await tray.icon(icon);
+    await tray.icon(icon, title: c.trayTitle);
   }
+
+  @override
+  void onWindowFocus() => unawaited(c.pollNow(forceDirectory: true));
 
   @override
   void onWindowClose() {
@@ -473,7 +476,9 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   Padding(
                     padding: const EdgeInsets.only(top: 6, bottom: 20),
                     child: Text(
-                      c.profile?['name'] as String? ?? '添加存储账号或已配对设备',
+                      c.connected
+                          ? '${c.profile?['name'] ?? c.providerLabel} · ${c.account}'
+                          : c.profile?['name'] as String? ?? '添加存储账号或已配对设备',
                       style: const TextStyle(color: Colors.blueGrey),
                     ),
                   ),
@@ -855,32 +860,51 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
             ),
             title: Text(p['name'] as String),
             subtitle: Text(
-              p['summary'] as String? ??
-                  p['provider_label'] as String? ??
-                  p['kind'] as String,
+              [
+                p['provider_label'] as String? ?? p['kind'] as String,
+                if (c.connected && c.status['profile'] == p['id'])
+                  '${c.accountLabel}：${c.account}'
+                else if (p['account_name'] != null)
+                  '上次登录：${p['account_name']}',
+                if (p['summary'] != p['provider_label'] &&
+                    p['summary'] != p['name'] &&
+                    p['summary'] != null)
+                  p['summary'] as String,
+              ].join(' · '),
             ),
-            selected: c.selected == p['id'],
+            selected: c.connected && c.status['profile'] == p['id'],
             onTap: c.busy || !c.available
                 ? null
-                : () {
-                    if (c.connected) {
-                      unawaited(c.connect(p['id'] as String));
-                    } else {
-                      c.selected = p['id'] as String;
-                      changed();
-                    }
-                  },
+                : () => unawaited(c.connect(p['id'] as String)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (c.selected == p['id'])
-                  const Icon(Icons.check_circle, color: Colors.blue),
+                if (c.connected && c.status['profile'] == p['id'])
+                  const Chip(
+                    avatar: Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: Colors.blue,
+                    ),
+                    label: Text('当前使用'),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: c.busy || !c.available
+                        ? null
+                        : () => c.connect(p['id'] as String),
+                    icon: Icon(
+                      c.connected ? Icons.swap_horiz : Icons.login,
+                      size: 18,
+                    ),
+                    label: Text(c.connected ? '切换使用' : '登录并使用'),
+                  ),
                 IconButton(
                   tooltip: '编辑',
                   onPressed:
                       c.busy ||
                           !c.available ||
-                          (c.connected && c.selected == p['id'])
+                          (c.connected && c.status['profile'] == p['id'])
                       ? null
                       : () => editProfile(p),
                   icon: const Icon(Icons.edit_outlined),
@@ -890,7 +914,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   onPressed:
                       c.busy ||
                           !c.available ||
-                          (c.connected && c.selected == p['id'])
+                          (c.connected && c.status['profile'] == p['id'])
                       ? null
                       : () async {
                           if (await confirm('删除连接配置？', '服务器文件和已有配对状态会保留。')) {

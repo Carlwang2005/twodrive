@@ -162,7 +162,9 @@ pub fn connect(
     let backend = backend(p, &url)?;
     backend.list_directory("/")?;
     ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
+    let account_name = p.name.clone();
     Ok(Connection {
+        account_name,
         backend,
         binding: format!("peer:{}", remote.id),
         gateway: Some(child),

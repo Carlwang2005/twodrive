@@ -84,7 +84,14 @@ pub fn connect(
     };
     ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
     network.record(&format!("network: WebDAV route={route}"));
+    let account_name = if p.option("username").is_empty() {
+        "匿名访问"
+    } else {
+        p.option("username")
+    }
+    .to_owned();
     Ok(Connection {
+        account_name,
         backend,
         binding: format!("dav:{}:{}", p.option("url"), p.option("username")),
         worker: json!({"kind":p.kind,"revision":p.revision,"route":route}),

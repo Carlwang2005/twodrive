@@ -15,6 +15,7 @@ on:
       - 'scripts/install-dav-desktop.py'
       - 'scripts/test_dav_installer.py'
       - 'scripts/test-storage-connections.py'
+      - 'scripts/test-desktop-queue.py'
       - '.github/workflows/linux-dav-desktop.yml'
   workflow_dispatch:
     inputs:
@@ -56,6 +57,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
           python3 scripts/test-dav-desktop.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
+          python3 scripts/test-desktop-queue.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
           python3 scripts/test-storage-connections.py --engine "$PWD/experiments/twodrive-dev/target/release/twodrive-dav-engine" --peer "$PWD/experiments/twodrive-dev/target/release/twodrive-dev"
       - name: Tray positioning regression
         run: |
@@ -116,7 +118,11 @@ jobs:
           cargo build --locked --release --bins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows IPC, file transfer, backups and autostart isolation
-        run: python scripts/test-dav-desktop.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
+        run: |
+          python scripts/test-dav-desktop.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test-desktop-queue.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Flutter checks and native Windows build
         working-directory: apps/dav
         run: |

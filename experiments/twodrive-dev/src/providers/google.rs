@@ -69,7 +69,9 @@ pub fn connect(
     let binding = format!("google:{}", backend.account_id);
     ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
     network.record(&format!("network: Google Drive route={route}"));
+    let account_name = backend.account_name.clone();
     Ok(Connection {
+        account_name,
         backend: Backend::new(backend),
         binding: binding.clone(),
         worker: json!({"kind":"google","revision":p.revision,"route":route,"binding":binding}),

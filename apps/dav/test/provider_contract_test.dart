@@ -131,7 +131,7 @@ void main() {
           'kind': 'bucket',
           'name': 'Example',
           'provider_label': 'Example Storage',
-          'account': 'bucket account',
+          'account_name': 'bucket account',
           'writable': true,
         },
       ];

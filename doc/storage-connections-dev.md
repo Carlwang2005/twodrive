@@ -1,16 +1,16 @@
 # Development 存储连接 / Storage connections
 
-2026-10-14：`dev` 的 Development 桌面“连接 → 添加连接”可在已有连接在线时使用。可新增、修改、删除其他连接；正在使用的连接需先断开才能编辑或删除。点击另一行切换连接，沿用原有待上传缓存保护。当前为单个活动连接，配置列表可保存多个账号。
+2026-10-15（Development 0.1.4）：`dev` 的 Development 桌面“连接 → 添加连接”可在已有连接在线时使用。可新增、修改、删除其他连接；正在使用的连接需先断开才能编辑或删除。每条已保存连接提供“登录并使用”或“切换使用”，活动连接明确标为“当前使用”；行点击保留为快捷操作，切换仍受待上传缓存保护。当前为单个活动连接，配置列表可保存多个账号。
 
 ## WebDAV 网盘与 NAS
 
-选择 **WebDAV / NAS**，填写服务端提供的根 URL、用户名、密码，按需启用“允许修改远端文件”，保存后点击该连接。默认使用 HTTPS 并验证证书。局域网 NAS 仅提供 HTTP 时，在高级设置中显式开启“允许局域网 HTTP”，地址须使用数字私有 IP，例如 `http://192.168.1.10:5005/`；该段连接不加密。公共地址或域名 HTTP 仍拒绝，URL 不得内嵌凭据。局域网 HTTP 使用操作系统到该 IP 的路由；不会据此宣称已绕过 VPN/透明网关。
+选择 **WebDAV / NAS**，填写服务端提供的根 URL、用户名、密码，按需启用“允许修改远端文件”，保存后点击“登录并使用”。默认使用 HTTPS 并验证证书。局域网 NAS 仅提供 HTTP 时，在高级设置中显式开启“允许局域网 HTTP”，地址须使用数字私有 IP，例如 `http://192.168.1.10:5005/`；该段连接不加密。公共地址或域名 HTTP 仍拒绝，URL 不得内嵌凭据。局域网 HTTP 使用操作系统到该 IP 的路由；不会据此宣称已绕过 VPN/透明网关。
 
 根 URL 应指向启用了 WebDAV 的共享目录。读取、上传、条件覆盖、新建目录、移动、删除和文件夹备份依赖服务端权限和协议实现。S3、SMB、FTP 等需要各自适配器，不能只填进 WebDAV 地址。
 
 ## OneDrive 与 Google Drive
 
-选择 **OneDrive**，填写连接名称并保存，点击该行时打开系统浏览器完成 Microsoft 登录。登录和缓存使用 Development 独立目录，不修改稳定版服务及其配置；OneDrive 当前使用系统路由/代理。普通文件支持读写、修改、移动、删除，Linux 可挂载，文件夹备份使用既有流程。新增对象使用冲突失败策略；覆盖必须具有现存对象的明确版本。可保存多个账号配置，浏览器若自动选中账号，可在 Microsoft 页面选择另一个账号。
+选择 **OneDrive**，填写连接名称并保存，点击“登录并使用”，尚未登录时在系统浏览器完成 Microsoft 登录。登录和缓存使用 Development 独立目录，不修改稳定版服务及其配置；OneDrive 当前使用系统路由/代理。普通文件支持读写、修改、移动、删除，Linux 可挂载，文件夹备份使用既有流程。新增对象使用冲突失败策略；覆盖必须具有现存对象的明确版本。可保存多个账号配置，浏览器若自动选中账号，可在 Microsoft 页面选择另一个账号。
 
 Google 登录见 [Google Drive 指南](google-drive-dev.md)。私有登录目录和 Linux 挂载路径可留空，由引擎按连接 ID 自动选择独立目录；高级设置允许指定路径。不要把不同账号的私有登录目录指向同一个位置。
 
@@ -52,7 +52,7 @@ Windows 分享端示例：
 
 ## English
 
-The Development desktop supports adding and managing inactive connections while another account is connected. Clicking a saved row switches the active connection with pending-write protection. Configure WebDAV/NAS using its service URL and credentials; HTTPS is the default. Numeric private-IP HTTP requires explicit opt-in and uses OS routing without claiming VPN bypass. OneDrive uses the existing Microsoft OAuth/Graph engine with independent Development account state; Google setup is described in its guide.
+The Development desktop supports adding and managing inactive connections while another account is connected. Each saved connection has an explicit Sign in and use / Switch action and a Current marker; switching preserves pending-write protection. The active signed-in account is shown separately from the custom connection name, including the tray panel and native tooltip. Configure WebDAV/NAS using its service URL and credentials; HTTPS is the default. Numeric private-IP HTTP requires explicit opt-in and uses OS routing without claiming VPN bypass. OneDrive uses the existing Microsoft OAuth/Graph engine with independent Development account state; Google setup is described in its guide.
 
 For PC/NAS sharing, run the updated `twodrive-dev serve` on the sharing device with an explicit directory, optional `--write`, and opt-in `--discoverable --device-name NAME`. The GUI scans IPv4 LAN UDP port 49183. Select the device and import a trusted, ten-minute, single-use invitation; discovery alone never authorizes access. Invitations can also connect across networks without discovery. QUIC/TLS transport attempts UDP NAT traversal and can fall back to encrypted relay. Native Windows, physical NAS and independent-network hole punching are separate unverified scopes for this change. The local regression scripts isolate their state and touch only disposable data.
 
@@ -63,3 +63,13 @@ Protocol references: [Microsoft upload session](https://learn.microsoft.com/grap
 Linux 可写挂载先移除本地路径，再排队云端删除。状态页显示云端待确认、被拒绝和等待重试数量；拒绝不会让任务/必要缓存消失。修复权限或登录后可点击“重新尝试”，让任务在下一轮扫描重新评估。权限/认证退避 5 分钟至 6 小时，临时错误 1 分钟至 1 小时，更长 Retry-After 优先，重启保留。桌面文件页直接删除仍同步返回错误，不会加入挂载待办。Windows 当前没有 FUSE 挂载，因此这项队列状态仅用于已有 Linux 挂载状态。
 
 English: Linux mount deletion status distinguishes local removal from unconfirmed cloud cleanup. Retained tasks survive restart, back off and can be made eligible through Retry. Direct desktop file deletion reports synchronously; permissions and deletion targets are unchanged.
+
+## 自动刷新与账号名称（Development 0.1.4）
+
+状态轮询每 3 秒进行，整个刷新周期只允许一项在途；长操作期间不会不断排入重复 status。引擎主动报告操作开始/完成和最新状态，完成后自动更新活动连接及账号。当前目录每 15 秒浅层检查，窗口重新获得焦点时也请求刷新；网络阻塞时等待当前请求返回，不积累后续轮询。状态轮询的暂时错误在下一次成功后消除，失败上传等明确操作错误仍保留供处理。这不是云端实时推送，也不保证网络请求能立即取消。
+
+Google 使用服务返回的账号名称（现有探测优先邮箱）；OneDrive 使用 Microsoft `/me` 返回的显示名称，缺少时回退邮箱/UPN；WebDAV 显示已成功连接的用户名或“匿名访问”，设备共享显示设备连接名称。活动账号出现在连接页、管理页标题、托盘面板和系统托盘提示中。离线配置只显示“上次登录”，不冒充仍在线。账号文字仅用于展示，稳定身份 ID、profile revision 和 binding 仍控制文件操作/恢复。旧 session 没有名称时重新连接即可刷新；显示探测不可用时明确提示名称暂不可用，不把配置名当作真实账号名。
+
+队列保留 32 项上限，满时拒绝新增工作而不阻塞取消通道；已经取消但尚未执行的任务不会再运行。文件传输和 FUSE 持久待办仍使用原有恢复机制，不能将 desktop IPC 队列与云端持久同步待办混为一谈。
+
+English: Status refreshes are single-flight, completion events synchronize account/connection state, and shallow directory polling runs every 15 seconds or on focus. Transient polling errors recover automatically; action failures remain visible. Native tray tooltips and connection screens show adapter-provided account names. The bounded IPC queue keeps cancellation available and skips queued cancelled work; it is separate from durable mount synchronization.

@@ -169,6 +169,31 @@ impl App {
             .cloned()
             .context("profile not found")
     }
+    fn account_name(&self, p: &Profile) -> Option<String> {
+        let session: Value = self.state.read(&format!("session-{}.json", p.id)).ok()?;
+        if session["kind"].as_str() != Some(&p.kind)
+            || session["revision"].as_str() != Some(&p.revision)
+        {
+            return None;
+        }
+        session["account_name"]
+            .as_str()
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+    }
+    fn public_profiles(&self) -> Value {
+        let profiles: Vec<_> = self
+            .config
+            .profiles
+            .iter()
+            .map(|p| {
+                let mut public = providers::public_profile(p);
+                public["account_name"] = json!(self.account_name(p));
+                public
+            })
+            .collect();
+        json!({"providers":providers::catalog(),"profiles":profiles,"selected":self.config.selected})
+    }
     fn mount_state(&self, p: &Profile) -> PathBuf {
         self.state.dir.join(format!("mount-{}", p.id))
     }
@@ -280,6 +305,7 @@ impl App {
         self.network = Arc::default();
         let connection = providers::connect(&p, &self.args, cancel, self.network.clone())?;
         let entries = connection.backend.list_directory("/")?;
+        ensure!(!cancel.load(Ordering::Relaxed), "连接已取消");
         self.state.save(
             &format!("session-{}.json", p.id),
             &providers::session(&connection, &p),
@@ -399,6 +425,7 @@ impl App {
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
             "cache":cache,"network":network,
+            "account_name": self.connected.as_ref().and_then(|p| self.account_name(p)),
             "autostart":self.autostart_path()?.exists()}),
         )
     }
@@ -413,17 +440,7 @@ impl App {
             "provider_action" => {
                 providers::action(string(a, "kind")?, string(a, "action")?, &cancel)
             }
-            "profiles" => {
-                let profiles: Vec<_> = self
-                    .config
-                    .profiles
-                    .iter()
-                    .map(providers::public_profile)
-                    .collect();
-                Ok(
-                    json!({"providers":providers::catalog(),"profiles":profiles,"selected":self.config.selected}),
-                )
-            }
+            "profiles" => Ok(self.public_profiles()),
             "save_profile" => {
                 let mut p: Profile = serde_json::from_value(a.clone())?;
                 p.revision = twodrive_dev::state::random_secret();
@@ -793,6 +810,8 @@ pub fn run() -> anyhow::Result<()> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
     let cancellations: Cancellations = Arc::new(Mutex::new(HashMap::new()));
     let (send, receive) = mpsc::sync_channel::<Request>(32);
+    let notifications = Arc::new(AtomicBool::new(false));
+    let worker_notifications = notifications.clone();
     let worker_out = out.clone();
     let worker_cancel = cancellations.clone();
     let worker = thread::spawn(move || {
@@ -803,7 +822,26 @@ pub fn run() -> anyhow::Result<()> {
                 .get(&req.id)
                 .cloned()
                 .unwrap_or_default();
-            let result = app.handle(&req, cancel, &worker_out);
+            let observable = worker_notifications.load(Ordering::Relaxed)
+                && !matches!(req.op.as_str(), "status" | "profiles" | "list" | "backups");
+            if observable {
+                emit(
+                    &worker_out,
+                    json!({"id":req.id,"event":"operation","op":req.op,"running":true}),
+                );
+            }
+            let result = if cancel.load(Ordering::Relaxed) {
+                Err(anyhow::anyhow!("操作已取消"))
+            } else {
+                app.handle(&req, cancel, &worker_out)
+            };
+            if observable {
+                emit(
+                    &worker_out,
+                    json!({"id":req.id,"event":"operation","op":req.op,"running":false,
+                    "status":app.status().ok(),"configuration":app.public_profiles()}),
+                );
+            }
             let quit = req.op == "quit" && result.is_ok();
             let value = match result {
                 Ok(value) => json!({"id":req.id,"ok":true,"result":value}),
@@ -829,7 +867,13 @@ pub fn run() -> anyhow::Result<()> {
             Ok(r) => r,
             Err(_) => continue,
         };
-        if req.op == "cancel" {
+        if req.op == "subscribe" {
+            notifications.store(req.args["operations"] == true, Ordering::Relaxed);
+            emit(
+                &out,
+                json!({"id":req.id,"ok":true,"result":{"operations":notifications.load(Ordering::Relaxed)}}),
+            );
+        } else if req.op == "cancel" {
             if let Some(id) = req.args["id"].as_u64()
                 && let Some(cancel) = cancellations.lock().unwrap().get(&id)
             {
@@ -977,6 +1021,29 @@ mod tests {
             backup: None,
             network: Arc::default(),
         };
+        let session = json!({"kind":app.connected.as_ref().unwrap().kind,
+            "revision":"active-revision","account_name":"Actual signed in person",
+            "binding":"private-binding","recipe":{"password":"private-secret"}});
+        app.state.save("session-active.json", &session).unwrap();
+        assert_eq!(
+            app.status().unwrap()["account_name"],
+            "Actual signed in person"
+        );
+        let public = app.public_profiles();
+        assert_eq!(
+            public["profiles"][0]["account_name"],
+            "Actual signed in person"
+        );
+        assert!(!public.to_string().contains("private-secret"));
+        assert!(!public.to_string().contains("private-binding"));
+        let mut stale = session.clone();
+        stale["revision"] = json!("old-revision");
+        app.state.save("session-active.json", &stale).unwrap();
+        assert!(app.status().unwrap()["account_name"].is_null());
+        stale = session;
+        stale["kind"] = json!("another-provider");
+        app.state.save("session-active.json", &stale).unwrap();
+        assert!(app.public_profiles()["profiles"][0]["account_name"].is_null());
         let out = Arc::new(Mutex::new(std::io::stdout()));
         let mut other = json!({"id":"other","name":"Other","kind":"dav","url":"https://example.invalid/dav/","mount_path":temp.path().join("mount"),"network_route":"system"});
         let call = |app: &mut App, op: &str, args: Value| {

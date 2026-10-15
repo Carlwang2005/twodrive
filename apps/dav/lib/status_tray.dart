@@ -18,7 +18,11 @@ class StatusTray {
       }
     });
   }
-  Future<void> icon(String state) => channel.invokeMethod('configure', {
+  Future<void> icon(
+    String state, {
+    String title = 'TwoDrive Development',
+  }) => channel.invokeMethod('configure', {
+    'title': title,
     'icon':
         '${File(Platform.resolvedExecutable).parent.path}/data/flutter_assets/assets/cloud-$state.${Platform.isWindows ? "ico" : "svg"}',
   });

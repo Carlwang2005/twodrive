@@ -21,6 +21,7 @@ mod paired;
 pub struct Connection {
     pub backend: Backend,
     pub binding: String,
+    pub account_name: String,
     pub worker: Value,
     pub gateway: Option<Process>,
 }
@@ -173,7 +174,7 @@ pub fn restore(p: &Profile, recipe: &Value, paused: &Path) -> anyhow::Result<Bac
     Ok(backend.with_pause_file(paused.to_path_buf()))
 }
 pub fn session(connection: &Connection, p: &Profile) -> Value {
-    json!({"kind":p.kind,"revision":p.revision,"binding":connection.binding,"recipe":connection.worker})
+    json!({"kind":p.kind,"revision":p.revision,"binding":connection.binding,"account_name":connection.account_name,"recipe":connection.worker})
 }
 pub fn restore_session(
     p: &Profile,
