@@ -15,3 +15,11 @@
 故障记录不得包含令牌、密钥、上传会话 URL、完整私人文件清单或其他敏感数据；日志只保留必要且脱敏的片段。
 
 复杂故障可以另写 `doc/` 下的详细调查，但仍须在 `doc/incidents.md` 留下摘要和链接。其他开发与验证要求见 `CONTRIBUTING.md`。
+
+## Debian 发布打包要求
+
+自 2026-10-15 起，main 与 dev 的所有 TwoDrive `.deb` 发布必须通过
+`dpkg-buildpackage` 和 debhelper、使用仓库的 `debian/` 生成，禁止恢复手工
+`dpkg-deb --build` 发布路径或第二份 control 元数据。保留并校验源码包、
+二进制/调试包、`.buildinfo` 和 `.changes`；构建离线，安装升级保留用户数据，
+不得由维护脚本启动用户挂载。具体要求和验证边界见 [Debian 打包规范](doc/debian-packaging.md)。

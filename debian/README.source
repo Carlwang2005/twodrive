@@ -1,0 +1,41 @@
+TwoDrive standard Debian build
+=============================
+
+This builds the stable GNOME OneDrive client, not the Flutter Development UI.
+Install debhelper 13, dh-python, cargo/rustc >= 1.88, pkgconf, libsqlite3-dev,
+python3, python3-gi and gir1.2-gtk-4.0, plus build-essential, lintian and xz-utils.
+Use an OS/toolchain suitable for the intended runtime distribution.
+
+From a clean committed Git tree, run:
+    bash scripts/build-deb.sh -j2
+
+The wrapper first prepares an immutable source tree and cargo-vendored locked
+sources (this preparation may download dependencies). It then invokes:
+    dpkg-buildpackage --build=full --no-sign
+All package compilation/tests run offline with a fresh in-tree Cargo home.
+Outputs, including the quilt .dsc, orig/component tarballs, binary/debug packages,
+.buildinfo and .changes, are copied to dist/debian and checked for completeness.
+
+To rebuild a downloaded source package, install the declared Build-Depends, put
+all files referenced by the .dsc in one directory, then run:
+    dpkg-source -x twodrive_0.2.14-2.dsc
+    cd twodrive-0.2.14
+    dpkg-buildpackage --build=binary --no-sign -j2
+No cargo fetch or developer dependency cache is required for this rebuild.
+Do not replace an already published original tarball with different contents
+under the same upstream version.
+
+The system SQLite is used with generated shared-library version dependencies.
+Installation does not enable/start user services or modify user home directories.
+The prior hand-built changelog is preserved in doc/legacy-debian-changelog.txt.
+
+Ubuntu's native rustc may be older than the required compiler. Upstream CI uses a
+verified rustup toolchain with dpkg-buildpackage -d in that environment only;
+this bypass is explicitly recorded, and all other native dependencies are
+installed beforehand. Normal distribution builds must satisfy Build-Depends
+without -d. These upstream packages are not an upload to the Debian archive.
+The Rust dependency and copyright audit, Debian-packaged dependency closure,
+sponsorship and official distribution validation remain separate work.
+
+The mandatory release policy is documented in doc/debian-packaging.md and applies
+to both main and dev. Do not restore the manual dpkg-deb packaging path.

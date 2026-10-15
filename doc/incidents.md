@@ -46,6 +46,118 @@
 
 
 
+
+
+
+## TD-20261015-13：原生 CI 上传重开测试依赖 100ms 观察窗口
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已定位测试同步缺陷，屏障修复验证中。
+- 影响版本与环境：稳定 main 既有 filesystem/tests.rs；本轮 Native checks (Linux) 38707734705 失败，之前本地和其他 CI 可通过。
+- 关联历史故障：TD-20261014-12 使用屏障验证上传/删除；本条是更早的两项重开/原子替换测试缺少同等同步，不据此认定生产上传回归。
+
+### 症状与影响
+
+immediate_reopen_during_upload_keeps_the_local_record 在 active_uploads > 0 断言失败，阻断所需 CI。无本轮生产数据损坏证据。
+
+### 触发条件与复现
+
+CI 真实失败日志见 [Linux job](https://github.com/LumiaBlack51/twodrive/actions/runs/38707734705/job/116331222691)。测试只等待约 100ms，替身上传也只睡眠 100ms，线程调度延迟可使观察方错过上传窗口。尚未将 CI 调度逐步重放为本地旧代码稳定失败。
+
+### 根因与证据
+
+测试用短暂 active 计数而非开始/放行协议确保并发重开，assert 不能证明生产上传失败；相邻 repeated_atomic_replacements 测试有相同等待。生产实现本轮未改动。
+
+### 解决办法与恢复操作
+
+仅测试替身增加可选的首次上传通道屏障；等待线程启动后保持上传在途，完成并发重开/替换后显式放行，保留所有身份、内容和云端模拟断言。有界超时仍会使真实不启动或阻塞失败。未修改用户服务或数据。
+
+### 验证结果与边界
+
+本地和最终 CI 结果待补充。旧 CI 失败已确认；不是完整生产故障复现，也不将一次重跑通过称为已经修复。
+
+### 防复发措施与后续
+
+保留明确开始/释放屏障，不放宽内容断言、不屏蔽测试、不靠增加任意 sleep 延长偶然成功窗口。
+
+### 交付记录
+
+随 Debian 迁移 PR #24 交付，最终提交与验证待补充。
+
+
+## TD-20261015-12：Debian clean 删除锁定依赖的 Cargo.toml.orig
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已定位，修复待验证。
+- 影响版本与环境：TD-20261015-11 尚未发布的迁移候选 6167037；隔离 Ubuntu 24.04 容器。没有生产安装影响。
+- 关联历史故障：TD-20261015-11 的自包含 vendor 源码；不是云端或既有稳定客户端故障。
+
+### 症状与影响
+
+首次 dpkg-buildpackage 在 clean/source 阶段后无法编译，Cargo 报 anyhow/Cargo.toml.orig 缺失并拒绝 checksum。没有生成或发布合格包。
+
+### 触发条件与复现
+
+标准 full build 在 vendor 目录上执行默认 dh_clean；vendor 完整性检查在同一失败树上稳定发现 Cargo.toml.orig 缺失。
+
+### 根因与证据
+
+dh_clean 默认递归删除 *.orig，包括 cargo vendor 的上游清单备份；这些文件在 .cargo-checksum.json 中，属于必须保留的构建输入。源码生成阶段已有 ignoring deletion 警告，随后 Cargo 对缺失文件明确失败。
+
+### 解决办法与恢复操作
+
+限定 dh_clean 排除 vendor/，禁用不适用的 autoreconf/autotools 修改；保留 vendor 原字节。隔离树从刚生成的 orig-vendor tar 恢复，仅用于验证，没有改动用户数据。
+
+### 验证结果与边界
+
+旧 clean 后完整性探针失败，首轮构建失败已保留日志；新 clean 后全部 16043 个 vendored 文件 SHA-256 通过，完整离线构建与 Rust/Python 测试通过；最终 CI 与源码提取复验待补充。仅隔离构建，无真实云端验证。
+
+### 防复发措施与后续
+
+scripts/test-debian-vendor.py 验证每个 vendored 文件 SHA-256，CI 在提取源码及执行 clean 后都运行；全构建必须通过 Cargo checksum。
+
+### 交付记录
+
+修复提交、CI 与验证结果待补充；随 TD-20261015-11 一起交付，不单独发布故障候选。
+
+
+## TD-20261015-11：stable main Debian 打包流程与用户安装兼容性迁移
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：调查中 / 已定位打包机制，迁移与验证进行中。
+- 影响版本与环境：main 7eb7f3d，稳定手工包 0.2.14-1；目标 0.2.14-2。Zorin 18.1 laptop 原为用户目录安装。
+- 关联历史故障：dev TD-20261015-04 已处理相同手工打包机制，但尚未同步 main；本轮是稳定分支迁移，不是原修复代码回归。TD-20261015-02/06 要求发布校验和管道退出码必须阻断后续动作。
+
+### 症状与影响
+
+稳定脚本手工生成 deb，未声明实际 ELF 运行库依赖，debian/rules 没有 Cargo 编译规则；两份 control 元数据与文档安装清单可能漂移。用户要求迁移 main、发布并更新 laptop，同时保留功能和用户数据。
+
+### 触发条件与复现
+
+检查已发布 0.2.14-1 真实包及脚本；已对实际产物检查：旧 0.2.14-1 稳定因缺少 libc6 失败，新包包含 libc6/libgcc/SQLite/Python 等生成依赖并通过。
+
+### 根因与证据
+
+原脚本绕过 debhelper 的依赖、文档、源码及清单处理。laptop 有 ~/.local/bin 和自定义 user unit，系统包升级后可能仍运行旧用户副本；必须检查实际进程与 PATH。不是云端同步逻辑缺陷。
+
+### 解决办法与恢复操作
+
+只移植相关打包/验证文件，不引入 dev 应用代码；标准 dpkg-buildpackage、quilt 源码与锁定依赖 component，离线构建/测试、自动依赖、文档/版权、conffile、调试符号及安装升级检查。SQLite 切换为发行版库但不改 Rust 数据库 schema；须实际验证兼容。
+本地更新尚未执行；计划先检查写入并私有备份，再更新安装与核验进程，不清除历史待办或账号缓存。后续记录实际结果。
+
+### 验证结果与边界
+
+进行中。尚未执行新包构建、隔离升级、laptop 更新或真实云端验证。不得把模拟后端 FUSE 当作真实 OneDrive 端到端。官方 Debian archive 依赖/版权审核与入库不属于本次已完成结果。
+
+### 防复发措施与后续
+
+main/dev 同步 AGENTS.md、CONTRIBUTING.md 和长期打包规范；CI 验证真实包、完整源码/二进制清单、Lintian 和安装升级，不允许回到手工发布。
+
+### 交付记录
+
+提交、PR、CI、Release 和 laptop 验证待补充。详见 [Debian 打包迁移](debian-packaging.md)。
+
+
 ## TD-20261015-02：Release 校验失败后仍执行公开操作
 
 - 日期：2026-10-15（Asia/Shanghai）

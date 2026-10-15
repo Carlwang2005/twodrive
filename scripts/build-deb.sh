@@ -1,53 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-package_root="$(mktemp -d /tmp/twodrive-deb.XXXXXX)"
-trap 'rm -rf -- "$package_root"' EXIT
-chmod 0755 "$package_root"
-
-remap_flags="--remap-path-prefix=${HOME}=/home/build --remap-path-prefix=${project_root}=/usr/src/twodrive"
-RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }${remap_flags}" cargo build --workspace --release --locked
-
-install -d "$package_root/DEBIAN"
-install -m 0644 "$project_root/packaging/deb/control" "$package_root/DEBIAN/control"
-install -d "$package_root/usr/bin"
-install -m 0755 "$project_root/target/release/twodrive" "$package_root/usr/bin/twodrive"
-install -m 0755 "$project_root/target/release/twodrive-daemon" "$package_root/usr/bin/twodrive-daemon"
-install -m 0755 "$project_root/scripts/twodrive-tray" "$package_root/usr/bin/twodrive-tray"
-install -m 0755 "$project_root/scripts/twodrive-settings" "$package_root/usr/bin/twodrive-settings"
-install -d "$package_root/usr/lib/systemd/user"
-install -m 0644 "$project_root/packaging/systemd/twodrive-daemon.service" \
-    "$package_root/usr/lib/systemd/user/twodrive-daemon.service"
-install -d "$package_root/etc/xdg/autostart"
-install -m 0644 "$project_root/packaging/autostart/twodrive-tray.desktop" \
-    "$package_root/etc/xdg/autostart/twodrive-tray.desktop"
-install -d "$package_root/usr/share/applications"
-install -m 0644 "$project_root/packaging/applications/twodrive-settings.desktop" \
-    "$package_root/usr/share/applications/twodrive-settings.desktop"
-install -d "$package_root/usr/share/nautilus-python/extensions"
-install -m 0644 "$project_root/packaging/nautilus/twodrive_nautilus.py" \
-    "$package_root/usr/share/nautilus-python/extensions/twodrive_nautilus.py"
-install -d "$package_root/usr/share/icons/hicolor/scalable/emblems"
-install -m 0644 "$project_root"/packaging/icons/hicolor/scalable/emblems/*.svg \
-    "$package_root/usr/share/icons/hicolor/scalable/emblems/"
-install -d "$package_root/usr/share/doc/twodrive"
-install -m 0644 "$project_root/README.md" "$package_root/usr/share/doc/twodrive/README.md"
-install -d "$package_root/usr/share/doc/twodrive/doc"
-install -m 0644 "$project_root/doc/responsiveness-recovery-2026-09-08.md" \
-    "$project_root/doc/directory-browsing-2026-09-08.md" \
-    "$project_root/doc/download-cancellation-2026-09-08.md" \
-    "$project_root/doc/pdf-save-reliability-2026-09-09.md" \
-    "$project_root/doc/download-placeholder-race-2026-09-10.md" \
-    "$project_root/doc/folder-move-sync-2026-09-11.md" \
-    "$project_root/doc/archive-extraction-2026-09-15.md" \
-    "$project_root/doc/incidents.md" \
-    "$project_root/doc/refactor-2026-09-16.md" \
-    "$package_root/usr/share/doc/twodrive/doc/"
-install -m 0644 "$project_root/LICENSE" "$package_root/usr/share/doc/twodrive/copyright"
-gzip -n -9 -c "$project_root/debian/changelog" \
-    > "$package_root/usr/share/doc/twodrive/changelog.Debian.gz"
-
-install -d "$project_root/dist"
-dpkg-deb --build --root-owner-group "$package_root" \
-    "$project_root/dist/twodrive_0.2.14-1_amd64.deb"
+cd "$project_root"
+for tool in dpkg-buildpackage dpkg-parsechangelog dh cargo python3; do
+    command -v "$tool" >/dev/null || { echo "Missing build tool: $tool (see debian/README.source)" >&2; exit 1; }
+done
+# Prepare explicit, self-contained source inputs first. dpkg-buildpackage and
+# debian/rules never download dependencies or use a developer's Cargo cache.
+output="$project_root/dist/debian"
+tree="$(python3 scripts/prepare-debian-source.py --output "$output")"
+(
+    cd "$tree"
+    dpkg-buildpackage --build=full --no-sign "$@"
+)
+shopt -s nullglob
+artifacts=("$tree"/../*.deb "$tree"/../*.ddeb "$tree"/../*.dsc "$tree"/../*.tar.xz "$tree"/../*.buildinfo "$tree"/../*.changes)
+cp -- "${artifacts[@]}" "$output/"
+python3 "$project_root/scripts/test-debian-package.py" "$output"/twodrive_*_"$(dpkg --print-architecture)".deb
+printf 'Debian source, binary and upload manifests: %s\n' "$output"

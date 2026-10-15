@@ -1,0 +1,8 @@
+# This is the original, hand-authored standalone HTML prototype. It has no
+# transpilation/minification step or missing JavaScript source bundle.
+source-is-missing [design/windows/PROTOTYPE.html]
+# The following upstream .a files are text GNU ld INPUT(...) scripts, not ar
+# archives. Old Lintian tries ar solely because of the suffix. They are unused
+# Windows inputs retained byte-for-byte in the locked vendor component.
+unpack-message-for-orig * ar failed for vendor/winapi-i686-pc-windows-gnu-0.4.0/lib/libwinapi_*.a
+unpack-message-for-orig * ar failed for vendor/winapi-x86_64-pc-windows-gnu-0.4.0/lib/libwinapi_*.a
