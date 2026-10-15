@@ -4,6 +4,16 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## 0.2.13 — Delete files awaiting synchronization
+
+Closed dirty and uploading files can be removed immediately from the local namespace. Durable deletion records coordinate in-flight uploads, cloud cleanup, cached open handles and same-name recreation. After an interrupted unbound upload, recovery may finish that claimed transfer to obtain its cloud identity before deleting it. Includes the Nautilus pending-download feedback already shipped in 0.2.12.
+
+Details and validation limits: [TD-20261014-12](doc/incidents.md#td-20261014-12关闭后的待上传文件不能删除导致-git-锁文件残留).
+
+## 0.2.12 — Pending-download feedback
+
+Nautilus immediately shows requested pin/download work, retains feedback across refresh and file-object replacement, and allows retry after failure.
+
 ## Development 0.1.2 — Cloud accounts and anchored tray
 
 Google Drive desktop sign-in now supports ordinary-file read/write, conditional replacement, directory backups and Linux FUSE. The connection page can add and manage inactive WebDAV/NAS, PC/NAS sharing, Google Drive and OneDrive accounts while connected; failed configuration persistence preserves the current list. Devices use opt-in signed LAN discovery and trusted invitation pairing over QUIC.

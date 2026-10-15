@@ -28,6 +28,9 @@ use crate::upload_queue::{UploadCommand, UploadQueue, UploadRun};
 
 use twodrive_backend::DeltaResult;
 
+#[path = "deletion_tests.rs"]
+mod deletion_tests;
+
 #[derive(Debug)]
 struct FailingBackend {
     inner: MockBackend,
@@ -1651,6 +1654,7 @@ fn read_only_handle_survives_unlink_until_the_last_release() {
     let ino = test.fs.inodes.ino_for_path("/README-cloud.txt").unwrap();
     let cache_path = test.fs.ensure_cached(&record).unwrap();
     let fh = test.fs.open_read_handle(ino, cache_path.clone()).unwrap();
+    let second_fh = test.fs.open_read_handle(ino, cache_path.clone()).unwrap();
 
     assert!(
         test.fs
@@ -1668,6 +1672,13 @@ fn read_only_handle_survives_unlink_until_the_last_release() {
     assert!(cache_path.exists());
 
     test.fs.release_read_handle(fh).unwrap();
+    assert!(cache_path.exists());
+    assert_eq!(
+        test.fs.read_open_handle(second_fh, 0, 7).unwrap(),
+        b"Welcome"
+    );
+    test.fs.release_read_handle(second_fh).unwrap();
+    deletion_tests::wait_for(|| !cache_path.exists());
     assert!(!cache_path.exists());
 }
 
@@ -2007,6 +2018,7 @@ fn stale_local_upload_placeholder_can_be_deleted_and_recreated() {
 
     test.fs.delete_record(ino, &record).unwrap();
 
+    deletion_tests::wait_for(|| test.fs.db.pending_deletes().unwrap().is_empty());
     assert!(test.fs.db.pending_deletes().unwrap().is_empty());
     assert!(
         test.fs

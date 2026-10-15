@@ -1,5 +1,4 @@
 use super::GraphBackend;
-use super::http::retry_request;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::{Rng, distributions::Alphanumeric};
@@ -327,7 +326,14 @@ fn refresh_token(
 }
 
 fn token_request(builder: RequestBuilder, label: &str) -> anyhow::Result<TokenData> {
-    let response = retry_request(|| builder.try_clone().expect("request can be cloned"))?;
+    let operation = if label == "OAuth refresh" {
+        crate::diagnostics::RequestOperation::TokenRefresh
+    } else {
+        crate::diagnostics::RequestOperation::TokenExchange
+    };
+    let response = super::http::retry_request_named(operation, || {
+        builder.try_clone().expect("request can be cloned")
+    })?;
     let status = response.status();
     let text = response.text()?;
     if !status.is_success() {

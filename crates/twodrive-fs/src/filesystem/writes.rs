@@ -264,8 +264,13 @@ impl<B: CloudBackend> TwoDriveFs<B> {
         ) {
             Ok(record) => record,
             Err(err) => {
-                self.db
-                    .queue_remote_delete(&uploaded.remote_id, &handle.path)?;
+                if !self
+                    .db
+                    .complete_deleted_upload(&handle.record_remote_id, &uploaded)?
+                {
+                    self.db
+                        .queue_remote_delete(&uploaded.remote_id, &handle.path)?;
+                }
                 return Err(err);
             }
         };

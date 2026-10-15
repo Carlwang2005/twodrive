@@ -64,15 +64,24 @@ impl<B: CloudBackend> TwoDriveFs<B> {
         let Some(handle) = self.read_handles.remove(&fh) else {
             return Ok(());
         };
-        if handle.unlinked {
-            self.cleanup_unlinked_cache(&handle.cache_path)?;
-        }
+        let cache_path = handle.unlinked.then(|| handle.cache_path.clone());
         drop(handle);
+        if let Some(cache_path) = cache_path {
+            self.cleanup_unlinked_cache(&cache_path)?;
+        }
         self.db.finish_pending_releases()?;
         Ok(())
     }
 
     pub(super) fn cleanup_unlinked_cache(&self, cache_path: &Path) -> anyhow::Result<()> {
+        if let Some(delete) = self.db.pending_deletes()?.into_iter().find(|delete| {
+            delete.cache_path.as_deref() == Some(cache_path)
+                || delete.upload_cache_path.as_deref() == Some(cache_path)
+        }) {
+            // The worker owns cleanup while an upload may still be using this path.
+            self.upload_pool.enqueue_delete(delete.remote_id)?;
+            return Ok(());
+        }
         let still_open = self
             .read_handles
             .values()
