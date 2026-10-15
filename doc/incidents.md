@@ -46,6 +46,111 @@
 
 
 
+## TD-20261015-06：Lintian 输出管道掩盖失败退出码
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证 CI 错误门禁及完整产物清单；官方发行版入库仍未完成。
+- 影响版本与环境：本次新增 Debian workflow 至 b190d36；没有据此上传正式 Release 或 Debian archive。
+- 关联历史故障：TD-20261015-02 同样涉及校验未阻止后续动作，但这里根因是 shell 管道状态，非 Python 发布逻辑。
+
+### 症状与影响
+
+CI 显示成功，下载的 lintian.log 却有 E 级错误：历史 changelog 使用 noreply@localhost；源码中的紧凑原型 HTML 被判定 source-is-missing。首条进展曾依据 CI 绿色状态报告 Lintian 通过，下载日志后已纠正。
+
+### 触发条件与复现
+
+lintian --fail-on error ... | tee ... 位于未显式指定 shell 的 run 中；没有 pipefail 时退出码来自 tee。38688223783 保存了二进制和源码的实际错误。
+
+### 根因与证据
+
+流水线缺失显式 bash/pipefail，失败检查仍允许安装烟测与源码打包继续。原型是库内自包含 HTML/CSS/JS 源码，但极长压缩式行触发 Lintian 启发式检查；不是可以省略来源证明的外部二进制。
+
+### 解决办法与恢复操作
+
+设置 job 的 shell: bash，并在两个 Lintian 步骤显式 set -euo pipefail。早期手工包 changelog 原文移至 doc/legacy-debian-changelog.txt 保留，不篡改其作者与邮箱；debian/changelog 从本次标准化包装开始。原型用固定版本 Prettier 展开为可读源码；pkg-config Build-Depends 更新为 pkgconf。无用户数据恢复。
+
+### 验证结果与边界
+
+此前 CI 的 debhelper 构建、实际依赖/权限检查、安装/移除及源码归档已通过，但 Lintian 未通过，不能引用旧绿色状态作为规范合格证据。[修正管道后的 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38689079843) 二进制 Lintian 日志为空，源码检查仍报原型长行且正确失败，证明错误会阻断任务。Prettier 未拆分模板字面量中的 HTML，最长仍为 1425；再用 JavaScript 行续接保留原字符串值，最长降到 341，删除新增续接后的文本一致且 node --check 通过。最终源码 Lintian 待复验，仍不代表官方入库。
+
+### 防复发措施与后续
+
+保留显式 pipefail；上传二进制/源码 Lintian 日志，人工复核错误及警告，禁止以覆盖或 continue-on-error 隐藏发现。[732c7f6 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38689723105) 已实现二进制 Lintian 空日志、源码无 E 级错误，仅有旧检查器不识别 Standards-Version 4.7.4 的 W 级提示。下载后对 .changes 做完整校验时又发现 helper 未复制其引用的自动生成 .ddeb；主 deb 可安装但上传集合不完整。已补齐 debug 包复制，并把 .changes/.dsc 的所有文件存在性、大小和 SHA-256 纳入 CI 门禁。最终结果见发行准备记录。
+
+### 交付记录
+
+[受影响 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38688223783)、[PR #21](https://github.com/LumiaBlack51/twodrive/pull/21)。最终 [f22a121 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583450) 成功，下载后再次完成两份上传清单的全部文件大小/哈希核对。二进制 Lintian 空日志、源码无错误，唯一提示为旧检查器不认识 Standards-Version 4.7.4。产物哈希见[验证记录](distribution-validation-2026-10-15.json)。
+
+## TD-20261015-05：本机 Windows 托盘烟测未获得前台焦点
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：独立原生 CI 对照通过；本机前台焦点前提未满足的原因仍未确认。
+- 影响版本与环境：本次 b190d36 Windows 便携构建；用户桌面内运行既有 test-desktop-windows-ui.py，未使用私人配置。
+- 关联历史故障：TD-20261013-11 是窗口已在前台时的内部 focused_ 状态缺口；本次断言表明窗口未在前台，不能视为同根因复发。
+
+### 症状与影响
+
+程序启动、托盘配置和面板显示成功，但 fixture 在转移焦点前断言 GetForegroundWindow()==source 失败；尚未执行后续外部焦点、Escape 或重复切换检查。
+
+### 触发条件与复现
+
+执行既有原生 Windows smoke 一次；日志 panel shown 为 panel=1、visible=1、focused=0，进程没有崩溃。测试正常回收自己创建的进程和临时状态。
+
+### 根因与证据
+
+断言证实当前前台窗口不是测试面板，不能凭此确定是 Windows 前台权限、其他窗口活动还是产品缺陷；未重复干扰用户前台，也未放宽测试断言。
+
+### 解决办法与恢复操作
+
+保留日志与结果，交由 GitHub 原生独立 runner 对照；没有修改托盘代码、用户配置或系统焦点策略。
+
+### 验证结果与边界
+
+Flutter analyze、30 项测试及 Windows release 构建通过；真实公开 GitHub 元数据检查识别 Development 0.1.4；最终测试 MSIX 通过 MakeAppx 并核对四个核心二进制哈希、图标尺寸、身份和更新通道标记。这些结果不能替代未完成的本机原生焦点检查，更不是签名 MSIX 安装后验证。
+
+### 防复发措施与后续
+
+保留原生 CI 烟测和明确的环境边界，最终 CI 结果见发行准备记录；不将没有进程崩溃表述成所有桌面行为已通过。
+
+### 交付记录
+
+[PR #21](https://github.com/LumiaBlack51/twodrive/pull/21)，[最终 Linux/Windows 桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583401) 全部成功。Windows 原生烟测明确通过后台隐藏、重复展开、稳定位置、外部焦点收起及 Escape 通知收起；本机未重新争抢用户前台，未将该 CI 结果表述为本机实体交互已通过。
+
+## TD-20261015-04：Debian 手工包缺少自动依赖与源码打包流程
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证标准构建、依赖/权限、安装/移除及源码/完整产物清单；官方入库准备仍未完成。
+- 影响版本与环境：dev 47e264f，原 scripts/build-deb.sh 与 debian/；稳定版 0.2.14-1 的现有资产未修改。
+- 关联历史故障：TD-20261015-02 是发布校验错误；本项是包内容生成与元数据问题，根因不同。
+
+### 症状与影响
+
+原脚本直接 dpkg-deb 打包，独立 control 写死 amd64/版本且缺少 ELF 运行库依赖；debian/rules 仅 dh，无 Cargo 构建过程；不存在 source/format、DEP-5 版权、manpages。可以生成可解压的 deb，但不足以作为 Debian 规范源码打包及官方入库依据。
+
+### 触发条件与复现
+
+静态检查 scripts/build-deb.sh、packaging/deb/control、debian/control 与 debian/rules 即可确认两份元数据和缺少构建规则。新 tests 检查真实产物的 libc/SQLite/Python 依赖、root 权限与必需文档；旧版 0.2.14-1 发布二进制在新检查上因缺少 libc6 依赖稳定失败，新包通过。
+
+### 根因与证据
+
+手工归档绕过 dh_shlibdeps、dh_python3 和标准文档处理。另在本次新增 MSIX 首轮校验时，PackageDependency 使用了 foundation schema 不支持的 ProcessorArchitecture，MakeAppx 报 0x80080204；删除该属性后同一工具通过。它是新打包脚本的开发错误，不是既有发布故障。
+
+### 解决办法与恢复操作
+
+改用 debhelper、dpkg-buildpackage、唯一 debian/control；加入离线构建、系统 SQLite、标准源码格式和安装 smoke。不启动用户服务。新增 MSIX 脚本用 Windows SDK 校验，并要求正式包提供 Partner Center 身份。无用户数据恢复操作。
+
+### 验证结果与边界
+
+Windows 37 个库测试及 7 个引擎测试通过，旧发布 bundle 的 MSIX 通过 SDK 校验。Flutter 首轮因本机 SDK 3.47.4 与锁文件不兼容停止，已下载 CI 同版 3.41.8 且 enforce-lockfile 通过；没有升级项目依赖。新更新代码首轮分析发现三处缺少花括号，正在修正后复验。本机 WSL WSAETIMEDOUT，未重启用户环境；Linux 验证交由 CI。官方依赖闭包、完整第三方版权审计、Debian unstable sbuild、商店认证/签名安装尚未完成。
+
+### 防复发措施与后续
+
+CI 执行 MakeAppx、Debian 实际包检查、Lintian 和隔离安装/移除；保留 Development 通道隔离、节流、关闭持久化与失败测试。不得将“能打包”表述成已进入微软商店或 Debian 官方源。详见 [发行准备](distribution-preparation.md)。
+
+### 交付记录
+
+首轮 [提交 ae57379](https://github.com/LumiaBlack51/twodrive/commit/ae57379a9fd2f755048ef9c248db9d4bf8feff9d)、[PR #21](https://github.com/LumiaBlack51/twodrive/pull/21)。首轮 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38687822125) 编译与测试通过，但 dh_installsystemduser 不支持 --no-start 而中止；改用 --no-enable，此 user helper 本身不启动服务。Flutter 三处 lint 修正后 analyze 通过；五项更新检查测试通过，两项旧 widget 测试原先假定设置只有一个 SwitchListTile，改为按“登录后自动启动”定位后完整 29 项通过；补充更新提示/MSIX 自启动边界后最终为 30 项。本轮收尾已核实 [f22a121 全套桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583401) 与 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38690583450) 全部成功，Windows MSIX 的 33 个保留 bundle 文件与同次便携目录逐一哈希一致，两份 Debian 上传清单完整。详见[发行准备验证](distribution-preparation.md#验证记录)与[产物记录](distribution-validation-2026-10-15.json)。
+
 ## TD-20261015-03：桌面状态轮询堆积与连接身份展示不足
 
 - 日期：2026-10-15（Asia/Shanghai）

@@ -1,0 +1,43 @@
+TwoDrive Debian packaging preparation
+====================================
+
+This package is not yet ready for Debian archive submission. It builds the
+existing GNOME OneDrive client. The Flutter Development UI is not included.
+
+Build with scripts/build-deb.sh on Debian/Ubuntu, after provisioning Rust >=
+1.91, Cargo, debhelper 13, dh-sequence-python3, pkgconf, libsqlite3-dev,
+python3-gi and gir1.2-gtk-4.0. In this upstream preparation phase only, run
+`cargo fetch --locked` BEFORE the package build to populate the Cargo cache.
+debian/rules always builds/tests offline; a missing dependency fails the build.
+Use `dpkg-buildpackage -b -us -uc` to build directly. Artifacts contain generated
+ELF dependencies, root-owned files, manuals, copyright and a Debian changelog.
+SQLite comes from the system development package, not the bundled C source.
+User services are not enabled or started by installation.
+Historical hand-built package changelogs are preserved verbatim (after a
+provenance header) in doc/legacy-debian-changelog.txt. They were not Debian
+archive uploads and are not presented as official Debian packaging history.
+
+Before an official upload:
+* Package/audit the locked Rust dependencies in Debian, declare their exact
+  librust-*-dev Build-Depends, and use the /usr/share/cargo/registry directory
+  source with dh-cargo. A developer's Cargo cache is NOT an archive build input.
+  Ring and other native dependency convenience copies also need review.
+* Audit copyright/license attribution for all source assets and linked Rust
+  dependencies; generate the required binary-package license material. The
+  current DEP-5 file describes this repository's own code, not every crate.
+* Confirm a reachable maintainer identity/email and obtain a Debian sponsor.
+* Create an ITP, prepare the original source tarball plus quilt Debian changes,
+  run clean offline sbuild, autopkgtest and piuparts on Debian unstable, and
+  resolve Lintian findings. The upstream CI is not a substitute for sbuild.
+* Only after review change UNRELEASED to unstable and sign the source upload.
+
+For a source package, place an upstream tree (without debian/ or generated
+build outputs) in ../twodrive_0.2.14.orig.tar.xz, then run
+`dpkg-buildpackage -S -us -uc`. Do not re-use an original tarball with differing
+contents under the same upstream version. The upstream tag v0.2.14-1 includes
+a packaging suffix; Debian's upstream version here remains 0.2.14.
+
+The Flutter SDK/engine and Development iroh dependency closure require their
+own distribution packaging work before a Flutter desktop package could enter
+the Debian archive. Neither Microsoft Store certification nor apt repository
+acceptance is implied by these build scripts.

@@ -35,7 +35,9 @@ python3 -m unittest discover -s scripts -p 'test_twodrive_settings.py'
 
 Environment-dependent mounted tests are ignored by default; a normal test run does not establish that they passed. Inspect their requirements and use isolated FUSE mounts. Mock tests are not evidence of live Graph behavior.
 
-Build the `.deb` with [scripts/build-deb.sh](scripts/build-deb.sh). For source installation, run `cargo build --workspace --release`, follow the [sign-in guide](doc/getting-started.md) using `target/release/twodrive` to configure/sign in, then inspect and run [scripts/install-desktop-integration.sh](scripts/install-desktop-integration.sh). **The installer starts the user service**; do not run it just to test. Check service and `PATH` precedence before mixing package/source installs.
+For the `.deb`, install the prerequisites in [debian/README.source](debian/README.source), provision the upstream dependency cache with `cargo fetch --locked`, then run `bash scripts/build-deb.sh`. Package compilation and tests run offline through debhelper; binary/debug packages and upload manifests are copied to `dist/debian/`. This upstream preparation does not yet provide Debian's complete packaged Rust dependency closure. See [distribution preparation and validation](doc/distribution-preparation.md).
+
+For source installation, run `cargo build --workspace --release`, follow the [sign-in guide](doc/getting-started.md) using `target/release/twodrive` to configure/sign in, then inspect and run [scripts/install-desktop-integration.sh](scripts/install-desktop-integration.sh). **The installer starts the user service**; do not run it just to test. Check service and `PATH` precedence before mixing package/source installs.
 
 ## Test without a real OneDrive
 

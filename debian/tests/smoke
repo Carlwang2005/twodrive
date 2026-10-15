@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+export XDG_CONFIG_HOME="$AUTOPKGTEST_TMP/config"
+export XDG_DATA_HOME="$AUTOPKGTEST_TMP/data"
+export XDG_CACHE_HOME="$AUTOPKGTEST_TMP/cache"
+twodrive --version
+twodrive help
+test -x /usr/bin/twodrive-daemon
+test -r /usr/share/doc/twodrive/copyright
+test -r /usr/share/man/man1/twodrive.1.gz
+ldd /usr/bin/twodrive | grep 'libsqlite3.so'

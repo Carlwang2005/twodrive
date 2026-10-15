@@ -1,0 +1,49 @@
+.TH TWODRIVE 1 "October 2026" "TwoDrive" "User Commands"
+.SH NAME
+twodrive \- OneDrive files on demand for GNOME
+.SH SYNOPSIS
+.B twodrive
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+TwoDrive maintains a local cache and exposes OneDrive through FUSE.
+Writes are durable locally before upload; local success does not confirm
+remote completion. Run status to inspect pending operations.
+.SH COMMANDS
+.TP
+.B login, logout
+Sign in using a browser or remove the local account authorization.
+.TP
+.B status, sync, mount
+Inspect status, refresh remote metadata, or run the filesystem mount.
+.TP
+.BI "pin " path
+Keep a file or directory available locally.
+.TP
+.BI "unpin " path
+Remove the inherited keep-local preference.
+.TP
+.BI "release " path
+Release synchronized cached data without removing remote files.
+.TP
+.B cache prune
+Prune eligible synchronized cache entries.
+.TP
+.B retry-deletes
+Schedule retained failed cloud deletions for another attempt.
+.TP
+.B settings
+Open the GNOME settings application.
+.TP
+.B help
+Display the complete command summary.
+.SH FILES
+.I ~/.config/twodrive/
+contains private configuration. Data and cache paths follow XDG conventions.
+Do not share token files, cache databases or upload session URLs.
+.SH SEE ALSO
+.BR twodrive-daemon (1),
+.BR twodrive-settings (1),
+.BR twodrive-tray (1)
+.PP
+https://github.com/LumiaBlack51/twodrive

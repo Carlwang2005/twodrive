@@ -7,6 +7,7 @@ import 'package:twodrive_dav/main.dart';
 import 'package:twodrive_dav/main.dart' as desktop;
 import 'package:twodrive_dav/tray_panel.dart';
 import 'package:twodrive_dav/profile_dialog.dart';
+import 'package:twodrive_dav/updates.dart';
 
 const testProviders = <Json>[
   {
@@ -57,6 +58,35 @@ class FakeClient extends StorageClient {
 }
 
 void main() {
+  testWidgets(
+    'update notice survives file errors and MSIX disables portable autostart',
+    (tester) async {
+      tester.view.physicalSize = const Size(840, 580);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = FakeClient()
+        ..available = true
+        ..error = '文件操作未完成';
+      c.updates.current = '0.1.4';
+      c.updates.latest = DevelopmentRelease('0.1.5');
+      await tester.pumpWidget(DavApp(client: c));
+      expect(find.text('Development 0.1.5 可用'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      c.updates.latest = null;
+      c.updates.managed = true;
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('自动检查更新'), findsNothing);
+      final toggle = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, '登录后自动启动'),
+      );
+      expect(toggle.onChanged, isNull);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+    },
+  );
   test('deletion retry targets the displayed active mount profile', () async {
     final c = FakeClient();
     c.selected = 'inactive';
@@ -276,9 +306,10 @@ void main() {
     expect(find.text('上传'), findsNothing);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    final toggle = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    final autostart = find.widgetWithText(SwitchListTile, '登录后自动启动');
+    final toggle = tester.widget<SwitchListTile>(autostart);
     expect(toggle.value, isFalse);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(autostart);
     await tester.pumpAndSettle();
     expect(c.calls, contains('autostart'));
     expect(c.status['autostart'], isTrue);
@@ -304,7 +335,8 @@ void main() {
     await tester.scrollUntilVisible(find.text('设置'), 80, scrollable: sidebar);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    expect(find.byType(SwitchListTile), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, '登录后自动启动'), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, '自动检查更新'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     c.dispose();
