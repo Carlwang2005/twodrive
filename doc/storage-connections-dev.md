@@ -57,3 +57,9 @@ The Development desktop supports adding and managing inactive connections while 
 For PC/NAS sharing, run the updated `twodrive-dev serve` on the sharing device with an explicit directory, optional `--write`, and opt-in `--discoverable --device-name NAME`. The GUI scans IPv4 LAN UDP port 49183. Select the device and import a trusted, ten-minute, single-use invitation; discovery alone never authorizes access. Invitations can also connect across networks without discovery. QUIC/TLS transport attempts UDP NAT traversal and can fall back to encrypted relay. Native Windows, physical NAS and independent-network hole punching are separate unverified scopes for this change. The local regression scripts isolate their state and touch only disposable data.
 
 Protocol references: [Microsoft upload session](https://learn.microsoft.com/graph/api/driveitem-createuploadsession?view=graph-rest-1.0), [driveItem conflict policy](https://learn.microsoft.com/graph/api/resources/driveitem?view=graph-rest-1.0).
+
+## 云端删除受阻（Development 0.1.3）
+
+Linux 可写挂载先移除本地路径，再排队云端删除。状态页显示云端待确认、被拒绝和等待重试数量；拒绝不会让任务/必要缓存消失。修复权限或登录后可点击“重新尝试”，让任务在下一轮扫描重新评估。权限/认证退避 5 分钟至 6 小时，临时错误 1 分钟至 1 小时，更长 Retry-After 优先，重启保留。桌面文件页直接删除仍同步返回错误，不会加入挂载待办。Windows 当前没有 FUSE 挂载，因此这项队列状态仅用于已有 Linux 挂载状态。
+
+English: Linux mount deletion status distinguishes local removal from unconfirmed cloud cleanup. Retained tasks survive restart, back off and can be made eligible through Retry. Direct desktop file deletion reports synchronously; permissions and deletion targets are unchanged.

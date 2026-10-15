@@ -30,6 +30,7 @@ const testProviders = <Json>[
 class FakeClient extends StorageClient {
   Completer<Json>? listing;
   final calls = <String>[];
+  Json? lastRetryArgs;
   @override
   Future<Json> request(
     String op, [
@@ -37,6 +38,7 @@ class FakeClient extends StorageClient {
     int? requestId,
   ]) async {
     calls.add(op);
+    if (op == 'retry_deletes') lastRetryArgs = args;
     if (op == 'list') {
       return listing!.future;
     }
@@ -54,6 +56,29 @@ class FakeClient extends StorageClient {
 }
 
 void main() {
+  test('deletion retry targets the displayed active mount profile', () async {
+    final c = FakeClient();
+    c.selected = 'inactive';
+    c.status = {'profile': 'active', 'connected': true};
+    await c.retryDeletes();
+    expect(c.lastRetryArgs?['id'], 'active');
+    c.dispose();
+  });
+  test('retained rejected cloud deletions keep a visible sync error', () {
+    final c = FakeClient();
+    c.status = {
+      'cache': {'pending': 1, 'deletes_rejected': 1},
+    };
+    expect(c.syncError, isTrue);
+    expect(c.syncing, isTrue);
+    c.status = {
+      'cache': {'pending': 1, 'deletes_rejected': 0},
+    };
+    expect(c.syncError, isFalse);
+    expect(c.syncing, isTrue);
+    c.dispose();
+  });
+
   testWidgets('startup initializes native taskbar before configuring tray', (
     tester,
   ) async {

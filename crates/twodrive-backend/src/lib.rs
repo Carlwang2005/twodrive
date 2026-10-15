@@ -1,4 +1,5 @@
 //! Provider-neutral storage contract and the existing providers.
+pub mod diagnostics;
 mod mock;
 pub mod onedrive;
 mod storage;

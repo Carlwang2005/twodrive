@@ -67,7 +67,37 @@ pub(crate) fn print_status(paths: &AppPaths) -> anyhow::Result<()> {
             "(none)"
         }
     );
-    println!("pending deletes: {}", db.pending_deletes()?.len());
+    let pending = db.pending_deletes()?;
+    println!("pending deletes: {}", pending.len());
+    println!(
+        "pending deletes waiting for retry: {}",
+        pending
+            .iter()
+            .filter(|d| !d.retry_due(twodrive_core::now_unix()))
+            .count()
+    );
+    println!(
+        "pending deletes rejected/authentication: {}",
+        pending
+            .iter()
+            .filter(|d| matches!(
+                d.failure_kind,
+                Some(
+                    twodrive_core::DeleteFailureKind::Permission
+                        | twodrive_core::DeleteFailureKind::Authentication
+                        | twodrive_core::DeleteFailureKind::Rejected
+                )
+            ))
+            .count()
+    );
+    if let Some(next) = pending
+        .iter()
+        .filter(|d| !d.retry_due(twodrive_core::now_unix()))
+        .map(|d| d.next_retry_unix)
+        .min()
+    {
+        println!("pending deletes next retry unix: {next}");
+    }
     println!(
         "pending metadata operations: {}",
         db.pending_metadata_operations()?.len()
@@ -89,7 +119,24 @@ pub(crate) fn status_path(paths: &AppPaths, path: &str) -> anyhow::Result<()> {
     let cloud_path = cloud_path_from_arg(paths, path);
     let Some(record) = db.get_by_path(&cloud_path)? else {
         println!("path={cloud_path}");
-        println!("state=unknown");
+        if let Some(pending) = db
+            .pending_deletes()?
+            .into_iter()
+            .find(|d| d.path == cloud_path)
+        {
+            println!("state=delete_pending");
+            println!("cloud_delete=unconfirmed");
+            println!("delete_attempts={}", pending.attempt_count);
+            println!("delete_next_retry_unix={}", pending.next_retry_unix);
+            if let Some(kind) = pending.failure_kind {
+                println!("delete_failure={}", kind.as_str());
+            }
+            if let Some(status) = pending.last_status {
+                println!("delete_http_status={status}");
+            }
+        } else {
+            println!("state=unknown");
+        }
         println!("emblem=emblem-twodrive-error");
         return Ok(());
     };
@@ -159,6 +206,6 @@ pub(crate) fn emblem_for_state(state: FileState) -> &'static str {
 
 pub(crate) fn print_help() {
     println!(
-        "twodrive\n\nCommands:\n  login              Sign in to OneDrive with OAuth2 authorization code + PKCE\n  logout             Remove the local token fallback file\n  status             Show paths, token state, and delta_link state\n  sync               Run OneDrive delta sync and hydrate inherited pinned files\n  mount              Mount the OneDrive FUSE filesystem\n  pin <path>         Persist an always-keep policy and download existing files\n  unpin <path>       Remove this item's explicit policy without deleting cache\n  release <path>     Cancel pin policy and safely release selected local cache\n  cache prune        Remove expired cached files, preserving pinned files\n  known-folders status  Diagnose upload sources as JSON\n  known-folders set-source <index> <directory>  Choose an upload source\n  status-path <path> Show local SQLite state for Nautilus/tray integration\n  open-folder        Open the TwoDrive folder with xdg-open\n  settings           Open the GTK settings helper\n  init-mock          Initialize SQLite with mock metadata\n  mount-mock         Mount the mock OneDrive filesystem\n  version            Show the installed version"
+        "twodrive\n\nCommands:\n  login              Sign in to OneDrive with OAuth2 authorization code + PKCE\n  logout             Remove the local token fallback file\n  status             Show paths, token state, and delta_link state\n  retry-deletes      Make retained deletions eligible for a background retry\n  sync               Run OneDrive delta sync and hydrate inherited pinned files\n  mount              Mount the OneDrive FUSE filesystem\n  pin <path>         Persist an always-keep policy and download existing files\n  unpin <path>       Remove this item's explicit policy without deleting cache\n  release <path>     Cancel pin policy and safely release selected local cache\n  cache prune        Remove expired cached files, preserving pinned files\n  known-folders status  Diagnose upload sources as JSON\n  known-folders set-source <index> <directory>  Choose an upload source\n  status-path <path> Show local SQLite state for Nautilus/tray integration\n  open-folder        Open the TwoDrive folder with xdg-open\n  settings           Open the GTK settings helper\n  init-mock          Initialize SQLite with mock metadata\n  mount-mock         Mount the mock OneDrive filesystem\n  version            Show the installed version"
     );
 }

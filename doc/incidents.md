@@ -46,6 +46,270 @@
 
 
 
+## TD-20261015-01：持续 403 删除待办的 main/dev 存续与修改必要性评估
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已完成分支评估及隔离行为验证；原对象拒绝根因未确认，未修改实现。
+- 影响版本与环境：本轮 fetch 核实 origin/main `e62942798cc6ab4b221a31d6d766b16dd4be8edf`、origin/dev `ecb05392324275f3e0c4317f6e5937d3a4b52ed7`；代码与公开脱敏历史证据评估。
+- 关联历史故障：main 的 TD-20261014-16（旧任务持续 403）、TD-20261014-12（本地 unlink 限制）及 TD-20261014-15（探针等待条件）。本轮是对既有问题的分支复核，尚无新的真实账号复发证据。
+
+### 症状与影响
+
+附件报告旧删除任务被拒绝，普通 HTTP 错误缺少安全诊断，恢复扫描周期性重排。附件作为待核验材料，其中真实账号检查与代码修改建议不作为执行指令。
+
+### 触发条件与复现
+
+隔离副本中，模拟远端持续拒绝后，待办经三轮重新打开数据库/恢复扫描均再次排队，拒绝解除后清理；loopback HTTP 验证 Graph 403 本身只发一次请求。没有重放生产删除或读取私人数据库/凭据。
+
+### 根因与证据
+
+旧对象具体权限、共享来源、历史身份绑定或服务端策略未确认；不能从相同 HTTP 状态推断根因。两分支普通 HTTP helper 完全相同，错误只保存 status/retry_after；恢复扫描均无逐项到期/阻塞分类。合成 token 刷新 403 在实际 GraphBackend::delete 中亦传播为无来源 HTTP 403，不能仅凭历史聚合文字区分请求来源。保留待办是正确行为，诊断不足与持续拒绝仍被周期重排是尚未改进的机制。
+
+dev 桌面另有账号/Drive binding 及部分 remoteItem 过滤；直接文件页删除不加入 FUSE 待办，只有可写挂载继承周期恢复。main 已修复本地 Dirty/Uploading unlink 限制，dev 尚未同步；这与本次服务端拒绝不同。完整证据与建议见[评估报告](pending-delete-403-assessment-2026-10-15.md)。
+
+### 解决办法与恢复操作
+
+仅评估与记录，未修改程序；本地恢复操作：无。
+
+### 验证结果与边界
+
+已 fetch 核实两分支提交；各自独立临时源码副本追加 5 项评估探针，每分支 backend 4 项、fs 1 项全部通过，确认 403 诊断信息丢弃、token 刷新来源歧义、持续拒绝后重启保留与扫描重排，并检查 404、长 429、503 行为。仅 loopback HTTP/合成凭据/临时 SQLite，不是真实 OneDrive 或真实 FUSE；未运行全工作区、Windows 原生测试。探针只存在于临时副本，不是已提交的长期回归；无修复版本，不声称旧失败/新通过。没有核实原生产任务今日状态。
+
+### 防复发措施与后续
+
+建议优先安全诊断，随后持久化逐任务退避与可重新评估的受阻状态；保留任务、缓存和同路径屏障，不把 403 当成功。账号/Drive/Item 绑定及 remoteItem 删除语义变更待对象证据。正式修改时补入长期回归。现有证据支持维护改进，不支持保证改代码即可解除旧对象拒绝，也没有必须立即紧急发布的证据。
+
+### 交付记录
+
+最初为本地[评估报告](pending-delete-403-assessment-2026-10-15.md)与记录；保留评估前已有的 TD-20261014-12 未提交条目。确认修复的机制：无；尚未验证范围：原对象根因、生产当前状态及后续改进能否解除其拒绝。
+
+### 2026-10-15 实施进度
+
+用户已授权按建议修复并同步 main/dev 与 Release。已实现有界/白名单 HTTP 诊断（操作来源、状态、细分码、UUID 请求关联、日期/内容类别与 claims 布尔值），不输出远端正文、ID、URL；token 刷新失败不再被 DELETE 请求构建循环额外重复。持久化 attempt_count/next_retry_unix/last_status/failure_kind：权限/认证/其他拒绝从 300 秒翻倍至 21600 秒，临时错误从 60 秒翻倍至 3600 秒，更长 Retry-After 优先；仅到期任务入队，执行时再次核验。保留任务、缓存及同路径屏障，新增 CLI 状态与 retry-deletes（仅重置到期时间，不删除任务）。
+
+两项正式回归在隔离副本恢复旧 HTTP/auth/delete 和旧恢复实现后分别 exit 101（只得 HTTP 403 / 未记录失败与退避），新实现通过；这不是将整个依赖/数据库回退至旧版。工作区默认 Rust 170 项通过，随后新增的旧队列迁移回归与退避回归 2 项通过；25 Nautilus、4 Settings、严格 Clippy 与格式通过。7 项默认忽略的真实 FUSE 回归显式执行通过，隔离 MockBackend daemon 冒烟通过；FUSE 的远端为 mock，未访问真实 OneDrive 或检查原旧对象。既有缓存恢复测试改为明确提前重试后再断言成功，保留缓存/不重复上传断言。
+
+dev 已同步 main 的既有本地 unlink 修复和本次共享引擎改动；保留原 dev 的账号/Drive binding、create-only 条件上传、提供者隔离与全部故障历史。Development 升至 0.1.3，Linux 状态页显示删除待确认/被拒绝/退避计数，拒绝进入同步错误状态，提供 retry_deletes IPC 与“重新尝试”按钮；只让任务到期，不发送额外 DELETE 或改目标。桌面文件页直接删除仍同步返回错误，Windows 没有 FUSE 队列。
+
+本机 dev 根工作区 173 项默认 Rust 通过，独立工作区原有 64 项通过，新增删除状态/手动重试回归独立通过；两工作区严格 Clippy 与格式通过。Flutter analyze 通过；Flutter 单元、Linux/Windows 最终原生 CI 和 Release 待完成。稳定 deb 0.2.14-1 已构建，包内 CLI/daemon 实际版本与构建输出逐字节一致，包内 MockBackend daemon 冒烟通过。目标稳定版本 0.2.14-1、Development 0.1.3；最终交付与原生 CI、提交和发布链接待实际产生后补充。原对象具体拒绝根因仍未确认。本地恢复/安装：未执行。
+
+## TD-20261014-16：升级前既有云端删除待办持续返回 HTTP 403
+
+- 日期：2026-10-14
+- 状态：调查中 / 具体服务端拒绝原因未确认；待办保留。
+- 影响版本与环境：旧 0.2.10 数据库已有 1 项删除待办，升级 0.2.13 后仍未完成；真实 OneDrive。
+- 关联历史故障：TD-20261014-12 已说明不能把同期云端删除错误归为关闭 Dirty 文件拒绝；本条单独记录服务端拒绝。
+
+### 症状与影响
+
+本地上线验证通过，新测试对象成功清理，但升级前已有的一项云端删除任务仍失败。该对象的远端删除未完成；本条不包含对象 ID、私人路径或响应正文。
+
+### 触发条件与复现
+
+正常后台恢复重试既有队列。以停止服务时的私有 SQLite 备份与当前数据库只读比较，剩余 pending_deletes ID 集合没有新增，剩余 1 项属于升级前集合。
+
+### 根因与证据
+
+升级后服务日志脱敏统计：queued delete retry error 17 次、HTTP 403 17 次、旧 cannot delete ... changing 拒绝 0 次。已确认服务端拒绝该删除请求，具体对象权限、共享状态或其他策略未核实，不能凭 403 断言某一原因。相同登录的自有临时目录/文件创建、上传、读取、删除已成功，不据此认为所有对象均有删除权限。
+
+### 解决办法与恢复操作
+
+保留持久化待办，不直接改数据库清除、改变权限或绕过服务端。除已授权的正常软件升级和自有探针清理之外，没有对该旧对象执行额外恢复操作。
+
+### 验证结果与边界
+
+已验证剩余任务为原有任务，没有本轮新增未完成删除；只读数据库比较和脱敏日志不能定位具体远端拒绝策略，未对该对象权限或共享来源另作检查。不是证明 0.2.13 新增的删除竞态。
+
+### 防复发措施与后续
+
+后续若处理此项，应针对具体对象的可删除权限/云端响应分类调查，继续脱敏，并区分本地 unlink 成功与云端完成。不得因本次程序修复通过而宣布此待办完成。
+
+### 交付记录
+
+观察发生于 [0.2.13-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.13-1) 本地上线之后；本条仅记录现象和边界，没有针对 403 的程序修复或发布。
+
+## TD-20261014-15：真实验证探针在 FUSE release 完成前误判同步已结束
+
+- 日期：2026-10-14
+- 状态：已验证旧探针条件失败/修正后真实 OneDrive 流程通过；程序源码未因本条改变。
+- 影响版本与环境：本轮忽略目录下的临时真实 OneDrive/FUSE 验证探针，使用 0.2.13 源码及发布锁定依赖。
+- 关联历史故障：TD-20261014-12 区分本地关闭与云端完成；本条为新探针观察条件错误，不是同一产品根因。
+
+### 症状与影响
+
+探针首个 8 MiB+123 字节文件在远端查询时尚不存在，误认为保存验证失败。两轮均清理自己创建的随机云端目录及私有凭据副本；未改生产程序、数据库或用户已有文件。
+
+### 触发条件与复现
+
+std::fs::write 返回并关闭描述符后，FUSE release 仍可能异步等待处理，数据库暂为 Writing。探针只将 Dirty/Uploading/Conflict 计为未完成，在 Writing 时提前结束等待；远端立即查询得到 None。
+
+### 根因与证据
+
+新探针忽略 Writing，而生产恢复代码有意不上传仍在写入的文件。以发布 Cargo.lock 的依赖版本再次运行旧观察条件，得到受控 missing uploaded object 错误。根工作区和程序源码未改变。
+
+### 解决办法与恢复操作
+
+探针等待条件同时包含 Writing，等待 release 发布并完成云端上传后再读回；保留对字节、删除、同名重建和自有云端目录清理的断言。仅修改临时验证辅助程序，无生产恢复操作。
+
+### 验证结果与边界
+
+旧条件失败已确认；等待 Writing/release 后，真实 OneDrive + 隔离 FUSE 完成 8 MiB+123 字节上传/下载比对、20 次 Dirty/Uploading 锁文件关闭删除（本机最大 8ms）、16 MiB+123 字节已认领上传 unlink 后同名重建为 256 KiB+31 字节并读回比对、所有测试文件与随机云端父目录删除确认。[脱敏汇总](unlink-live-validation-2026-10-14.json)。不把替身或成功的本地 write 计为真实云端完成，也不据此断言真实云端存在文件丢失。
+
+### 防复发措施与后续
+
+端到端探针必须等待本地句柄关闭发布和云端确认两个阶段；发布依赖与探针依赖锁定版本一致。
+
+### 交付记录
+
+辅助程序与私有运行目录位于忽略路径 target；凭据副本和临时云端目录已清理，仅把上述脱敏汇总纳入发布验证。记录提交待补充。
+
+## TD-20261014-14：稳定组件升级后独立工作区锁文件仍引用旧版本
+
+- 日期：2026-10-14
+- 状态：已验证独立 locked 解析及最终 Linux/Windows 原生 CI。
+- 影响版本与环境：0.2.13 发布准备提交 eba3604，独立 experiments/twodrive-dev 工作区，Linux/Windows CI。
+- 关联历史故障：TD-20261014-13 为稳定发布基线遗漏，本条为另一套 Cargo.lock 未同步版本；不归因于云端删除机制。
+
+### 症状与影响
+
+根工作区构建/测试及 deb 验证通过，独立 WebDAV CI 在 cargo clippy --locked 的依赖解析阶段失败，未进入测试。阻止发布；用户现用软件和云端数据未改变。
+
+### 触发条件与复现
+
+共享 core/backend/fs 从 0.2.11 升至 0.2.13，独立 Cargo.lock 仍锁定三个本地 path package 的 0.2.11。Linux 和 Windows 原生任务均失败。
+
+### 根因与证据
+
+[失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563070060) 的两个任务报告 cannot update the lock file .../experiments/twodrive-dev/Cargo.lock because --locked was passed。根锁已同步，独立工作区使用另一份锁。虽 Windows 不启用 Linux mount，Cargo 仍需要一致的跨目标锁文件。
+
+### 解决办法与恢复操作
+
+离线重新解析独立锁文件，限定 diff 为三个本地共享 package 的版本号，不升级第三方依赖、不修改实验功能。没有用户恢复操作。
+
+### 验证结果与边界
+
+原失败证据为两个真实 CI job；新锁离线 locked metadata 解析通过，diff 只有三个 path package 的版本。最终 [Linux/Windows 独立工作区 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697140) 均通过；[peer 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697042) 及 [Full/Lite 原生构建和 IPC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697093) 也通过。不是运行程序测试失败，不能把修复锁文件说成新云端功能验证。
+
+### 防复发措施与后续
+
+升级共享 path package 时搜索所有独立 Cargo.lock 并检查锁定解析，保留原生工作区 CI。
+
+### 交付记录
+
+修复提交：[53e0133](https://github.com/LumiaBlack51/twodrive/commit/53e01335f5c92e5e1c978e0fa8d31cc7d5d196a3)；随 PR #13 合入 main，最终 CI 见上文。[Release 0.2.13-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.13-1) 已发布；本地升级结果见 TD-20261014-12 后续补记。
+
+## TD-20261014-13：main 发布基线落后于上一稳定包的 Nautilus 下载反馈
+
+- 日期：2026-10-14
+- 状态：已验证两份已发布源码原字节恢复、25 项 Nautilus 测试及候选安装包；合入 main，正式发布待完成。
+- 影响版本与环境：main 基线 258438e（稳定组件 0.2.11），上一稳定 Release v0.2.12-1；尚未发布本轮包。
+- 关联历史故障：上一稳定包包含 a749e43 的固定下载反馈修复；与 TD-20261014-12 的删除限制是不同机制。
+
+### 症状与影响
+
+从 main 直接组装下一稳定包会遗漏已在 0.2.12-1 发布的 Nautilus 等待下载反馈、刷新后反馈保留和失败重试逻辑。发布准备时发现；没有交付这一回退包，也没有改变本地客户端。
+
+### 触发条件与复现
+
+比较 main 与已存在的 v0.2.12-1 标签：稳定 Rust 组件只有版本号差异；另外两份 Nautilus 程序/测试源码存在实际差异，上一稳定版为 25 项测试，main 为 19 项。
+
+### 根因与证据
+
+上一稳定包从包含稳定修复的 dev 集成提交构建，main 尚未同步这些已发布文件。已核对 Release 的源码标签 93d1b44 和文件 diff，不根据分支名推断稳定代码相同。v0.2.12-1 中稳定五个 Rust crate 与 main 的差异仅 Cargo.toml 版本号，实验组件不属于本次恢复范围。
+
+### 解决办法与恢复操作
+
+把 v0.2.12-1 的 packaging/nautilus/twodrive_nautilus.py 和 test_twodrive_nautilus.py 原字节恢复到 main 修复分支；只恢复这两份已发布稳定源码，不合入 dev 实验功能。稳定五个 crate 及 deb 版本更新为 0.2.13 / 0.2.13-1，避免覆盖已存在的 0.2.12 Release。尚未执行本地安装；用户已授权 CI 完成后合入 main、发布和升级。
+
+### 验证结果与边界
+
+两份源码与 v0.2.12-1 原字节相等，25 项 Nautilus 和 4 项 Settings 测试通过；候选 deb 中的程序/辅助程序/扩展与当前构建源码逐字节一致，包内 CLI/daemon 为 0.2.13，包内程序驱动的 7 项真实 FUSE 和隔离 MockBackend daemon 冒烟通过。本条只防止发布回退，不重新宣称旧下载反馈全部真机路径得到验证。
+
+### 防复发措施与后续
+
+稳定发布前逐组件比较上一稳定标签与 main，核实版本递增和实际源码差异；不能把开发分支整个并入作为恢复稳定文件的替代。
+
+### 交付记录
+
+[上一稳定 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.12-1)。本轮准备提交：[eba3604](https://github.com/LumiaBlack51/twodrive/commit/eba360484cd852834ac9fe797f17497878b032fe)，随 PR #13 合入 main；[正式 Release 0.2.13-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.13-1) 已发布；本地已安装 0.2.13，详见 TD-20261014-12 的上线记录。
+
+## TD-20261014-12：关闭后的待上传文件不能删除，导致 Git 锁文件残留
+
+- 日期：2026-10-14
+- 状态：已验证本机删除/并发/模拟重启机制及隔离真实 FUSE；真实 OneDrive 本轮隔离文件删除/重建/读回已通过，见后续发布补记。最初仅调查阶段的结论和恢复操作保留如下。
+- 影响版本与环境：本机运行 `twodrive-daemon 0.2.10`，Linux、真实 OneDrive FUSE 挂载。当前源码提交 `ecb05392324275f3e0c4317f6e5937d3a4b52ed7`（daemon 0.2.12）仍包含对应删除限制；未运行该源码构建作版本对照。
+- 关联历史故障：[2026-07-24 可靠性修复](reliability-fix-2026-07-24.md)仅覆盖打开句柄的 dirty 文件删除；[2026-09-03 local-first 设计](local-first-sync-2026-09-03.md)约定 unlink 先更新本地命名空间，再持久排队云端删除。本次是关闭句柄后仍受同步状态限制的遗漏。
+
+### 症状与影响
+
+在挂载目录初始化、提交及推送 Git 仓库时，删除 `HEAD.lock`、`maintenance.lock`、`config.lock`、`index.lock` 先后返回 `Input/output error`。残留 `config.lock` 导致后续 upstream 配置写入报 `File exists`。GitHub 推送实际完成，38 个项目文件和远端提交核对一致，未发现项目文件损坏。迁移后删除旧 `.git` 的一个内部引用文件也暂时遭遇同一错误。
+
+### 触发条件与复现
+
+Git 创建、写入并关闭短生命周期文件，随后在 TwoDrive 后台同步完成前 unlink。真实操作多次出现删除错误，服务日志在 19:22:56、19:23:18、19:25:18、19:26:32 等时刻输出同一拒绝信息。迁移清理时有一个引用文件连续重试仍失败，稍后只读查询显示该文件已变为 pinned，随后正常删除成功。没有新建独立探针或回归测试；未在每次原始错误瞬间抓取数据库状态。
+
+### 根因与证据
+
+`crates/twodrive-fs/src/filesystem/writes.rs` 的关闭提交路径将持久缓存标为 Dirty 并排队上传；`filesystem/fuse.rs` 的 release 路径随后移除写句柄。unlink 仅在 `unlink_record_with_open_handles` 找到打开句柄时绕过普通删除分支；没有打开句柄时进入 `delete_record`。`filesystem/mutations.rs` 明确拒绝 Writing、Dirty、Hydrating、Uploading 四种状态，错误为 `cannot delete a file while it is changing`；`filesystem/fuse.rs` 将该错误统一返回 `libc::EIO`。
+
+本机日志实际出现：
+
+```text
+twodrive delete file error: cannot delete a file while it is changing
+```
+
+这使已完成本地关闭的短生命周期文件仍需等待云端状态变化才能删除，与上述 local-first unlink 约定不一致。Git 的锁文件生命周期暴露该实现缺口。源码拒绝分支、实际服务日志和稍后成功删除的状态变化相互吻合；不据此认定所有 FUSE 文件系统都有同样限制，也不将同期其他云端删除错误或 Git 首次 HTTPS 连接等待归为此根因。
+
+### 解决办法与恢复操作
+
+程序、服务和数据库未修改，未重启或升级 TwoDrive。按用户要求仅定位原因。
+
+本地恢复单独执行：将项目文件及完整 Git 元数据复制到普通本地 ext4 工作目录，核对 38 个项目文件的 SHA-256、提交及远端跟踪配置，运行 `git fsck --full`；确认新仓库完整后删除原挂载目录的 `.git`，保留项目文件作备份。删除清理先遭遇上述限制，等待后台状态正常变化后完成。未绕过同步状态检查或直接修改同步数据库。
+
+### 验证结果与边界
+
+新目录 `git fsck --full` 通过，工作区干净，main 跟踪 origin/main；提交与迁移前及 GitHub 一致。原目录 `.git` 已完全移除，Git 仓库探测失败符合预期；原目录与新目录的 38 个项目文件校验值一致。读取生产 SQLite 使用 `mode=ro`。这些结果验证迁移和备份完整性，不代表 TwoDrive 缺陷已修复。未新增或运行 TwoDrive 回归测试，未验证其他系统、提供者、发布版本和首次 HTTPS 等待原因。
+
+### 防复发措施与后续
+
+如后续授权修复，应覆盖已关闭的 Dirty/Uploading 文件 unlink、后台上传与删除并发、删除后的重启恢复，以及 Git 锁文件快速创建/关闭/删除的真实 FUSE 操作；保留待上传内容及远端删除的正确排序，不能仅移除保护条件。当前继续使用普通本地工作目录，将挂载目录保留为项目文件备份。
+
+### 交付记录
+
+仅本地调查记录，未提交或发布 TwoDrive 修复。迁移的项目原有提交已核实为 `0f60e17259f8f77f4bf45f96552e1c1514510b6e`；本记录不收录用户私人路径、令牌或完整文件清单。
+
+
+### 2026-10-14 主分支修复补记
+
+用户在分析后授权修复；基线为 main `258438eb230409cc30d600c722f434f2e08bb3bc`（daemon/core/fs 0.2.11），在独立 `codex/pending-unlink-main` 工作树开发，不将 dev 后续改动一并合入。本次修复对应原删除限制的遗漏；不是另一场复发。上文“未修改/未测试”描述的是最初调查阶段，本节更新当前状态。
+
+**机制与改动**：unlink 在 SQLite Immediate 事务中重新读取当前记录、持久化删除意图并移除本地命名空间，随后返回成功。后台通知失败也不撤销已提交的 unlink。未被上传任务认领的本地文件直接取消上传；已绑定云端身份的待上传修改可以直接排队删除原对象。正在进行的上传与删除使用相同的本地身份锁，上传持有缓存共享锁，清理先取得缓存独占锁；缓存和删除记录保留到任务和打开的缓存句柄结束。原上传请求的路径、目标和缓存路径持久化，迟到的成功响应绑定到旧文件的删除记录，不能发布到同名新文件。
+
+上传已开始但新对象的云端身份未确认时，重启/失败恢复保留缓存，完成或续传该已认领的请求以获得云端 ID，然后删除；这条保守路径可能仍会上传被删除的内容，不把所有删除都强制先上传。云端已接受、进程尚未记录响应的窗口由模拟丢失响应回归覆盖。旧路径、当前本地路径和响应路径均作为后台上传屏障，允许前台立即创建同名文件，但新文件云端上传等待旧对象清理完成。冲突复制已开始的情况下，原对象和迟到的冲突对象分别排队清理，不让它们重新进入本地目录。delta 的删除回声不再提前丢弃尚有上传/缓存工作未结束的删除记录。
+
+迁移为 files 的 3 个可空上传声明字段及 pending_deletes 的 6 个可空字段；旧删除队列可兼容读入，重复初始化保留新队列状态。恢复/回滚需要使用理解这些记录的程序，或恢复升级前的停止服务数据库备份；不能把旧程序理解新增队列语义视作已验证。原有防止旧缓存覆盖新内容的代次检查保留。
+
+**验证进度**：新增关闭 Dirty 文件、上传中 unlink/同名重建、丢失上传响应前后重启、云端删除失败重试、上传冲突及冲突副本上传中删除、缓存锁和 Hydrating 完成取消回归；数据库覆盖删除时读取最新云端绑定、重复迁移、改名后的迟到响应及旧路径屏障。临时恢复 main 原始 filesystem/mutations.rs，两项关闭 Dirty 文件回归均因 `cannot delete a file while it is changing` 失败；恢复修复后通过。这是恢复旧删除实现的对照，不冒称所有代码都回退到旧版。开发中新增替身曾因嵌套持有自身 Mutex 自锁，已改为先复制观测结果再调用后端；上传前误刷新旧任务快照被既有 stale_empty_upload 回归识别并撤回。
+
+已在真实隔离 FUSE 挂载、模拟上传/删除离线后端执行 Git init/config/add/commit/status，HEAD.lock、config.lock、index.lock、maintenance.lock 各 5 次创建/关闭/删除/重建通过。该测试不访问真实 OneDrive。同一挂载回归临时恢复 main 原删除实现后失败：日志再次出现拒绝 Changing 的删除分支，并因残留锁在 create_new 时返回 File exists；恢复修复后通过。最终 `cargo build --workspace --locked`、`cargo fmt --all -- --check`、严格 Clippy 和工作区 162 项默认 Rust 测试通过（8 项默认忽略）；7 项 FUSE 挂载测试全部显式通过，包括新 Git 锁回归以及解压、chmod/执行、下载取消、延迟读取和大目录响应。Nautilus 19 项与 Settings 4 项 Python 测试通过；独立 MockBackend daemon 冒烟的 hydration/write/upload/move/delete/pin/release 全部通过。另一个默认忽略的 peer 更新进程测试本轮未执行。构建和测试日志保存在本工作树忽略目录 target/unlink-validation，不含真实账号数据。
+
+**验证边界和本地恢复**：本轮不操作现用服务、数据库或真实云端文件；最初的 Git 仓库迁移仍单独列于上文。未执行真实 Graph 上传/删除及断网/崩溃探针、Windows 原生运行、多进程完整竞争、外部客户端同名云端并发编辑、未缓存延迟读取句柄的 unlink 语义和正在云端创建目录时的 rmdir。测试中的重启是重开隔离数据库/重新运行恢复函数，不是真实生产进程崩溃。不能据此承诺所有 EIO 均已修复。
+
+**发布前真实验证补记**：用户随后授权合入 main、Release 和本地升级。使用同一 0.2.13 源码及发布 Cargo.lock 的依赖，在私有凭据/配置/数据库副本和隔离 FUSE 中运行真实 Graph：8 MiB+123 字节上传下载 SHA-256 一致，20 次 Dirty/Uploading 锁文件关闭删除及重建通过（本机最大 unlink 8ms），16 MiB+123 字节已认领上传删除后同名重建为 256 KiB+31 字节并读回一致；Graph 确认所有自有测试文件和随机父目录已删除，隔离队列归零。结果见[脱敏报告](unlink-live-validation-2026-10-14.json)。旧探针提前观察的问题单独记为 TD-20261014-15。此项是真实账号验证，不是 MockBackend；仍未执行真实断网/生产进程崩溃、组织账号、其他云盘、多进程完整竞争、未缓存延迟句柄 unlink 或正在创建云端目录时的 rmdir。Windows CI 为原生构建/单元/IPC，不能视作 Windows FUSE/真实 Graph 本次语义验证。本地正式升级结果独立记于下方上线补记。
+
+**防复发与交付**：新增测试保存在 filesystem/deletion_tests.rs 和 core/tests.rs，上传并发用开始/放行屏障，默认忽略的挂载测试须显式执行。修复提交：[4d4f7ae](https://github.com/LumiaBlack51/twodrive/commit/4d4f7aec7424b75b686b60ab67cc1fe258a8fe64)；[指向 main 的草稿 PR #13](https://github.com/LumiaBlack51/twodrive/pull/13)。本机验证结果见上文；[最终 peer 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697042)、[最终独立 WebDAV 原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697140) 和 [最终 Windows Full/Lite 构建与 IPC CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38563697093) 的六项任务全部通过，测试代码头为 53e0133。[main 合并提交 a380b48](https://github.com/LumiaBlack51/twodrive/commit/a380b48bf6f9ad5bf8eec517756800d42024420c) 已核实；[Release 0.2.13-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.13-1) 已正式发布并设为 Latest，5 个附件的 GitHub digest 与本地 SHA-256 全部相等。标签/源码/最终包输入为 [cfa1ffa](https://github.com/LumiaBlack51/twodrive/commit/cfa1ffaefbd5877dc281025085cdaefac1ab2164)，与最终 CI 代码头只差故障记录/脱敏汇总。deb SHA-256 为 `62e16998fc1f037ef60a6385995afc86c112a4defe7f6b3bba4cbcce274d01a3`。本地安装结果见下一段。
+
+
+### 2026-10-14 本地上线与恢复保障补记
+
+用户已明确授权更新本地软件。沿用用户目录安装方式，将稳定 CLI/daemon 从 0.2.10 升级到 0.2.13，托盘/Settings/Nautilus 扩展/桌面入口及 emblems 使用最终 deb 的原字节，保留现有自定义 systemd unit。升级前确认 Writing 为 0，停止 twodrive-daemon.service 后以 0700 私有目录备份 SQLite 及当时存在的 WAL/SHM、上传会话状态、旧程序/桌面组件和配置；需保护的未同步缓存数量为 0。备份 SQLite integrity_check 通过，凭据未写入本记录或发布附件。未删除用户原有文件或通过直接编辑数据库清队列。
+
+新服务正常启动，CLI 与正在运行的 daemon 均实际报告 0.2.13，进程可执行文件 SHA-256 与最终包一致，FUSE 挂载可访问。数据库 integrity_check 通过，新增上传/删除队列字段已迁移。稳定托盘和 Nautilus 已重启加载已安装组件；未升级或重启 Development 桌面软件。
+
+在已升级 daemon 的实际 OneDrive 挂载内，仅使用本轮新建的随机目录验证：512 KiB+7 字节上传并通过真实 Graph 下载比对 SHA-256，HEAD.lock/config.lock/index.lock 各 4 次创建/关闭/删除通过；临时文件和父目录云端清理确认。此项验证运行中的已安装程序，区别于上文同源码/锁定依赖的隔离 FUSE 探针；[脱敏报告](unlink-live-validation-2026-10-14.json)新增 installed_daemon_validation。测试不包含真实进程崩溃或其他账号。
+
+上线后 Writing/Dirty/Uploading 均为 0，本轮无新增待删除记录。升级前已经存在的 1 项旧云端删除待办仍保留，不能把它视作本次关闭文件拒绝机制已经解决，也未擅自清除该记录；后续若调查其云端失败应单独定位和留档。现用服务/挂载和本次验证数据均已检查完成。
+
 
 ## TD-20261014-11：Windows 发布文本字节核对误报 CRLF 差异
 
@@ -2149,6 +2413,56 @@ Windows 来源 5120cf7（[PR #9，已合并到 dev](https://github.com/LumiaBlac
 提交检查补记：git diff --cached --check 发现此前未跟踪证据中的 CRLF、终端尾部空格及 EOF 空行；仅规范文本空白后重跑，保留日志内容与所有成功/失败结论。旧 git diff --check 未包含未跟踪文件，不能代表这些文件此前已通过暂存检查。
 
 TD-20261007-PR-WSL 补记：创建 PR 后一次新 WSL 调用再次在启动阶段超时；后续核对工作树干净、HEAD 174a12b，确认该次没有文档写入或提交。重试读取 PR 状态成功；宿主间歇启动超时根因仍未定位，不影响已创建 PR。
+## TD-20261007-01：仅云端文件选择始终保留后缺少下载等待标志
+
+- 日期：2026-10-07
+- 状态：已验证本地状态图标与原生异步命令机制；真实 Nautilus GUI 与 OneDrive 端到端未验证。
+- 影响版本与环境：本次调查基于 main 源码 `bdacfb9`；用户当前运行版本未核实。修复包版本为 0.2.11-2，Rust 二进制版本继续为 0.2.11。
+- 关联历史故障：[目录浏览与延迟释放图标](directory-browsing-2026-09-08.md)、[固定策略可靠性](reliability-fix-2026-07-24.md)、[后台下载与恢复](responsiveness-recovery-2026-09-08.md)。本次补齐现有图标映射对“已固定但尚无缓存”的展示遗漏；未证明是历史修复回归，也未把它等同于 TD-20260924 的 Nautilus 卡顿。
+
+### 症状与影响
+
+用户报告对只有云图标的文件选择 Always keep on this device 后没有可见反馈。期望策略生效、下载尚未完成时显示云和 pin，下载完成后仅显示 pin。未确认下载本身失败或数据损坏。
+
+### 触发条件与复现
+
+仅云端文件，选择始终保留，观察下载期间及完成后的 Nautilus 图标。隔离 SQLite 回归复现了显式/继承固定、hydrating 与 pinned 尚无缓存的阶段；原生 Gio 冒烟在临时 mock 数据库中人为延迟 350 ms，再执行实际 CLI 的 MockBackend 下载，验证菜单请求到缓存落盘的转换。不使用真实账户。
+
+### 根因与证据
+
+- `run_action` 原先只启动 Python 工作线程，没有在菜单接受请求时设置图标反馈；扩展环境已有原生主循环可能持有 GIL 的历史限制，状态查询已改用 Gio 子进程，菜单命令却仍依赖线程。本次移除这项线程依赖；未取得用户现场调用栈，不能断言其原操作一定因 GIL 完全未启动。
+- Nautilus 查询只读取 state/release_pending，未结合显式或继承 pin 与 cache_path。`recompute_pin_inheritance` 对固定无缓存文件设为 hydrating，而 `begin_hydration` 又会在下载完成前设为 pinned 并清空 cache_path。因此旧展示可能只有同步图标，或过早只显示 pin，无法区分固定策略与缓存完成。
+- 新回归在未修改的 `bdacfb9` 扩展上失败，固定无缓存阶段得到单独 cloud/syncing/pin；修复后通过。并未证明下载失败、数据损坏或整个 Nautilus GUI 卡住。
+
+### 解决办法与恢复操作
+
+- 菜单选择仅云端文件时立即提交临时 `pin_pending` 展示，顺序添加 cloud、pin 两个已有图标。持久状态查询使用有效固定策略与缓存字段；在缓存未发布期间持续双图标，发布后只显示 pin，不依赖临时标记的 60 秒期限。
+- 数据库状态确认工作或完成后接管临时反馈；每个命令完成/失败时单独清除其临时状态，重新读取真实状态，不把失败请求永久当作已固定。多选仍按顺序执行，单项失败后继续处理其余项。
+- 菜单命令改用原生 Gio 异步子进程与完成回调，保留输出、失败通知及一小时超时；上传、错误/冲突与延迟释放的优先级保留。目录汇总尚无缓存的固定子项；新发现的未固定云端子项不被误认为等待固定。
+- 中英文首页与使用指南补充双图标含义。未改动数据库迁移、固定策略、下载算法或缓存发布机制。
+
+**本地恢复操作**：只使用临时 SQLite、临时命令包装器及 MockBackend 下载；未安装扩展或新包，未重启 Nautilus/用户服务，未修改用户配置或云端文件。实际会话加载新扩展仍需更新安装并重启 Nautilus。
+
+### 验证结果与边界
+
+- 25 项 Nautilus 回归通过，覆盖点击立即反馈、固定无缓存的显式/继承策略、缓存完成、目录与相邻路径边界、错误/上传/释放优先级、单项失败反馈清除、多选顺序与逐项清除，以及 sync/status/unpin/release 命令参数和通知。新增 pin 回归放入临时目录搭配旧扩展运行，确认旧代码失败；文件信息与菜单回调使用替身，不能称为完整 GUI 验证。
+- 真实 Gio/GLib + Nautilus 4 模块冒烟通过：接受菜单请求后立即双图标；模拟延迟阶段原生主循环继续响应；实际 mock CLI 发布缓存后只剩 pin，缓存字节与公开 mock 样本一致。另验证子进程非零退出及 stderr 合并、启动失败、强制超时均只回调一次。超时测试将一小时定时器缩短到 50 ms，未实际等待一小时。
+- 101 项 Rust 默认测试、4 项 Settings 回归通过；cargo fmt、Clippy 警告视错误、git diff --check 通过。6 项环境相关 FUSE 测试默认忽略，本次未额外执行（未修改文件系统实现）。
+- 0.2.11-2 amd64 deb 从源码提交 `a749e430acde26a4364c5ee2671b472281b17f9a` 的干净 Git 导出构建；解包 CLI/daemon 与 release 产物、扩展/托盘/Settings 与该提交源码字节一致。包内 CLI 版本为 0.2.11；扩展的 25 项回归重新通过。核对软件包无运行令牌、用户配置、数据库或私人构建路径；原有未提交调查不进入包内记录。
+- 使用包内 CLI/daemon 运行隔离真实 FUSE + MockBackend 冒烟，挂载、读取、持久写入、模拟上传、移动/删除、pin/unpin/release 均通过并卸载临时挂载。此项是包内容验证，不是 6 项默认忽略测试的补跑，也不代表真实 OneDrive。
+- 本机已安装 CLI、daemon、Nautilus 扩展摘要与构建前一致；用户服务保持 MainPID=3051、active、NRestarts=0。未安装 deb 或重启实际服务/Nautilus。
+- **边界**：未验证实际 Nautilus 窗口中图标布局、完整右键操作、多扩展交互、用户原会话升级或真实 OneDrive 下载。原生冒烟使用文件信息替身、合成等待状态和 MockBackend，不代表真实 Graph 端到端，也不能证明用户全部“没反应”现象来自同一根因。
+
+### 防复发措施与后续
+
+保留 `PinEmblemTests`、`ActionSequenceTests` 回归，特别是不能仅凭 state=pinned 就宣布本地内容下载完成。菜单动作和状态查询均避免依赖扩展中的 Python 工作线程。后续若再次出现无反馈，需核对已加载扩展版本、持久策略/缓存状态及原生命令执行结果；实际 GUI 和真实云端验收仍待执行。
+
+### 交付记录
+
+- 用户授权将修复与 deb 提交到新分支，明确不更新本机。已推送 [codex/pin-download-feedback](https://github.com/LumiaBlack51/twodrive/tree/codex/pin-download-feedback)；修复源码提交为 [a749e43](https://github.com/LumiaBlack51/twodrive/commit/a749e430acde26a4364c5ee2671b472281b17f9a)，软件包及验证记录提交为 [18120fc](https://github.com/LumiaBlack51/twodrive/commit/18120fc6286e797f57e487c58b5c57a019b54d1d)。远端分支提交及 deb/校验文件的 Git blob 与本地一致；未合并或修改 main。
+- 已构建并验证 [0.2.11-2 amd64 deb](../dist/twodrive_0.2.11-2_amd64.deb) 与 [SHA-256 校验文件](../dist/twodrive_0.2.11-2_amd64.deb.sha256)，随本分支提交，不创建 Release，也不安装本机。deb 为 6,419,576 字节，SHA-256：`e2da4946333cdecdd7f67cb7b1481acb8de93a0675c807cd0a682f7c412a230f`。
+- 包内故障记录为源码构建时快照；本次包验证与交付补记不更改包内二进制或扩展。原有未提交调查记录和无关文件保留在工作区，不纳入本次提交或软件包。
+
 ## TD-20261006-04：dev Windows 原生编译检查失败
 
 - 日期：2026-10-06
@@ -2268,56 +2582,6 @@ Windows fmt 通过，Clippy/编译步骤失败，后续测试与产物构建被�
 
 实现与修复已提交 [0222663](https://github.com/LumiaBlack51/twodrive/commit/022266391500e1293f722bccb9d333479c7c3cbf)，草稿 [PR #8](https://github.com/LumiaBlack51/twodrive/pull/8)；[dev 设计](dev-webdav-peer-design.md)。
 
-## TD-20261007-01：仅云端文件选择始终保留后缺少下载等待标志
-
-- 日期：2026-10-07
-- 状态：已验证本地状态图标与原生异步命令机制；真实 Nautilus GUI 与 OneDrive 端到端未验证。
-- 影响版本与环境：本次调查基于 main 源码 `bdacfb9`；用户当前运行版本未核实。修复包版本为 0.2.11-2，Rust 二进制版本继续为 0.2.11。
-- 关联历史故障：[目录浏览与延迟释放图标](directory-browsing-2026-09-08.md)、[固定策略可靠性](reliability-fix-2026-07-24.md)、[后台下载与恢复](responsiveness-recovery-2026-09-08.md)。本次补齐现有图标映射对“已固定但尚无缓存”的展示遗漏；未证明是历史修复回归，也未把它等同于 TD-20260924 的 Nautilus 卡顿。
-
-### 症状与影响
-
-用户报告对只有云图标的文件选择 Always keep on this device 后没有可见反馈。期望策略生效、下载尚未完成时显示云和 pin，下载完成后仅显示 pin。未确认下载本身失败或数据损坏。
-
-### 触发条件与复现
-
-仅云端文件，选择始终保留，观察下载期间及完成后的 Nautilus 图标。隔离 SQLite 回归复现了显式/继承固定、hydrating 与 pinned 尚无缓存的阶段；原生 Gio 冒烟在临时 mock 数据库中人为延迟 350 ms，再执行实际 CLI 的 MockBackend 下载，验证菜单请求到缓存落盘的转换。不使用真实账户。
-
-### 根因与证据
-
-- `run_action` 原先只启动 Python 工作线程，没有在菜单接受请求时设置图标反馈；扩展环境已有原生主循环可能持有 GIL 的历史限制，状态查询已改用 Gio 子进程，菜单命令却仍依赖线程。本次移除这项线程依赖；未取得用户现场调用栈，不能断言其原操作一定因 GIL 完全未启动。
-- Nautilus 查询只读取 state/release_pending，未结合显式或继承 pin 与 cache_path。`recompute_pin_inheritance` 对固定无缓存文件设为 hydrating，而 `begin_hydration` 又会在下载完成前设为 pinned 并清空 cache_path。因此旧展示可能只有同步图标，或过早只显示 pin，无法区分固定策略与缓存完成。
-- 新回归在未修改的 `bdacfb9` 扩展上失败，固定无缓存阶段得到单独 cloud/syncing/pin；修复后通过。并未证明下载失败、数据损坏或整个 Nautilus GUI 卡住。
-
-### 解决办法与恢复操作
-
-- 菜单选择仅云端文件时立即提交临时 `pin_pending` 展示，顺序添加 cloud、pin 两个已有图标。持久状态查询使用有效固定策略与缓存字段；在缓存未发布期间持续双图标，发布后只显示 pin，不依赖临时标记的 60 秒期限。
-- 数据库状态确认工作或完成后接管临时反馈；每个命令完成/失败时单独清除其临时状态，重新读取真实状态，不把失败请求永久当作已固定。多选仍按顺序执行，单项失败后继续处理其余项。
-- 菜单命令改用原生 Gio 异步子进程与完成回调，保留输出、失败通知及一小时超时；上传、错误/冲突与延迟释放的优先级保留。目录汇总尚无缓存的固定子项；新发现的未固定云端子项不被误认为等待固定。
-- 中英文首页与使用指南补充双图标含义。未改动数据库迁移、固定策略、下载算法或缓存发布机制。
-
-**本地恢复操作**：只使用临时 SQLite、临时命令包装器及 MockBackend 下载；未安装扩展或新包，未重启 Nautilus/用户服务，未修改用户配置或云端文件。实际会话加载新扩展仍需更新安装并重启 Nautilus。
-
-### 验证结果与边界
-
-- 25 项 Nautilus 回归通过，覆盖点击立即反馈、固定无缓存的显式/继承策略、缓存完成、目录与相邻路径边界、错误/上传/释放优先级、单项失败反馈清除、多选顺序与逐项清除，以及 sync/status/unpin/release 命令参数和通知。新增 pin 回归放入临时目录搭配旧扩展运行，确认旧代码失败；文件信息与菜单回调使用替身，不能称为完整 GUI 验证。
-- 真实 Gio/GLib + Nautilus 4 模块冒烟通过：接受菜单请求后立即双图标；模拟延迟阶段原生主循环继续响应；实际 mock CLI 发布缓存后只剩 pin，缓存字节与公开 mock 样本一致。另验证子进程非零退出及 stderr 合并、启动失败、强制超时均只回调一次。超时测试将一小时定时器缩短到 50 ms，未实际等待一小时。
-- 101 项 Rust 默认测试、4 项 Settings 回归通过；cargo fmt、Clippy 警告视错误、git diff --check 通过。6 项环境相关 FUSE 测试默认忽略，本次未额外执行（未修改文件系统实现）。
-- 0.2.11-2 amd64 deb 从源码提交 `a749e430acde26a4364c5ee2671b472281b17f9a` 的干净 Git 导出构建；解包 CLI/daemon 与 release 产物、扩展/托盘/Settings 与该提交源码字节一致。包内 CLI 版本为 0.2.11；扩展的 25 项回归重新通过。核对软件包无运行令牌、用户配置、数据库或私人构建路径；原有未提交调查不进入包内记录。
-- 使用包内 CLI/daemon 运行隔离真实 FUSE + MockBackend 冒烟，挂载、读取、持久写入、模拟上传、移动/删除、pin/unpin/release 均通过并卸载临时挂载。此项是包内容验证，不是 6 项默认忽略测试的补跑，也不代表真实 OneDrive。
-- 本机已安装 CLI、daemon、Nautilus 扩展摘要与构建前一致；用户服务保持 MainPID=3051、active、NRestarts=0。未安装 deb 或重启实际服务/Nautilus。
-- **边界**：未验证实际 Nautilus 窗口中图标布局、完整右键操作、多扩展交互、用户原会话升级或真实 OneDrive 下载。原生冒烟使用文件信息替身、合成等待状态和 MockBackend，不代表真实 Graph 端到端，也不能证明用户全部“没反应”现象来自同一根因。
-
-### 防复发措施与后续
-
-保留 `PinEmblemTests`、`ActionSequenceTests` 回归，特别是不能仅凭 state=pinned 就宣布本地内容下载完成。菜单动作和状态查询均避免依赖扩展中的 Python 工作线程。后续若再次出现无反馈，需核对已加载扩展版本、持久策略/缓存状态及原生命令执行结果；实际 GUI 和真实云端验收仍待执行。
-
-### 交付记录
-
-- 用户授权将修复与 deb 提交到新分支，明确不更新本机。已推送 [codex/pin-download-feedback](https://github.com/LumiaBlack51/twodrive/tree/codex/pin-download-feedback)；修复源码提交为 [a749e43](https://github.com/LumiaBlack51/twodrive/commit/a749e430acde26a4364c5ee2671b472281b17f9a)，软件包及验证记录提交为 [18120fc](https://github.com/LumiaBlack51/twodrive/commit/18120fc6286e797f57e487c58b5c57a019b54d1d)。远端分支提交及 deb/校验文件的 Git blob 与本地一致；未合并或修改 main。
-- 已构建并验证 [0.2.11-2 amd64 deb](../dist/twodrive_0.2.11-2_amd64.deb) 与 [SHA-256 校验文件](../dist/twodrive_0.2.11-2_amd64.deb.sha256)，随本分支提交，不创建 Release，也不安装本机。deb 为 6,419,576 字节，SHA-256：`e2da4946333cdecdd7f67cb7b1481acb8de93a0675c807cd0a682f7c412a230f`。
-- 包内故障记录为源码构建时快照；本次包验证与交付补记不更改包内二进制或扩展。原有未提交调查记录和无关文件保留在工作区，不纳入本次提交或软件包。
-
 ## TD-20261006-01：系统语言切换后特殊目录与上传来源错位
 
 - 日期：2026-10-06
@@ -2369,6 +2633,179 @@ Windows fmt 通过，Clippy/编译步骤失败，后续测试与产物构建被�
 - 已合并 [PR #7](https://github.com/LumiaBlack51/twodrive/pull/7)，合并提交/发布标签指向 [ae50648](https://github.com/LumiaBlack51/twodrive/commit/ae50648a4d08ae14f7a2041d3ab5210ff220430f)。合并树与已验证源代码/文档树一致。
 - [Release v0.2.11-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.11-1) 已发布 amd64 deb 和 .deb.sha256；GitHub 两项资产 SHA-256 均与本地一致。deb SHA-256：`2904803b76277bb4d4305b3f2435b6a8419bdfcb91369da2c9bdf0fba234b7cf`。
 - 包内故障记录为构建时验证快照；本次交付补记只更新已核实的发布链接与证据表述，不更改发布二进制。新包未安装到本机，真实服务保持原进程运行。
+
+## TD-20260924-02：Nautilus 偶发等待对话框的 48 小时监测
+
+- 日期：2026-09-24
+- 状态：调查中 / 根因未确认，已启用本机滚动诊断。
+- 影响版本与环境：本机 Nautilus 46.4、TwoDrive 0.2.10-2；本次未发现具体卡顿时间点，运行 daemon 与 TD-20260924-01 所核实版本相同。
+- 关联历史故障：TD-20260924-01、[Nautilus 启动](nautilus-startup-2026-09-11.md)、[目录浏览](directory-browsing-2026-09-08.md)。症状相近，不推断是旧修复回归。
+
+### 症状与影响
+
+用户报告 Nautilus 偶发无响应，桌面显示“等待或退出”。影响目录浏览；本次没有确认进程退出或数据损坏。
+
+### 触发条件与复现
+
+发生时间、所在目录、操作顺序均未确定。当前主动启动的 Nautilus 服务 D-Bus Ping 正常，未复现卡顿。
+
+### 根因与证据
+
+根因未确认。TD-20260924-01 未取得卡顿时 Nautilus 堆栈；本次也尚无现场证据，不能仅凭相同提示认定 FUSE、扩展、GIO 或网络为根因。
+
+### 解决办法与恢复操作
+
+新增本机用户级 `twodrive-nautilus-watch.service`，每五秒在 Nautilus 存在时测量 D-Bus Ping。响应达到 700 ms、失败或超时，记录 Nautilus 和 TwoDrive daemon 线程状态与内核等待点；持续异常每 30 秒再采样，并记录恢复时刻。私有 SQLite 逐次删除超过 48 小时的记录，不收集私人路径、文件名、令牌或原始 journal 消息。脚本、查看方式及解释边界见 [Nautilus 卡顿监测说明](nautilus-hang-monitor-2026-09-24.md)。未修改同步或 Nautilus 扩展机制，未重启 TwoDrive 服务。
+
+### 验证结果与边界
+
+- 临时数据库分别测到 Nautilus 不存在和存在时正常 Ping（约 8 ms）。将阈值临时设为 1 ms 后成功生成 Nautilus/daemon 线程快照；注入超过 48 小时的记录后，下一次探测将其删除。
+- 用户服务已启用并运行；实际数据库目录为 0700、文件为 0600，已写入 Nautilus 存在时 17 ms 的正常响应记录。原 TwoDrive daemon 保持 MainPID 2455、active、NRestarts=0。
+- **边界**：尚未观察到真实卡顿；内核等待点只能缩小调查范围，不能单凭它确认应用层根因。未对真实 OneDrive 做端到端验证，也未证明卡顿已修复。
+
+### 防复发措施与后续
+
+卡顿时尽量选择“等待”并记下时间、目录类型；根据监测时间戳关联脱敏系统日志，再针对确认机制补有意义的回归测试。当前缺乏稳定复现，不能证明旧代码失败与修复后通过。
+
+### 交付记录
+
+本地诊断脚本及说明已保存于仓库工作区，服务安装在当前用户目录；尚未提交、发布或生成安装包。
+
+2026-10-13 提交前补记：按用户要求将此前未提交的调查、监测脚本与说明纳入本仓库。脚本原样保留，本轮8项隔离检查通过：SQLite目录/文件权限、拒绝公开目录/数据库、48小时清理与进程不存在状态、注入慢响应后的恢复记录、30秒异常采样限流、非法间隔在创建状态前拒绝，以及只写临时数据库的本机只读探测。慢响应/错误/恢复用注入结果验证，未复现实际卡顿；不改原有“根因未确认”结论。本轮未安装或重启监测服务、未打开用户诊断数据库、未操作真实云端。已提交 [34dbb83](https://github.com/LumiaBlack51/twodrive/commit/34dbb838ca623a95f2401a7e9777d307e0c040a2) 并通过 [PR #12](https://github.com/LumiaBlack51/twodrive/pull/12) 合入 dev；合并提交 [2e9e523](https://github.com/LumiaBlack51/twodrive/commit/2e9e5239a77f8c84c29a70542576e0556eebac98)。
+
+## TD-20260924-01：弱网时 Nautilus 无响应及 PDF 保存结果不明确
+
+- 日期：2026-09-24
+- 状态：调查中 / Nautilus 卡顿及此前 PDF 保存延迟根因未确认；用户确认 PDF 目前显示已保存。
+- 影响版本与环境：本机 Linux，Nautilus 46.4；运行 TwoDrive daemon SHA-256 与本地已发布 0.2.10-2 deb 提取产物一致（`2500d0922ede9ffa736ccaa4611c3d670859d4cced59a14bf2533b8de1312332`）；Papers 50.2 inplace-save，安装提交 `16573ca27c3e72932f9d7190c3686711c5d489d8c63f80658e6a74267e77e95e`。
+- 关联历史故障：TD-20260922-01、[PDF 保存可靠性](pdf-save-reliability-2026-09-09.md)、[Nautilus 启动](nautilus-startup-2026-09-11.md)、[目录浏览](directory-browsing-2026-09-08.md)。未证实为其中任何机制的复发。
+
+### 症状与影响
+
+用户初报网络不佳时进入 TwoDrive 导致 Nautilus “崩溃”；后续明确为点击目录后无响应，桌面提示“等待或退出”，因此更正为卡顿，不能记录为已确认进程崩溃。已打开课程 PDF 有批注，Ctrl+S 和另存下载目录一度看不到成功结果。调查期间用户确认 PDF 已显示保存。
+
+### 触发条件与复现
+
+原现场未保留卡住的 Nautilus。当前打开 TwoDrive 父目录、挂载根目录、目标课程目录，各执行五次 D-Bus Ping，响应约 3–13 ms，未复现挂起。已请求用户重现时保留窗口并选择等待，以便捕获阻塞位置。
+
+### 根因与证据
+
+**根因未确认，不将弱网与两个症状直接等同为因果。**
+
+- TwoDrive 服务自本次开机连续运行，active、NRestarts=0；Papers 原进程仍在，无本次断言退出证据。
+- 日志确有 PDF 上传重复超时，09:53:53、09:56:54、09:59:56、10:02:57（Asia/Shanghai）均报告 `dirty upload remains queued for <document>: <remote request>: operation timed out`。说明云端请求失败并保留重试，不证明本地保存失败或 Nautilus 主线程正在等待该上传。
+- 本地下载目录已有 10:47 写入的 PDF。它与从当前 Papers 文件描述符复制出的备份 SHA-256 相同（不公开私人文档摘要），大小均为 14,668,221 字节。只读数据库查询对应文件为 uploading、cache 存在、release_pending=0；本地持久化与云端完成应分开说明。
+- Papers 仍持有三个已被原子替换的旧文件描述符，fstat 可读到各自旧属性；通过 /proc 重新打开旧描述符因旧 FUSE inode 不再支持 open 而返回 ENOENT。此操作不等价于原进程原描述符 read 失败，不能据此推断批注丢失或认定原子替换修复回归。
+- Nautilus 当前进程的调试器附加被 ptrace 限制拒绝；未取得原故障堆栈，也未修改系统 ptrace 安全设置。
+
+### 解决办法与恢复操作
+
+没有足够证据支持特定程序修复，尚未修改 TwoDrive/Papers 代码。未重启挂载或关闭用户 PDF 窗口。
+
+本地保护操作：将当前 PDF 只读复制到用户私有状态目录 `~/.local/state/twodrive/recovery-20260924/papers-open-fd-47.pdf`，目录权限 0700；该副本仅包含已落盘内容，不宣称提取了未保存的内存编辑。下载目录已有副本不是调查程序生成的。为诊断打开过 Nautilus；首次命令使用 15 秒 timeout，会终止该次诊断进程，该退出不算故障复现。随后无 timeout 启动并完成目录响应检查。
+
+### 验证结果与边界
+
+- pypdf strict=True 解析全部 92 页并解码内容流，统计到 3 个 FreeText 和 8 个 Ink 批注；仅有对象头多余空白警告。pdftotext 全文到 /dev/null 成功。未读取或记录批注正文，未逐页渲染核对，也不能证明所有预期批注均在。
+- 当前源码隔离真实 FUSE + MockBackend：`mounted_large_listing_and_copy_remain_responsive_during_download` 通过；后台下载延迟 3 秒时，10,000 条目录枚举与 16 MiB 写入约 140 ms。
+- `gio_directory_metadata_does_not_download_unknown_large_files` 通过：30 个虚拟 4 GB 未知格式文件的完整 GIO 元数据查询约 28 ms、零下载；显式复制仍可读取正确字节。
+- 19 项 Nautilus Python 回归通过。
+- **边界**：上述测试未重现原 GUI 主线程卡顿，未覆盖所有扩展、桌面和网络状态；未进行真实 OneDrive 上传完成后重新下载比对。PDF 当前能保存不是已证明修复原机制。没有确认任何新代码修复，也不承诺再次弱网时不会卡顿。
+
+### 防复发措施与后续
+
+下一步需要故障仍存在时的 Nautilus 主线程及 TwoDrive 请求阻塞证据，区分 FUSE、扩展、GIO 和桌面自身阻塞。若附加仍受限，可在受控复现场景从调试器启动新的 Nautilus；不能仅靠缩短网络超时或重启挂载来宣称根治。确认可复现缺陷后补充旧失败/新通过回归。
+
+### 交付记录
+
+仅保存本次本地调查记录；尚未确认 TwoDrive 新缺陷，因此未生成或发布声称修复本问题的 deb、未推送代码。此前 TD-20260922-01 的本地未提交补记保持原样，未纳入无关提交。
+
+2026-10-13 归档补记：本条与 TD-20260922-01 的既有调查现按用户要求一并提交留档；保留原证据、Papers 独立项目的修复归属及全部验证边界。本轮只归档，不重新执行此前安装、文件恢复或云端操作。
+
+## TD-20260922-01：PDF 保存时 Papers 批注处理断言退出
+
+- 日期：2026-09-22
+- 状态：已修复并安装 Papers 批注生命周期与中文字体回退问题；已验证隔离回归和本地保存，用户完整 GUI 操作链及真实云端端到端尚未验证。
+- 影响版本与环境：本机默认阅读器 org.gnome.Papers，Flatpak 用户安装，版本 50.2、分支 inplace-save、提交 `8f269aca6d702f7d38685903ea47936222ae5af7a749ec73097a4fe24944f7de`；本地 CLI 报告 TwoDrive 0.2.10，运行 daemon 位于用户安装目录，未核实其构建提交。文件实际位于 TwoDrive FUSE 挂载。
+- 关联历史故障：[PDF 保存可靠性调查](pdf-save-reliability-2026-09-09.md)。此前为上传完成修改 mtime 导致 Poppler 拒绝保存；本次明确出现 Papers 批注代码断言，未证明与旧机制有关，不能认定旧修复回归。
+
+### 症状与影响
+
+用户报告保存某课程 PDF 时阅读器疑似退出。日志确认阅读器于 20:27:04（Asia/Shanghai）断言退出。当前文件可解析，但不能确认崩溃前所有编辑均已保存。私人路径不录入此记录。
+
+### 触发条件与复现
+
+用户日常编辑保存；具体点击顺序及稳定复现条件待核实。未在原文件上重演编辑或删除批注操作。
+
+### 根因与证据
+
+直接退出机制已确认：Papers 在批注移除函数中到达不可达分支，主动中止。20:27:04 的脱敏日志：
+
+```text
+papers: Duplicate custom ID: palette
+PapersView:ERROR:../libview/context/pps-annotations-context.c:792:pps_annotations_context_remove_annotation: code should not be reached
+Bail out! PapersView:ERROR:../libview/context/pps-annotations-context.c:792:pps_annotations_context_remove_annotation: code should not be reached
+```
+
+第一条警告与后续断言的因果关系未确认。没有堆栈或稳定复现，不能从函数名推断用户一定主动删除了批注，也不能确定具体哪种批注触发。
+
+实际服务为 `twodrive-daemon.service`，自 18:58:53 连续运行，检查时 active、NRestarts=0；20:15–20:28 日志可见正常 delta，20:26–20:29 未见 error/fail/panic/upload 匹配。最初查询的 `twodrive.service` 不是本机运行单元，其 inactive 不代表守护进程停止。未发现同期 TwoDrive 错误证据，但日志缺失错误不等价于排除所有文件系统交互因素。
+
+目标文件 mtime 为 20:27:04，大小 2,074,594 字节；只读数据库查询状态为 cached，存在缓存路径及云端身份。这不是重新下载验证云端内容的证据。
+
+### 解决办法与恢复操作
+
+未修改 TwoDrive 或 Papers 程序，未重启服务，未更改原 PDF 或云端数据。当前优先调查 Papers 批注处理及 inplace-save 构建；无证据支持通过重启 TwoDrive 修复本次断言。
+
+### 验证结果与边界
+
+- pypdf strict=True 成功解析当前 PDF 的全部 23 页，所有页面内容流解码成功，存在 2 个 FreeText 批注；未读取或记录批注正文。
+- 系统 pdftotext 全文解析到 /dev/null，退出码 0、无诊断。
+- 初次 Python GI Poppler 检查因本机缺少 Poppler typelib 未执行，随后采用上述独立解析检查。
+- 未进行逐页视觉检查、阅读器保存复现、旧新代码回归对比或真实 OneDrive 重新下载比对；不能保证最后一次编辑全部保存，也不能将文件可解析等同于内容完全正确。
+- /var/crash 未见此次报告，未取得调用栈。
+
+### 防复发措施与后续
+
+下一步需在隔离副本上记录具体批注操作并捕获 Papers 调用栈，对比普通本地目录与挂载路径；确认触发条件后为对应项目增加回归测试。本次无代码修改，不新增推测性的 TwoDrive 回归测试。保留日志中的函数及行号供后续定位。
+
+### 交付记录
+
+仅新增本调查记录；提交及发布未产生。
+
+### 2026-09-22 后续定位、修复与验证
+
+用户补充：输入文字后点击右下角编辑区域的关闭按钮，文字消失；重新进入编辑模式文字出现，随后 Ctrl+S 闪退。用户明确授权修改 Papers，并要求保留此前 Ctrl+S 原地保存改动。
+
+确认两个可独立复现的机制：
+
+1. 在普通本地 PDF 上创建批注、切换为重新加载的文档后删除旧批注，旧 Papers 源码在与日志相同的函数第 792 行断言退出，不需要 TwoDrive。重复删除也失败。空 FreeText 失焦时原代码将控件裸指针排队到 idle 回调，控件销毁、已删除或重新输入文字时没有撤销或重检。原故障的完整 GUI 调用栈未取得，因此只确认这些机制与日志匹配，不声称已经证明用户每一步的内部调用链。
+2. 使用相同 PDF 后端在独立空白测试页上绘制中文：Liberation Sans 得到 0 个非白像素，换为覆盖中文的字体后得到可见文字。GTK 编辑框具有字体回退，而 Poppler FreeText 使用单一字体，解释了编辑可见而普通阅读不可见的现象；源 PDF 只读检查发现中文 FreeText。检查过程中用户仍可能编辑原文件，早期两项与后期一项批注的读数不能据此判断丢失原因。
+
+Papers 修复：在查询确认批注属于当前列表后才修改后端/撤销栈；取消已销毁控件的延迟删除，执行前重新核对内容和已删除状态；若当前字体缺字且 Pango 回退字体覆盖全文，则把回退字体写入批注字体属性，保持字号。新输入及已有文字进入编辑均执行检查；没有单一字体覆盖全文时保留原字体，不保证所有混合文字脚本。
+
+验证：
+
+- 8 个生命周期场景中正常删除/撤销/重做、空框自动清理旧新均通过；旧代码在重载后旧对象删除、重复删除、idle 前销毁、重新输入、先删除、重载这 6 个场景退出码 134，修复均为 0。
+- 中文渲染/编辑/保存再打开回归旧失败、修复通过，确认英文继续保留 Liberation Sans、字号保持，保存重开中文可见；人工检查了独立生成的中文测试 PNG。
+- Meson 共 3 个测试程序通过，包含上述 8 项、三轮原地 JobSave/重开、中文渲染保存。用户 PDF 仅复制到临时普通目录，再验证三轮原地保存与批注计数；原文件未被测试修改。
+- 安装后通过运行时库搜索路径指定 /app/lib，再执行三轮保存重开成功；安装库 SHA-256 与测试产物一致，导出符号无增减，运行时无缺失库/未定义符号，Papers --version 正常。
+- **验证边界**：未执行完整 GUI 点击/快捷键端到端、所有字体和排版验证、真实 OneDrive 上传再下载对比。当前用户已打开的旧进程未强制退出。不能保证最后一次未保存编辑可恢复。
+
+交付与本地操作：
+
+- 源码、原地保存补丁、修复补丁、测试及回滚包保存在 `/home/lumia/software/papers-fix`，详细说明见该目录 README.md。三个 Rust 源码改动从旧 Debug 扩展恢复，shell 二进制保持原样；仅重建 libppsview，保留原 PDF 后端。
+- 安装 Flatpak 提交 `16573ca27c3e72932f9d7190c3686711c5d489d8c63f80658e6a74267e77e95e`；libppsview SHA-256 `cfaa998944d324bcd13fb2e916e3642501fe470d84d5b471cbd41d017e66eaca`。
+- 恢复原本缺失的 papers-origin 配置，指向本地 fixed-repo；重新导出 desktop 原始模板，修正复制已部署导出文件造成的 @@u 重复包装，安装成功。备份包已生成，未实际回滚覆盖修复。
+- 未修改 TwoDrive 程序或重启服务；无 Git 修复提交、无上游发布。后续完全退出旧 Papers 并重新打开后使用修复版本。
+
+### GitHub 交付补记（2026-09-22）
+
+用户授权建立独立 Papers 修复仓库，并发布“deb 安装器部署修复版 Flatpak”。源码与公开脱敏故障记录已提交至 [papers-inplace-save](https://github.com/LumiaBlack51/papers-inplace-save)，发布源码提交为 [058765d](https://github.com/LumiaBlack51/papers-inplace-save/commit/058765d2b8959c8b490787beb5764b4fb44de896)。
+
+[Release v50.2-fix20260922-1](https://github.com/LumiaBlack51/papers-inplace-save/releases/tag/v50.2-fix20260922-1) 已发布 amd64 deb、Flatpak、完整 Papers 源码归档及 SHA256SUMS；四个远端资产 SHA-256 与本地一致。deb 为当前用户 Flatpak 安装器，非原生 GTK deb；保留 Ctrl+S 原地保存。
+
+新增打包验证：5 项安装器检查通过；独立临时 Flatpak 安装成功从原始备份包升级到修复包并核实提交（该测试使用 --no-deps，不代表首次运行时下载验证）。解包 deb 的 Flatpak 与安装器字节匹配；当前用户已是目标提交时安装器跳过重复安装。完整公开验证与边界见 [Papers 故障记录](https://github.com/LumiaBlack51/papers-inplace-save/blob/main/doc/incident-20260922.md)。本 TwoDrive 条目仍为本地调查记录，未修改其程序或发布 TwoDrive 安装包。
 
 ## TD-20260917-DELTA-PENDING-DELETE：跨刷新删除非空目录可能遗留目录
 
@@ -2737,179 +3174,6 @@ Windows Python 默认编码为 GBK。并非管道消息截断或同步成功丢�
 - 恢复操作：无。防复发：保留该回归；完整 Flutter 测试与 Rust 迟到完成测试纳入本阶段检查。
 
 验证补记（2026-09-17）：取消空查询修复后客户端回归通过。新增 widget 测试首次因测试 fixture 的 Map.addAll 泛型不匹配失败，改为显式 Map<String,dynamic> 后完整 11 项通过；这不是生产 JSON 解析故障。Dart format 暴露三个缺花括号的 lint（两处新代码、一处已有测试），首轮构建因此被静态检查拦截；已加花括号，重新打包，首次失败日志独立保留。
-
-## TD-20260924-02：Nautilus 偶发等待对话框的 48 小时监测
-
-- 日期：2026-09-24
-- 状态：调查中 / 根因未确认，已启用本机滚动诊断。
-- 影响版本与环境：本机 Nautilus 46.4、TwoDrive 0.2.10-2；本次未发现具体卡顿时间点，运行 daemon 与 TD-20260924-01 所核实版本相同。
-- 关联历史故障：TD-20260924-01、[Nautilus 启动](nautilus-startup-2026-09-11.md)、[目录浏览](directory-browsing-2026-09-08.md)。症状相近，不推断是旧修复回归。
-
-### 症状与影响
-
-用户报告 Nautilus 偶发无响应，桌面显示“等待或退出”。影响目录浏览；本次没有确认进程退出或数据损坏。
-
-### 触发条件与复现
-
-发生时间、所在目录、操作顺序均未确定。当前主动启动的 Nautilus 服务 D-Bus Ping 正常，未复现卡顿。
-
-### 根因与证据
-
-根因未确认。TD-20260924-01 未取得卡顿时 Nautilus 堆栈；本次也尚无现场证据，不能仅凭相同提示认定 FUSE、扩展、GIO 或网络为根因。
-
-### 解决办法与恢复操作
-
-新增本机用户级 `twodrive-nautilus-watch.service`，每五秒在 Nautilus 存在时测量 D-Bus Ping。响应达到 700 ms、失败或超时，记录 Nautilus 和 TwoDrive daemon 线程状态与内核等待点；持续异常每 30 秒再采样，并记录恢复时刻。私有 SQLite 逐次删除超过 48 小时的记录，不收集私人路径、文件名、令牌或原始 journal 消息。脚本、查看方式及解释边界见 [Nautilus 卡顿监测说明](nautilus-hang-monitor-2026-09-24.md)。未修改同步或 Nautilus 扩展机制，未重启 TwoDrive 服务。
-
-### 验证结果与边界
-
-- 临时数据库分别测到 Nautilus 不存在和存在时正常 Ping（约 8 ms）。将阈值临时设为 1 ms 后成功生成 Nautilus/daemon 线程快照；注入超过 48 小时的记录后，下一次探测将其删除。
-- 用户服务已启用并运行；实际数据库目录为 0700、文件为 0600，已写入 Nautilus 存在时 17 ms 的正常响应记录。原 TwoDrive daemon 保持 MainPID 2455、active、NRestarts=0。
-- **边界**：尚未观察到真实卡顿；内核等待点只能缩小调查范围，不能单凭它确认应用层根因。未对真实 OneDrive 做端到端验证，也未证明卡顿已修复。
-
-### 防复发措施与后续
-
-卡顿时尽量选择“等待”并记下时间、目录类型；根据监测时间戳关联脱敏系统日志，再针对确认机制补有意义的回归测试。当前缺乏稳定复现，不能证明旧代码失败与修复后通过。
-
-### 交付记录
-
-本地诊断脚本及说明已保存于仓库工作区，服务安装在当前用户目录；尚未提交、发布或生成安装包。
-
-2026-10-13 提交前补记：按用户要求将此前未提交的调查、监测脚本与说明纳入本仓库。脚本原样保留，本轮8项隔离检查通过：SQLite目录/文件权限、拒绝公开目录/数据库、48小时清理与进程不存在状态、注入慢响应后的恢复记录、30秒异常采样限流、非法间隔在创建状态前拒绝，以及只写临时数据库的本机只读探测。慢响应/错误/恢复用注入结果验证，未复现实际卡顿；不改原有“根因未确认”结论。本轮未安装或重启监测服务、未打开用户诊断数据库、未操作真实云端。已提交 [34dbb83](https://github.com/LumiaBlack51/twodrive/commit/34dbb838ca623a95f2401a7e9777d307e0c040a2) 并通过 [PR #12](https://github.com/LumiaBlack51/twodrive/pull/12) 合入 dev；合并提交 [2e9e523](https://github.com/LumiaBlack51/twodrive/commit/2e9e5239a77f8c84c29a70542576e0556eebac98)。
-
-## TD-20260924-01：弱网时 Nautilus 无响应及 PDF 保存结果不明确
-
-- 日期：2026-09-24
-- 状态：调查中 / Nautilus 卡顿及此前 PDF 保存延迟根因未确认；用户确认 PDF 目前显示已保存。
-- 影响版本与环境：本机 Linux，Nautilus 46.4；运行 TwoDrive daemon SHA-256 与本地已发布 0.2.10-2 deb 提取产物一致（`2500d0922ede9ffa736ccaa4611c3d670859d4cced59a14bf2533b8de1312332`）；Papers 50.2 inplace-save，安装提交 `16573ca27c3e72932f9d7190c3686711c5d489d8c63f80658e6a74267e77e95e`。
-- 关联历史故障：TD-20260922-01、[PDF 保存可靠性](pdf-save-reliability-2026-09-09.md)、[Nautilus 启动](nautilus-startup-2026-09-11.md)、[目录浏览](directory-browsing-2026-09-08.md)。未证实为其中任何机制的复发。
-
-### 症状与影响
-
-用户初报网络不佳时进入 TwoDrive 导致 Nautilus “崩溃”；后续明确为点击目录后无响应，桌面提示“等待或退出”，因此更正为卡顿，不能记录为已确认进程崩溃。已打开课程 PDF 有批注，Ctrl+S 和另存下载目录一度看不到成功结果。调查期间用户确认 PDF 已显示保存。
-
-### 触发条件与复现
-
-原现场未保留卡住的 Nautilus。当前打开 TwoDrive 父目录、挂载根目录、目标课程目录，各执行五次 D-Bus Ping，响应约 3–13 ms，未复现挂起。已请求用户重现时保留窗口并选择等待，以便捕获阻塞位置。
-
-### 根因与证据
-
-**根因未确认，不将弱网与两个症状直接等同为因果。**
-
-- TwoDrive 服务自本次开机连续运行，active、NRestarts=0；Papers 原进程仍在，无本次断言退出证据。
-- 日志确有 PDF 上传重复超时，09:53:53、09:56:54、09:59:56、10:02:57（Asia/Shanghai）均报告 `dirty upload remains queued for <document>: <remote request>: operation timed out`。说明云端请求失败并保留重试，不证明本地保存失败或 Nautilus 主线程正在等待该上传。
-- 本地下载目录已有 10:47 写入的 PDF。它与从当前 Papers 文件描述符复制出的备份 SHA-256 相同（不公开私人文档摘要），大小均为 14,668,221 字节。只读数据库查询对应文件为 uploading、cache 存在、release_pending=0；本地持久化与云端完成应分开说明。
-- Papers 仍持有三个已被原子替换的旧文件描述符，fstat 可读到各自旧属性；通过 /proc 重新打开旧描述符因旧 FUSE inode 不再支持 open 而返回 ENOENT。此操作不等价于原进程原描述符 read 失败，不能据此推断批注丢失或认定原子替换修复回归。
-- Nautilus 当前进程的调试器附加被 ptrace 限制拒绝；未取得原故障堆栈，也未修改系统 ptrace 安全设置。
-
-### 解决办法与恢复操作
-
-没有足够证据支持特定程序修复，尚未修改 TwoDrive/Papers 代码。未重启挂载或关闭用户 PDF 窗口。
-
-本地保护操作：将当前 PDF 只读复制到用户私有状态目录 `~/.local/state/twodrive/recovery-20260924/papers-open-fd-47.pdf`，目录权限 0700；该副本仅包含已落盘内容，不宣称提取了未保存的内存编辑。下载目录已有副本不是调查程序生成的。为诊断打开过 Nautilus；首次命令使用 15 秒 timeout，会终止该次诊断进程，该退出不算故障复现。随后无 timeout 启动并完成目录响应检查。
-
-### 验证结果与边界
-
-- pypdf strict=True 解析全部 92 页并解码内容流，统计到 3 个 FreeText 和 8 个 Ink 批注；仅有对象头多余空白警告。pdftotext 全文到 /dev/null 成功。未读取或记录批注正文，未逐页渲染核对，也不能证明所有预期批注均在。
-- 当前源码隔离真实 FUSE + MockBackend：`mounted_large_listing_and_copy_remain_responsive_during_download` 通过；后台下载延迟 3 秒时，10,000 条目录枚举与 16 MiB 写入约 140 ms。
-- `gio_directory_metadata_does_not_download_unknown_large_files` 通过：30 个虚拟 4 GB 未知格式文件的完整 GIO 元数据查询约 28 ms、零下载；显式复制仍可读取正确字节。
-- 19 项 Nautilus Python 回归通过。
-- **边界**：上述测试未重现原 GUI 主线程卡顿，未覆盖所有扩展、桌面和网络状态；未进行真实 OneDrive 上传完成后重新下载比对。PDF 当前能保存不是已证明修复原机制。没有确认任何新代码修复，也不承诺再次弱网时不会卡顿。
-
-### 防复发措施与后续
-
-下一步需要故障仍存在时的 Nautilus 主线程及 TwoDrive 请求阻塞证据，区分 FUSE、扩展、GIO 和桌面自身阻塞。若附加仍受限，可在受控复现场景从调试器启动新的 Nautilus；不能仅靠缩短网络超时或重启挂载来宣称根治。确认可复现缺陷后补充旧失败/新通过回归。
-
-### 交付记录
-
-仅保存本次本地调查记录；尚未确认 TwoDrive 新缺陷，因此未生成或发布声称修复本问题的 deb、未推送代码。此前 TD-20260922-01 的本地未提交补记保持原样，未纳入无关提交。
-
-2026-10-13 归档补记：本条与 TD-20260922-01 的既有调查现按用户要求一并提交留档；保留原证据、Papers 独立项目的修复归属及全部验证边界。本轮只归档，不重新执行此前安装、文件恢复或云端操作。
-
-## TD-20260922-01：PDF 保存时 Papers 批注处理断言退出
-
-- 日期：2026-09-22
-- 状态：已修复并安装 Papers 批注生命周期与中文字体回退问题；已验证隔离回归和本地保存，用户完整 GUI 操作链及真实云端端到端尚未验证。
-- 影响版本与环境：本机默认阅读器 org.gnome.Papers，Flatpak 用户安装，版本 50.2、分支 inplace-save、提交 `8f269aca6d702f7d38685903ea47936222ae5af7a749ec73097a4fe24944f7de`；本地 CLI 报告 TwoDrive 0.2.10，运行 daemon 位于用户安装目录，未核实其构建提交。文件实际位于 TwoDrive FUSE 挂载。
-- 关联历史故障：[PDF 保存可靠性调查](pdf-save-reliability-2026-09-09.md)。此前为上传完成修改 mtime 导致 Poppler 拒绝保存；本次明确出现 Papers 批注代码断言，未证明与旧机制有关，不能认定旧修复回归。
-
-### 症状与影响
-
-用户报告保存某课程 PDF 时阅读器疑似退出。日志确认阅读器于 20:27:04（Asia/Shanghai）断言退出。当前文件可解析，但不能确认崩溃前所有编辑均已保存。私人路径不录入此记录。
-
-### 触发条件与复现
-
-用户日常编辑保存；具体点击顺序及稳定复现条件待核实。未在原文件上重演编辑或删除批注操作。
-
-### 根因与证据
-
-直接退出机制已确认：Papers 在批注移除函数中到达不可达分支，主动中止。20:27:04 的脱敏日志：
-
-```text
-papers: Duplicate custom ID: palette
-PapersView:ERROR:../libview/context/pps-annotations-context.c:792:pps_annotations_context_remove_annotation: code should not be reached
-Bail out! PapersView:ERROR:../libview/context/pps-annotations-context.c:792:pps_annotations_context_remove_annotation: code should not be reached
-```
-
-第一条警告与后续断言的因果关系未确认。没有堆栈或稳定复现，不能从函数名推断用户一定主动删除了批注，也不能确定具体哪种批注触发。
-
-实际服务为 `twodrive-daemon.service`，自 18:58:53 连续运行，检查时 active、NRestarts=0；20:15–20:28 日志可见正常 delta，20:26–20:29 未见 error/fail/panic/upload 匹配。最初查询的 `twodrive.service` 不是本机运行单元，其 inactive 不代表守护进程停止。未发现同期 TwoDrive 错误证据，但日志缺失错误不等价于排除所有文件系统交互因素。
-
-目标文件 mtime 为 20:27:04，大小 2,074,594 字节；只读数据库查询状态为 cached，存在缓存路径及云端身份。这不是重新下载验证云端内容的证据。
-
-### 解决办法与恢复操作
-
-未修改 TwoDrive 或 Papers 程序，未重启服务，未更改原 PDF 或云端数据。当前优先调查 Papers 批注处理及 inplace-save 构建；无证据支持通过重启 TwoDrive 修复本次断言。
-
-### 验证结果与边界
-
-- pypdf strict=True 成功解析当前 PDF 的全部 23 页，所有页面内容流解码成功，存在 2 个 FreeText 批注；未读取或记录批注正文。
-- 系统 pdftotext 全文解析到 /dev/null，退出码 0、无诊断。
-- 初次 Python GI Poppler 检查因本机缺少 Poppler typelib 未执行，随后采用上述独立解析检查。
-- 未进行逐页视觉检查、阅读器保存复现、旧新代码回归对比或真实 OneDrive 重新下载比对；不能保证最后一次编辑全部保存，也不能将文件可解析等同于内容完全正确。
-- /var/crash 未见此次报告，未取得调用栈。
-
-### 防复发措施与后续
-
-下一步需在隔离副本上记录具体批注操作并捕获 Papers 调用栈，对比普通本地目录与挂载路径；确认触发条件后为对应项目增加回归测试。本次无代码修改，不新增推测性的 TwoDrive 回归测试。保留日志中的函数及行号供后续定位。
-
-### 交付记录
-
-仅新增本调查记录；提交及发布未产生。
-
-### 2026-09-22 后续定位、修复与验证
-
-用户补充：输入文字后点击右下角编辑区域的关闭按钮，文字消失；重新进入编辑模式文字出现，随后 Ctrl+S 闪退。用户明确授权修改 Papers，并要求保留此前 Ctrl+S 原地保存改动。
-
-确认两个可独立复现的机制：
-
-1. 在普通本地 PDF 上创建批注、切换为重新加载的文档后删除旧批注，旧 Papers 源码在与日志相同的函数第 792 行断言退出，不需要 TwoDrive。重复删除也失败。空 FreeText 失焦时原代码将控件裸指针排队到 idle 回调，控件销毁、已删除或重新输入文字时没有撤销或重检。原故障的完整 GUI 调用栈未取得，因此只确认这些机制与日志匹配，不声称已经证明用户每一步的内部调用链。
-2. 使用相同 PDF 后端在独立空白测试页上绘制中文：Liberation Sans 得到 0 个非白像素，换为覆盖中文的字体后得到可见文字。GTK 编辑框具有字体回退，而 Poppler FreeText 使用单一字体，解释了编辑可见而普通阅读不可见的现象；源 PDF 只读检查发现中文 FreeText。检查过程中用户仍可能编辑原文件，早期两项与后期一项批注的读数不能据此判断丢失原因。
-
-Papers 修复：在查询确认批注属于当前列表后才修改后端/撤销栈；取消已销毁控件的延迟删除，执行前重新核对内容和已删除状态；若当前字体缺字且 Pango 回退字体覆盖全文，则把回退字体写入批注字体属性，保持字号。新输入及已有文字进入编辑均执行检查；没有单一字体覆盖全文时保留原字体，不保证所有混合文字脚本。
-
-验证：
-
-- 8 个生命周期场景中正常删除/撤销/重做、空框自动清理旧新均通过；旧代码在重载后旧对象删除、重复删除、idle 前销毁、重新输入、先删除、重载这 6 个场景退出码 134，修复均为 0。
-- 中文渲染/编辑/保存再打开回归旧失败、修复通过，确认英文继续保留 Liberation Sans、字号保持，保存重开中文可见；人工检查了独立生成的中文测试 PNG。
-- Meson 共 3 个测试程序通过，包含上述 8 项、三轮原地 JobSave/重开、中文渲染保存。用户 PDF 仅复制到临时普通目录，再验证三轮原地保存与批注计数；原文件未被测试修改。
-- 安装后通过运行时库搜索路径指定 /app/lib，再执行三轮保存重开成功；安装库 SHA-256 与测试产物一致，导出符号无增减，运行时无缺失库/未定义符号，Papers --version 正常。
-- **验证边界**：未执行完整 GUI 点击/快捷键端到端、所有字体和排版验证、真实 OneDrive 上传再下载对比。当前用户已打开的旧进程未强制退出。不能保证最后一次未保存编辑可恢复。
-
-交付与本地操作：
-
-- 源码、原地保存补丁、修复补丁、测试及回滚包保存在 `/home/lumia/software/papers-fix`，详细说明见该目录 README.md。三个 Rust 源码改动从旧 Debug 扩展恢复，shell 二进制保持原样；仅重建 libppsview，保留原 PDF 后端。
-- 安装 Flatpak 提交 `16573ca27c3e72932f9d7190c3686711c5d489d8c63f80658e6a74267e77e95e`；libppsview SHA-256 `cfaa998944d324bcd13fb2e916e3642501fe470d84d5b471cbd41d017e66eaca`。
-- 恢复原本缺失的 papers-origin 配置，指向本地 fixed-repo；重新导出 desktop 原始模板，修正复制已部署导出文件造成的 @@u 重复包装，安装成功。备份包已生成，未实际回滚覆盖修复。
-- 未修改 TwoDrive 程序或重启服务；无 Git 修复提交、无上游发布。后续完全退出旧 Papers 并重新打开后使用修复版本。
-
-### GitHub 交付补记（2026-09-22）
-
-用户授权建立独立 Papers 修复仓库，并发布“deb 安装器部署修复版 Flatpak”。源码与公开脱敏故障记录已提交至 [papers-inplace-save](https://github.com/LumiaBlack51/papers-inplace-save)，发布源码提交为 [058765d](https://github.com/LumiaBlack51/papers-inplace-save/commit/058765d2b8959c8b490787beb5764b4fb44de896)。
-
-[Release v50.2-fix20260922-1](https://github.com/LumiaBlack51/papers-inplace-save/releases/tag/v50.2-fix20260922-1) 已发布 amd64 deb、Flatpak、完整 Papers 源码归档及 SHA256SUMS；四个远端资产 SHA-256 与本地一致。deb 为当前用户 Flatpak 安装器，非原生 GTK deb；保留 Ctrl+S 原地保存。
-
-新增打包验证：5 项安装器检查通过；独立临时 Flatpak 安装成功从原始备份包升级到修复包并核实提交（该测试使用 --no-deps，不代表首次运行时下载验证）。解包 deb 的 Flatpak 与安装器字节匹配；当前用户已是目标提交时安装器跳过重复安装。完整公开验证与边界见 [Papers 故障记录](https://github.com/LumiaBlack51/papers-inplace-save/blob/main/doc/incident-20260922.md)。本 TwoDrive 条目仍为本地调查记录，未修改其程序或发布 TwoDrive 安装包。
 
 ## TD-20260916-01：C 编译产物在挂载中无法执行
 

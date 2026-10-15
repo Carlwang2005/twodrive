@@ -1,10 +1,28 @@
+twodrive (0.2.14-1) unstable; urgency=medium
+
+  * Preserve bounded safe Graph/OAuth failure diagnostics without remote text or URLs.
+  * Persist per-item deletion backoff across restart, retaining tombstones and caches.
+  * Show pending/rejected cloud deletions and provide an explicit retry-deletes command.
+  * Add diagnostic, denial scheduling, migration and manual retry regressions.
+
+ -- TwoDrive Developers <noreply@localhost>  Thu, 15 Oct 2026 12:00:00 +0800
+
+twodrive (0.2.13-1) unstable; urgency=medium
+
+  * Allow local unlink of closed dirty and uploading files without waiting for Graph.
+  * Persist deletion and transfer identity, serialize cloud cleanup and protect caches.
+  * Preserve same-name recreation and restart recovery after late upload acknowledgement.
+  * Retain the Nautilus pending-download feedback shipped in 0.2.12-1.
+  * Add deterministic deletion/recovery regressions and mounted offline Git lock tests.
+
+ -- TwoDrive Developers <noreply@localhost>  Wed, 14 Oct 2026 20:20:05 +0800
+
 twodrive (0.2.12-1) unstable; urgency=medium
 
-  * Include the pending Nautilus pin/download feedback and native Gio actions.
-  * Integrate current dev storage, Windows and peer compatibility changes.
-  * Ship the Linux package separately from the provider-neutral Development UI.
+  * Show pending pin/download feedback immediately in Nautilus.
+  * Preserve feedback across refresh and file-object replacement; allow failure retry.
 
- -- TwoDrive Developers <noreply@localhost>  Tue, 13 Oct 2026 16:00:00 +0800
+ -- TwoDrive Developers <noreply@localhost>  Tue, 13 Oct 2026 16:07:04 +0800
 
 twodrive (0.2.11-2) unstable; urgency=medium
 
