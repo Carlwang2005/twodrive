@@ -12,7 +12,7 @@ export CARGO_BUILD_JOBS = $(if $(filter parallel=%,$(DEB_BUILD_OPTIONS)),$(patsu
 CARGO = cargo --config 'source.crates-io.replace-with="vendored-sources"' --config 'source.vendored-sources.directory="vendor"'
 
 %:
-	dh $@ --buildsystem=none
+	dh $@ --buildsystem=none --without autoreconf
 
 override_dh_auto_build:
 	$(CARGO) build --frozen --release -p twodrive-cli -p twodrive-daemon
@@ -30,3 +30,11 @@ override_dh_auto_clean:
 
 override_dh_installsystemduser:
 	dh_installsystemduser --no-enable
+
+# Cargo validates every vendored input, including upstream Cargo.toml.orig files.
+# dh_clean normally deletes *.orig recursively; never modify this component.
+override_dh_clean:
+	dh_clean -Xvendor/
+
+override_dh_update_autotools_config:
+	:

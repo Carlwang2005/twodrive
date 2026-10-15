@@ -47,6 +47,43 @@
 
 
 
+
+## TD-20261015-12：Debian clean 删除锁定依赖的 Cargo.toml.orig
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已定位，修复待验证。
+- 影响版本与环境：TD-20261015-11 尚未发布的迁移候选 6167037；隔离 Ubuntu 24.04 容器。没有生产安装影响。
+- 关联历史故障：TD-20261015-11 的自包含 vendor 源码；不是云端或既有稳定客户端故障。
+
+### 症状与影响
+
+首次 dpkg-buildpackage 在 clean/source 阶段后无法编译，Cargo 报 anyhow/Cargo.toml.orig 缺失并拒绝 checksum。没有生成或发布合格包。
+
+### 触发条件与复现
+
+标准 full build 在 vendor 目录上执行默认 dh_clean；vendor 完整性检查在同一失败树上稳定发现 Cargo.toml.orig 缺失。
+
+### 根因与证据
+
+dh_clean 默认递归删除 *.orig，包括 cargo vendor 的上游清单备份；这些文件在 .cargo-checksum.json 中，属于必须保留的构建输入。源码生成阶段已有 ignoring deletion 警告，随后 Cargo 对缺失文件明确失败。
+
+### 解决办法与恢复操作
+
+限定 dh_clean 排除 vendor/，禁用不适用的 autoreconf/autotools 修改；保留 vendor 原字节。隔离树从刚生成的 orig-vendor tar 恢复，仅用于验证，没有改动用户数据。
+
+### 验证结果与边界
+
+旧 clean 后完整性探针失败，首轮构建失败已保留日志；新 clean、完整构建和提取源码后的完整性验证待执行。仅隔离构建，无真实云端验证。
+
+### 防复发措施与后续
+
+scripts/test-debian-vendor.py 验证每个 vendored 文件 SHA-256，CI 在提取源码及执行 clean 后都运行；全构建必须通过 Cargo checksum。
+
+### 交付记录
+
+修复提交、CI 与验证结果待补充；随 TD-20261015-11 一起交付，不单独发布故障候选。
+
+
 ## TD-20261015-11：stable main Debian 打包流程与用户安装兼容性迁移
 
 - 日期：2026-10-15（Asia/Shanghai）
