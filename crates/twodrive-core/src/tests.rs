@@ -774,13 +774,20 @@ fn concurrent_metadata_writers_wait_instead_of_failing_snapshot_upgrade() {
                 barrier.wait();
                 for index in 0..20 {
                     let id = format!("worker-{worker}-file-{index}");
+                    let started = std::time::Instant::now();
                     db.upsert_metadata(&MetadataEntry::new_file(
                         &id,
                         format!("/{id}.txt"),
                         index,
                         index as i64,
                         format!("etag-{id}"),
-                    ))?;
+                    )).map_err(|error| {
+                        let sqlite_code = match error.downcast_ref::<rusqlite::Error>() {
+                            Some(rusqlite::Error::SqliteFailure(code, _)) => Some(code.extended_code),
+                            _ => None,
+                        };
+                        anyhow::anyhow!("writer={worker} item={index} elapsed={:?} sqlite_code={sqlite_code:?}: {error:#}", started.elapsed())
+                    })?;
                 }
                 Ok(())
             })
@@ -792,6 +799,52 @@ fn concurrent_metadata_writers_wait_instead_of_failing_snapshot_upgrade() {
     }
     assert_eq!(db.all_records().unwrap().len(), 160);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn failed_metadata_write_does_not_block_another_clone() {
+    let test = TestDatabase::new("metadata-admission-error");
+    Connection::open(test.db.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_metadata BEFORE INSERT ON files
+             WHEN NEW.remote_id = 'rejected'
+             BEGIN SELECT RAISE(ABORT, 'controlled metadata rejection'); END;",
+        )
+        .unwrap();
+    let error = test
+        .db
+        .upsert_metadata(&MetadataEntry::new_file(
+            "rejected",
+            "/rejected",
+            1,
+            1,
+            "e1",
+        ))
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("controlled metadata rejection"));
+
+    let db = test.db.clone();
+    let (completed, result) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let entry = MetadataEntry::new_file("accepted", "/accepted", 2, 2, "e2");
+        completed.send(db.upsert_metadata_batch([&entry])).unwrap();
+    });
+    result
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("failed metadata write left another clone blocked")
+        .unwrap();
+    worker.join().unwrap();
+    assert!(test.db.get_by_remote_id("rejected").unwrap().is_none());
+    assert_eq!(
+        test.db
+            .get_by_remote_id("accepted")
+            .unwrap()
+            .unwrap()
+            .metadata
+            .size,
+        2
+    );
 }
 
 #[test]

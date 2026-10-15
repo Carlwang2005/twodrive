@@ -1,4 +1,5 @@
 use super::Database;
+use anyhow::Context;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::path::Path;
 
@@ -7,6 +8,13 @@ use crate::{FileRecord, FileState, MetadataEntry, now_unix};
 
 impl Database {
     pub fn upsert_metadata(&self, entry: &MetadataEntry) -> anyhow::Result<()> {
+        // SQLite permits one writer at a time. Admit the whole metadata update,
+        // including pin recomputation, so cloned callers cannot starve one
+        // another while competing for its separate write transactions.
+        let _writer = self
+            .metadata_write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("metadata write lock is poisoned"))?;
         self.upsert_metadata_inner(entry, true)
     }
 
@@ -14,6 +22,10 @@ impl Database {
         &self,
         entries: impl IntoIterator<Item = &'a MetadataEntry>,
     ) -> anyhow::Result<()> {
+        let _writer = self
+            .metadata_write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("metadata write lock is poisoned"))?;
         let mut conn = self.connect()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for entry in entries {
@@ -163,58 +175,81 @@ impl Database {
         entry: &MetadataEntry,
         recompute_pins: bool,
     ) -> anyhow::Result<()> {
-        if self.is_pending_delete(&entry.remote_id, &entry.path)? {
+        if self
+            .is_pending_delete(&entry.remote_id, &entry.path)
+            .context("metadata upsert: checking pending deletion")?
+        {
             return Ok(());
         }
         let incoming_cloud_id =
             (!entry.remote_id.starts_with("local-upload-")).then_some(entry.remote_id.clone());
         let existing = match incoming_cloud_id.as_deref() {
-            Some(cloud_remote_id) => self.get_by_cloud_remote_id(cloud_remote_id)?,
-            None => self.get_by_remote_id(&entry.remote_id)?,
-        };
+            Some(cloud_remote_id) => self.get_by_cloud_remote_id(cloud_remote_id),
+            None => self.get_by_remote_id(&entry.remote_id),
+        }
+        .context("metadata upsert: reading cloud identity")?;
         let local_id = existing
             .as_ref()
             .map(|record| record.metadata.remote_id.clone())
             .unwrap_or_else(|| entry.remote_id.clone());
-        if self.has_pending_metadata_at_or_above(&entry.path)?
-            || self.has_pending_metadata_at_or_above(
-                existing
-                    .as_ref()
-                    .map(|record| record.metadata.path.as_str())
-                    .unwrap_or(&entry.path),
-            )?
+        if self
+            .has_pending_metadata_at_or_above(&entry.path)
+            .context("metadata upsert: checking path operations")?
+            || self
+                .has_pending_metadata_at_or_above(
+                    existing
+                        .as_ref()
+                        .map(|record| record.metadata.path.as_str())
+                        .unwrap_or(&entry.path),
+                )
+                .context("metadata upsert: checking existing operations")?
         {
             return Ok(());
         }
-        if self.get_by_path(&entry.path)?.is_some_and(|record| {
-            record.metadata.remote_id != local_id
-                && matches!(
+        if self
+            .get_by_path(&entry.path)
+            .context("metadata upsert: reading path")?
+            .is_some_and(|record| {
+                record.metadata.remote_id != local_id
+                    && matches!(
+                        record.state,
+                        FileState::Writing | FileState::Dirty | FileState::Uploading
+                    )
+            })
+        {
+            return Ok(());
+        }
+        if self
+            .get_by_remote_id(&local_id)
+            .context("metadata upsert: reading local identity")?
+            .is_some_and(|record| {
+                matches!(
                     record.state,
                     FileState::Writing | FileState::Dirty | FileState::Uploading
                 )
-        }) {
-            return Ok(());
-        }
-        if self.get_by_remote_id(&local_id)?.is_some_and(|record| {
-            matches!(
-                record.state,
-                FileState::Writing | FileState::Dirty | FileState::Uploading
-            )
-        }) {
+            })
+        {
             if recompute_pins {
-                self.recompute_pin_inheritance()?;
+                self.recompute_pin_inheritance()
+                    .context("metadata upsert: recomputing pin inheritance")?;
             }
             return Ok(());
         }
         let old_path = self
-            .get_by_remote_id(&local_id)?
+            .get_by_remote_id(&local_id)
+            .context("metadata upsert: reading previous path")?
             .map(|record| record.metadata.path);
-        let mut conn = self.connect()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut conn = self
+            .connect()
+            .context("metadata upsert: opening write connection")?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("metadata upsert: beginning write transaction")?;
         tx.execute(
             "DELETE FROM files WHERE path = ?1 AND remote_id <> ?2",
             params![entry.path, local_id],
-        )?;
+        )
+        .context("metadata upsert: removing displaced path")?;
         tx.execute(
             r#"
             INSERT INTO files (
@@ -250,12 +285,15 @@ impl Database {
                 incoming_cloud_id,
             ],
         )?;
-        tx.commit()?;
+        tx.commit()
+            .context("metadata upsert: committing write transaction")?;
         if let Some(old_path) = old_path.filter(|old_path| old_path != &entry.path) {
-            self.move_descendants(&old_path, &entry.path)?;
+            self.move_descendants(&old_path, &entry.path)
+                .context("metadata upsert: moving descendants")?;
         }
         if recompute_pins {
-            self.recompute_pin_inheritance()?;
+            self.recompute_pin_inheritance()
+                .context("metadata upsert: recomputing pin inheritance")?;
         }
         Ok(())
     }

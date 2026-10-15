@@ -1,4 +1,5 @@
 use super::Database;
+use anyhow::Context;
 use rusqlite::{TransactionBehavior, params};
 use std::collections::HashMap;
 
@@ -51,11 +52,15 @@ impl Database {
     }
 
     pub fn recompute_pin_inheritance(&self) -> anyhow::Result<()> {
-        let mut conn = self.connect()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut conn = self
+            .connect()
+            .context("pin inheritance: opening connection")?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("pin inheritance: beginning write transaction")?;
         let mut stmt = tx.prepare(
             "SELECT remote_id, path, pin_explicit, pin_inheritance_blocked FROM files ORDER BY length(path), path",
-        )?;
+        ).context("pin inheritance: preparing records")?;
         let records = stmt
             .query_map([], |row| {
                 Ok((
@@ -65,7 +70,8 @@ impl Database {
                     row.get::<_, i64>(3)? != 0,
                 ))
             })?
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .context("pin inheritance: reading records")?;
         drop(stmt);
 
         let explicit_roots = records
@@ -109,9 +115,10 @@ impl Database {
                 WHERE remote_id = ?3
                 "#,
                 params![origin, effective as i64, remote_id],
-            )?;
+            ).context("pin inheritance: updating record")?;
         }
-        tx.commit()?;
+        tx.commit()
+            .context("pin inheritance: committing write transaction")?;
         Ok(())
     }
 
