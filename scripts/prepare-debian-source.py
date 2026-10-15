@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tarfile
@@ -38,6 +39,8 @@ def archive(source, destination, prefix, epoch, excludes=()):
 
 
 def notices(vendor, destination):
+    copyright_path = destination.parent / "copyright"
+    dep5 = []
     with destination.open('w') as output:
         output.write('Locked Rust dependency attribution and license texts\n'
                      'Sources are supplied in the orig-vendor source component.\n\n')
@@ -49,11 +52,39 @@ def notices(vendor, destination):
             output.write(f"\n=== {package['name']} {package['version']} ===\n")
             output.write('Declared license: ' + package.get('license', 'see license file') + '\n')
             output.write('Upstream authors: ' + ', '.join(package.get('authors', [])) + '\n')
+            texts = []
             for path in sorted(directory.rglob('*')):
                 if path.is_file() and (path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE'))
                                        or path.name.lower() == 'copyright'):
                     output.write('\n--- ' + str(path.relative_to(vendor)) + ' ---\n')
-                    output.write(path.read_text(errors='replace') + '\n')
+                    content = path.read_text(errors='replace')
+                    output.write(content + '\n')
+                    texts.append(str(path.relative_to(directory)) + '\n' + content)
+            if not texts:
+                if package['name'] == 'r-efi':
+                    # This source-only UEFI dependency declares MIT as an option
+                    # but ships no separate license document, including upstream.
+                    # Reproduce that declaration and the standard MIT grant.
+                    mit = (Path(__file__).resolve().parent.parent / 'LICENSE').read_text()
+                    texts = ['MIT license selected from upstream SPDX alternatives.\n' +
+                             (directory / 'README.md').read_text() + '\n' +
+                             mit[mit.index('Permission is hereby granted'):]]
+                elif package['name'] in ('winapi-i686-pc-windows-gnu', 'winapi-x86_64-pc-windows-gnu'):
+                    texts = ['MIT license from the same upstream winapi source distribution.\n' +
+                             (vendor / 'winapi-0.3.9/LICENSE-MIT').read_text()]
+                else:
+                    raise ValueError('Missing upstream license files: ' + directory.name)
+                output.write('\n'.join(texts) + '\n')
+            label = 'vendor-' + re.sub(r'[^a-zA-Z0-9.+-]', '-', directory.name)
+            dep5.append('\nFiles: vendor/' + directory.name + '/*\n'
+                        'Copyright: See the upstream copyright notices reproduced below.\n'
+                        'License: ' + label + '\n'
+                        'Comment: Upstream declared license expression: ' + package.get('license', 'see license file') + '\n\n'
+                        'License: ' + label + '\n' +
+                        '\n'.join(' ' + (line if line.strip() else '.')
+                                  for line in '\n\n'.join(texts).splitlines()) + '\n')
+    with copyright_path.open('a') as copyright_output:
+        copyright_output.write(''.join(dep5))
 
 
 def main():

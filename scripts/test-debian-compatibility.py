@@ -32,9 +32,11 @@ def main():
                 mode, data = value
                 if data.startswith(b'#!/usr/bin/env python3\n'):
                     data = b'#!/usr/bin/python3\n' + data.split(b'\n', 1)[1]
+                if data.startswith(b'#! /usr/bin/python3\n'):
+                    data = b'#!/usr/bin/python3\n' + data.split(b'\n', 1)[1]
                 return mode, data
             expected, actual = normalized(expected), normalized(actual)
-        assert actual == expected, f'changed runtime integration: {name}' 
+        assert actual == expected, f'changed runtime integration: {name}'
         compared += 1
     assert compared >= 10, 'runtime comparison was unexpectedly incomplete'
     print(f'PASS: {compared} stable runtime integration files preserve content and permissions (Debian Python shebang normalization allowed)')
