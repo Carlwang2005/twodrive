@@ -48,6 +48,8 @@ defer updates to their distribution channel.
 
 正式准备时从 Partner Center 取得 **Identity Name、Publisher、Publisher Display Name**，用 `-IdentityName`、`-Publisher`、`-PublisherDisplayName` 传入，不能沿用测试身份。商店版本四段、末段为 0；当前 pre-1.0 Development 映射为 `1.<minor>.<patch>.0`，可用 `-Version` 显式指定，发布后必须保持单调递增。正式上架还需商店名称、隐私政策、素材、完整权限说明、WACK、干净机器安装/升级/卸载与 OAuth/文件选择/子进程/托盘验证。仅打包成功不能证明认证成功。
 
+MSIX 暂停使用便携版的自启动开关，避免保存随包升级失效的 WindowsApps 版本目录路径；后续须适配 Windows StartupTask。
+
 The script produces a validated unsigned MSIX from the complete desktop bundle.
 Partner Center identity is required for a real submission. Test identity packages
 are not Store submissions. Store certification and packaged runtime validation

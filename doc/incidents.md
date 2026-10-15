@@ -79,7 +79,7 @@ CI 执行 MakeAppx、Debian 实际包检查、Lintian 和隔离安装/移除；�
 
 ### 交付记录
 
-本轮提交、PR 与 CI 链接待完成后补充。
+首轮 [提交 ae57379](https://github.com/LumiaBlack51/twodrive/commit/ae57379a9fd2f755048ef9c248db9d4bf8feff9d)、[PR #21](https://github.com/LumiaBlack51/twodrive/pull/21)。首轮 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38687822125) 编译与测试通过，但 dh_installsystemduser 不支持 --no-start 而中止；改用 --no-enable，此 user helper 本身不启动服务。Flutter 三处 lint 修正后 analyze 通过；五项更新检查测试通过，两项旧 widget 测试原先假定设置只有一个 SwitchListTile，改为按“登录后自动启动”定位后完整 29 项通过。源码包与最终原生 CI 结果待补充。
 
 ## TD-20261015-03：桌面状态轮询堆积与连接身份展示不足
 

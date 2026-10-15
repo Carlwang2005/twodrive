@@ -206,6 +206,7 @@ class UpdateChecker extends ChangeNotifier {
     error = null;
     try {
       await _save();
+      if (_disposed) return;
       final all = <dynamic>[];
       for (var page = 1; page <= 3; page++) {
         final entries = await _fetch(page);

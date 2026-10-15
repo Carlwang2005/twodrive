@@ -980,7 +980,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                     onChanged: c.updates.checking ? null : c.updates.setEnabled,
                   ),
                   if (c.updates.error != null) Text(c.updates.error!),
-                  if (c.updates.lastSuccess != null)
+                  if (c.updates.lastSuccess != null && c.updates.error == null)
                     Text(
                       c.updates.available
                           ? '发现新版本 ${c.updates.latest!.version}'
@@ -1015,9 +1015,15 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
           color: Colors.white,
           child: SwitchListTile(
             title: const Text('登录后自动启动'),
-            subtitle: const Text('默认关闭。开启后在托盘中运行并连接上次使用的服务器。'),
+            subtitle: Text(
+              c.updates.managed
+                  ? 'MSIX 自启动尚待适配；请从开始菜单启动。'
+                  : '默认关闭。开启后在托盘中运行并连接上次使用的服务器。',
+            ),
             value: c.status['autostart'] == true,
-            onChanged: c.busy || !c.available ? null : c.autostart,
+            onChanged: c.busy || !c.available || c.updates.managed
+                ? null
+                : c.autostart,
           ),
         ),
         if (c.canMount)

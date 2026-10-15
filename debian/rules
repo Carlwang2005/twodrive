@@ -26,4 +26,4 @@ override_dh_auto_clean:
 	rm -rf debian/cargo-target
 
 override_dh_installsystemduser:
-	dh_installsystemduser --no-enable --no-start
+	dh_installsystemduser --no-enable

@@ -55,6 +55,11 @@ $stage = Join-Path $tempRoot ('twodrive-msix-' + [guid]::NewGuid().ToString('N')
 New-Item -ItemType Directory -Path $stage | Out-Null
 try {
     Get-ChildItem -LiteralPath $bundlePath | Copy-Item -Destination $stage -Recurse -Force
+    # A packaged app must not offer the portable self-copy installer.
+    foreach ($name in @('install-desktop-windows.ps1', 'INSTALL.md')) {
+        $portableFile = Join-Path $stage $name
+        if (Test-Path -LiteralPath $portableFile) { Remove-Item -LiteralPath $portableFile -Force }
+    }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $stage 'LICENSE')
     [IO.File]::WriteAllText((Join-Path $stage 'distribution-msix'), 'Updates are managed by the MSIX distribution channel.')
     $assets = Join-Path $stage 'Assets'

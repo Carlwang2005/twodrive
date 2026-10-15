@@ -1,7 +1,7 @@
 name: Debian package preparation
 on:
   push:
-    branches: [dev, codex/dev-updates-packaging]
+    branches: [dev]
   pull_request:
     paths: ['debian/**', 'scripts/build-deb.sh', 'scripts/test-debian-package.py', 'crates/**', 'Cargo.*', '.github/workflows/debian-package.yml']
   workflow_dispatch:
@@ -40,6 +40,16 @@ jobs:
           sudo apt-get install -y ./dist/debian/twodrive_*_amd64.deb
           AUTOPKGTEST_TMP=$(mktemp -d) sh debian/tests/smoke
           sudo apt-get remove -y twodrive
+      - name: Build quilt source package from a clean source tree
+        run: |
+          upstream=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
+          stage=$(mktemp -d)
+          mkdir "$stage/twodrive-$upstream"
+          git archive HEAD | tar -x -C "$stage/twodrive-$upstream"
+          git archive --prefix="twodrive-$upstream/" HEAD -- . ':!debian' | xz -T2 > "$stage/twodrive_$upstream.orig.tar.xz"
+          (cd "$stage" && dpkg-source --build "twodrive-$upstream")
+          cp "$stage"/*.dsc "$stage"/*.tar.xz dist/debian/
+          lintian --fail-on error dist/debian/*.dsc | tee dist/debian/lintian-source.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
