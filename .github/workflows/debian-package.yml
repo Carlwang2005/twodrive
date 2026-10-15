@@ -38,7 +38,7 @@ jobs:
           grep 'missing generated/runtime dependency: libc6' /tmp/old-package-regression.log
           python3 scripts/test-debian-package.py dist/debian/twodrive_*_amd64.deb
           python3 scripts/test-debian-compatibility.py /tmp/old-twodrive.deb dist/debian/twodrive_*_amd64.deb
-          lintian --fail-on error dist/debian/*.changes | tee dist/debian/lintian.log
+          lintian --profile debian --fail-on error dist/debian/*.changes | tee dist/debian/lintian.log
       - name: Disposable install and upgrade lifecycle
         run: |
           docker run --rm -v "$PWD:/source:ro" -v /tmp/old-twodrive.deb:/old.deb:ro ubuntu:24.04 bash -ec '

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use twodrive_backend::{CloudBackend, MockBackend};
 use twodrive_core::now_unix;
 use twodrive_core::{Database, FileState, MetadataEntry};
@@ -101,6 +101,7 @@ struct ConcurrentBackend {
     inner: MockBackend,
     active_uploads: AtomicUsize,
     max_active_uploads: AtomicUsize,
+    first_upload_gate: Mutex<Option<mpsc::Receiver<()>>>,
 }
 
 impl ConcurrentBackend {
@@ -109,6 +110,22 @@ impl ConcurrentBackend {
             inner: MockBackend::new(),
             active_uploads: AtomicUsize::new(0),
             max_active_uploads: AtomicUsize::new(0),
+            first_upload_gate: Mutex::new(None),
+        }
+    }
+
+    fn with_blocked_first_upload() -> (Self, Sender<()>) {
+        let (release, gate) = mpsc::channel();
+        let backend = Self::new();
+        *backend.first_upload_gate.lock().unwrap() = Some(gate);
+        (backend, release)
+    }
+
+    fn wait_for_upload(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while self.active_uploads.load(Ordering::SeqCst) == 0 {
+            assert!(Instant::now() < deadline, "upload worker did not start");
+            thread::sleep(Duration::from_millis(1));
         }
     }
 }
@@ -136,7 +153,12 @@ impl CloudBackend for ConcurrentBackend {
     ) -> anyhow::Result<MetadataEntry> {
         let active = self.active_uploads.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_active_uploads.fetch_max(active, Ordering::SeqCst);
-        thread::sleep(Duration::from_millis(100));
+        let gate = self.first_upload_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.recv_timeout(Duration::from_secs(15))?;
+        } else {
+            thread::sleep(Duration::from_millis(100));
+        }
         let result = self.inner.upload_file_with_version(
             path,
             source_path,
@@ -1256,7 +1278,7 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     fs::create_dir_all(&root).unwrap();
     let db = Database::new(root.join("test.sqlite3"));
     db.init().unwrap();
-    let backend = ConcurrentBackend::new();
+    let (backend, release_upload) = ConcurrentBackend::with_blocked_first_upload();
     sync_metadata(&db, &backend).unwrap();
     let mut fuse =
         TwoDriveFs::new_with_upload_concurrency(db, root.join("cache"), backend, 2).unwrap();
@@ -1270,13 +1292,7 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     fuse.inodes.set_size(ino, 16);
     fuse.queue_upload_handle(first_fh).unwrap();
     fuse.write_handles.remove(&first_fh);
-    for _ in 0..100 {
-        if fuse.backend.active_uploads.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-    assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
+    fuse.backend.wait_for_upload();
 
     let record = fuse.db.get_by_path("/rapid.pdf").unwrap().unwrap();
     let (_, second_fh, _) = fuse.create_overwrite_upload(record, true).unwrap();
@@ -1285,6 +1301,7 @@ fn immediate_reopen_during_upload_keeps_the_local_record() {
     fuse.queue_upload_handle(second_fh).unwrap();
     fuse.write_handles.remove(&second_fh);
 
+    release_upload.send(()).unwrap();
     for _ in 0..80 {
         let record = fuse.db.get_by_remote_id(&local_id).unwrap().unwrap();
         if record.state == FileState::Cached && record.cloud_remote_id.is_some() {
@@ -1354,7 +1371,7 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
     fs::create_dir_all(&root).unwrap();
     let db = Database::new(root.join("test.sqlite3"));
     db.init().unwrap();
-    let backend = ConcurrentBackend::new();
+    let (backend, release_upload) = ConcurrentBackend::with_blocked_first_upload();
     sync_metadata(&db, &backend).unwrap();
     let mut fuse =
         TwoDriveFs::new_with_upload_concurrency(db, root.join("cache"), backend, 2).unwrap();
@@ -1368,13 +1385,7 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
     fuse.inodes.set_size(target_ino, 18);
     fuse.queue_upload_handle(target_fh).unwrap();
     fuse.write_handles.remove(&target_fh);
-    for _ in 0..100 {
-        if fuse.backend.active_uploads.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-    assert!(fuse.backend.active_uploads.load(Ordering::SeqCst) > 0);
+    fuse.backend.wait_for_upload();
 
     let mut temp_ids = Vec::new();
     for (name, content) in [
@@ -1403,6 +1414,7 @@ fn repeated_atomic_replacements_during_initial_upload_keep_latest_generation() {
         fuse.write_handles.remove(&temp_fh);
     }
 
+    release_upload.send(()).unwrap();
     for _ in 0..120 {
         let record = fuse.db.get_by_remote_id(&target_id).unwrap().unwrap();
         if record.state == FileState::Cached

@@ -40,7 +40,7 @@ ones; it does not convert Windows or portable tar archives into Debian packages.
 
 ## Stable 0.2.14-2
 
-The application Rust sources, Cargo.lock, Python desktop helper logic, service and
+The production Rust sources, Cargo.lock, Python desktop helper logic, service and
 .desktop files are unchanged from stable `main` 7eb7f3d. This is a Debian
 packaging revision, not a sync-engine feature release; the CLI still reports
 0.2.14. debhelper may normalize Python shebangs to /usr/bin/python3. The native SQLite dependency is linked from the distribution and checked
@@ -60,4 +60,17 @@ and clean Debian distribution build/autopkgtest/piuparts validation.
 
 See [build instructions](../debian/README.source) and
 [incident and verification record](incidents.md#td-20261015-11stable-main-debian-打包流程与用户安装兼容性迁移).
-Validation and delivery results are added below only after execution.
+Local candidate validation completed: 171 default Rust tests, 25 Nautilus,
+4 Settings and 6 release-guard tests; all seven isolated FUSE regressions and
+packaged daemon hydration/write/upload/move/delete/pin/release smoke passed.
+An Ubuntu container upgraded the actual old release to the new package, then
+removed/reinstalled/purged it while retaining every synthetic user-state hash.
+The dependency checker fails on the old package and passes on the new package.
+The first vendor-clean failure and subsequent CI timing-test failure are recorded
+separately in the incident log. Full source/binary Lintian and final CI remain
+pending at this snapshot.
+
+GitHub dev policy PR #25 is merged as 4942f2ded44cdb805c397c90b932ca06c23dae0e.
+Active repository ruleset 25148176 requires `Debian packaging policy` on both
+main and dev; main's existing native-check and pull-request protection remains.
+Final release and laptop validation will be appended after execution.
