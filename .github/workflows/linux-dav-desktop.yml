@@ -20,6 +20,7 @@ on:
       - 'scripts/test_engine_fixture.py'
       - 'scripts/test-msix-runtime.ps1'
       - 'scripts/test-msix-context.py'
+      - 'scripts/test_msix_window_target.py'
       - '.github/workflows/linux-dav-desktop.yml'
       - 'packaging/msix/**'
       - 'scripts/build-msix.ps1'
@@ -158,6 +159,8 @@ jobs:
           [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/test-msix-runtime.ps1'), [ref]$null, [ref]$syntaxErrors)
           if ($syntaxErrors.Count) { throw ($syntaxErrors | Out-String) }
           python -m unittest discover -s scripts -p test_engine_fixture.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s scripts -p test_msix_window_target.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/build-msix.ps1 -Bundle apps/dav/build/windows/x64/runner/Release -TestPackage
       - uses: actions/upload-artifact@v4

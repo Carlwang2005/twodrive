@@ -46,6 +46,76 @@
 
 
 
+## TD-20261015-19：本地 Deb 验收重复踩到 Windows 换行，并误用 shell 命令缓存
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证本地 fixture 修正；发布 Deb 未修改。
+- 影响版本与环境：Development 0.1.6 额外本机 Ubuntu 24.04 Docker/WSL2 验收。
+- 关联历史故障：TD-20261015-12 已记录 CRLF/裁剪文档问题；本次 fixture 未沿用已有前置检查，是验收设置复发。命令 hash 缓存是新增断言问题。
+
+### 症状与影响
+
+Deb 安装成功后，直接执行 Windows checkout 的 debian/tests/smoke 返回 set: Illegal option（CRLF）。之后完整 CLI/SQLite、FUSE 和 GTK 检查通过且 apt purge 成功，但同一 dash 进程的 command -v 仍返回曾缓存的 /usr/bin/twodrive，导致误报。
+
+### 触发条件与复现
+
+把 Windows 工作区直接只读挂进 Linux 容器，并在同一 shell 中先运行命令、卸载包，再只用 command -v 判断文件是否存在。所有路径、配置和 mock 数据均在一次性容器内，无宿主应用安装或用户数据操作。
+
+### 根因与证据
+
+日志明确定位到 checkout 脚本的第二行 set，未进入产品 smoke；后续 apt 日志明确记录移除及 purge，但命令查找仍命中 shell cache。两个错误属于 fixture，不归因于 Debian 归档或 FUSE。沿用已有验证方法，本地脚本副本规范 LF，安装前去掉容器文档排除规则；卸载后清空 hash 并同时检查真实文件路径。
+
+### 解决办法与恢复操作
+
+仅修正 dist/ 下的一次性容器脚本，不修改发布 Deb。最终新容器全程退出码 0：已安装 CLI/SQLite、真实 mock FUSE hydration/write/upload/move/delete/pin/release、GTK 设置在 Xvfb 存活、purge 后命令和文件均移除。
+
+### 验证结果与边界
+
+最终产物 twodrive_0.2.14+dev0.1.6-1_amd64.deb；CI 的升级/remove/reinstall/purge 与合成用户状态保护另外独立通过。不是 live OneDrive 或 Debian unstable/sbuild/piuparts 验收。
+
+### 防复发措施与后续
+
+复用 tracked 生命周期脚本的 LF/文档前置条件；删除程序后同时检查文件并 hash -r。发布 runtime-validation.json 记录最终成功与前置失败，保留错误边界。
+
+### 交付记录
+
+应用/打包输入 e64bd76 未变；最终下载文件哈希以 Development 0.1.6 附件报告为准。
+
+## TD-20261015-18：MSIX 验收退出辅助函数可能选择错误的窗口线程
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证受控旧失败/新通过与实际 MSIX 全流程；首次超时当时的窗口枚举序列未采集，不能反推为已还原现场。
+- 影响版本与环境：test-msix-runtime.ps1，Windows 11 本机 Development 0.1.6 验收；应用二进制未修改。
+- 关联历史故障：TD-20261015-11 为包上下文启动边界；本次是测试窗口选择，根因不同。
+
+### 症状与影响
+
+首轮实际 MSIX 安装、GUI/引擎包身份和更新标记通过，测试注入 WM_QUIT 后十五秒未退出；finally 回收进程、卸载并恢复依赖注册。没有修改信任证书或用户应用。
+
+### 触发条件与复现
+
+旧 Close 按 PID 选择 EnumWindows 的第一个窗口，未校验窗口类。新增真实 Win32 fixture：同 PID 的 Flutter 类 runner 与另一线程的 STATIC helper；把 helper 放在枚举首位并先断言前置顺序，再调用原 Close。旧 helper 测试 3.52 秒失败，runner 未收到 quit；新 helper 0.45 秒通过。
+
+### 根因与证据
+
+PID 不等于 GUI message-loop 线程；同进程的 COM/OLE/helper 窗口可能位于另一线程。受控 fixture 证实该选择缺陷。原首次超时未记录窗口类/线程，所以不声称证明它一定由同一个 helper 窗口触发。
+
+### 解决办法与恢复操作
+
+仅改测试：PID 与 FLUTTER_RUNNER_WIN32_WINDOW 同时匹配，检查 PostThreadMessage 返回值、记录候选类/线程并拒绝找不到 runner 的情况。保留原等待时限、真实包身份与退出后引擎回收断言；无应用代码、权限或证书策略变更。
+
+### 验证结果与边界
+
+受控原 helper 失败、新 helper 通过；同一最终 CI MSIX 的真实安装、AUMID GUI/引擎身份、分发标记、正常消息循环退出/引擎回收、包调试上下文六组 IPC/QUIC、卸载与依赖注册恢复通过。消息注入不等于真实鼠标托盘菜单点击；包调试 token 也不等同于全部 GUI/OAuth 交互。
+
+### 防复发措施与后续
+
+保留 test_msix_window_target.py 的原生多线程窗口回归，Windows MSIX CI 包装前执行；首次现场未采集的窗口顺序保持未知，不以重跑成功补写根因。
+
+### 交付记录
+
+测试辅助函数与记录单独提交；应用/打包输入仍为 e64bd76，runtime-validation.json 记录同一最终 MSIX 的实际结果。
+
 ## TD-20261015-17：dev 发布工作流仍沿用不完整的 Debian 源码准备
 
 - 日期：2026-10-15（Asia/Shanghai）
