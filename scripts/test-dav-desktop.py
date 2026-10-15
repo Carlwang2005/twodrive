@@ -45,6 +45,8 @@ class Engine:
             if message.get('event') == 'progress':
                 self.progress += 1
                 continue
+            if message.get('event'):
+                continue
             assert message['id'] == request_id, 'unexpected IPC response'
             if failure:
                 assert not message['ok'], 'unsafe operation unexpectedly succeeded'

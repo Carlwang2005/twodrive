@@ -61,7 +61,26 @@ fn parse_item(v: &serde_json::Value) -> anyhow::Result<IndexedItem> {
         deleted,
     })
 }
+fn account_name(v: &serde_json::Value) -> anyhow::Result<String> {
+    ["displayName", "mail", "userPrincipalName"]
+        .into_iter()
+        .find_map(|key| v[key].as_str().filter(|s| !s.trim().is_empty()))
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("missing_account_display_name"))
+}
 impl GraphBackend {
+    /// Display metadata only; stable account/drive bindings still use IDs.
+    pub fn readonly_account_name(
+        &self,
+        check: &mut dyn FnMut() -> anyhow::Result<()>,
+    ) -> anyhow::Result<String> {
+        let v = self.browse_json(
+            "https://graph.microsoft.com/v1.0/me?$select=displayName,mail,userPrincipalName",
+            check,
+        )?;
+        account_name(&v)
+    }
+
     pub fn readonly_identity(
         &self,
         check: &mut dyn FnMut() -> anyhow::Result<()>,
@@ -296,6 +315,33 @@ mod tests {
         ));
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+    #[test]
+    fn signed_in_account_name_comes_from_me_and_never_from_an_id() {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let graph = super::super::browse::tests::backend(&server);
+        let worker = std::thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                request.url(),
+                "/v1.0/me?$select=displayName,mail,userPrincipalName"
+            );
+            request.respond(Response::from_string(r#"{"id":"opaque-private-id","displayName":"Real Person","mail":"person@example.invalid"}"#)).unwrap();
+        });
+        assert_eq!(
+            graph.readonly_account_name(&mut || Ok(())).unwrap(),
+            "Real Person"
+        );
+        worker.join().unwrap();
+        assert_eq!(
+            account_name(&serde_json::json!({"displayName":" ","mail":"person@example.invalid"}))
+                .unwrap(),
+            "person@example.invalid"
+        );
+        assert!(account_name(&serde_json::json!({"id":"opaque-private-id"})).is_err());
     }
     #[test]
     fn delta_pages_incremental_and_expired_cursor_rebuild() {

@@ -34,6 +34,10 @@ StatusTray::StatusTray(HWND window, flutter::BinaryMessenger* messenger) : windo
       if (it == args->end() || !std::holds_alternative<std::string>(it->second)) {
         result->Error("argument", "icon required"); return;
       }
+      const auto title = args->find(EncodableValue("title"));
+      const auto tip = Wide(title != args->end() && std::holds_alternative<std::string>(title->second)
+          ? std::get<std::string>(title->second) : "TwoDrive Development");
+      wcsncpy_s(icon_.szTip, tip.c_str(), _TRUNCATE);
       auto file = Wide(std::get<std::string>(it->second));
       HICON next = static_cast<HICON>(LoadImageW(nullptr, file.c_str(), IMAGE_ICON,
           GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE));

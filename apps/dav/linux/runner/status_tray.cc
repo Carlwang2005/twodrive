@@ -282,6 +282,9 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
       return;
     }
     tray->icon = fl_value_get_string(icon);
+    FlValue* title = fl_value_lookup_string(args, "title");
+    tray->title = title && fl_value_get_type(title) == FL_VALUE_TYPE_STRING
+        ? fl_value_get_string(title) : "TwoDrive Development";
     const char* desktop = g_getenv("XDG_CURRENT_DESKTOP");
     bool gnome = desktop && (g_strrstr(desktop, "GNOME") || g_strrstr(desktop, "Zorin"));
 #ifdef GDK_WINDOWING_X11
@@ -293,11 +296,11 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
       if (!tray->legacy) {
         tray->legacy = gtk_status_icon_new();
         gtk_status_icon_set_name(tray->legacy, "twodrive-development");
-        gtk_status_icon_set_title(tray->legacy, "TwoDrive Development");
-        gtk_status_icon_set_tooltip_text(tray->legacy, "TwoDrive Development · 打开同步状态");
         g_signal_connect(tray->legacy, "activate", G_CALLBACK(legacy_activate), tray);
         g_signal_connect(tray->legacy, "popup-menu", G_CALLBACK(legacy_menu), tray);
       }
+      gtk_status_icon_set_title(tray->legacy, tray->title.c_str());
+      gtk_status_icon_set_tooltip_text(tray->legacy, tray->title.c_str());
       gtk_status_icon_set_from_file(tray->legacy, tray->icon.c_str());
       gtk_status_icon_set_visible(tray->legacy, TRUE);
       fl_method_call_respond_success(request, nullptr, nullptr);
@@ -322,6 +325,8 @@ void call(FlMethodChannel*, FlMethodCall* request, gpointer data) {
           G_BUS_NAME_WATCHER_FLAGS_NONE, watcher_appeared, nullptr, tray, nullptr);
     }
     g_dbus_connection_emit_signal(tray->bus, nullptr, kPath, kInterface, "NewIcon", nullptr, nullptr);
+    g_dbus_connection_emit_signal(tray->bus, nullptr, kPath, kInterface, "NewTitle", nullptr, nullptr);
+    g_dbus_connection_emit_signal(tray->bus, nullptr, kPath, kInterface, "NewToolTip", nullptr, nullptr);
   } else {
     fl_method_call_respond_not_implemented(request, nullptr);
     return;

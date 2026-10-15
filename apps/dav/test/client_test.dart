@@ -42,6 +42,7 @@ class FakeClient extends StorageClient {
     if (op == 'list') {
       return listing!.future;
     }
+    if (op == 'status') return Map<String, dynamic>.from(status);
     if (op == 'backups') {
       return {'folders': []};
     }
@@ -129,7 +130,7 @@ void main() {
         'name': 'Example',
         'username': 'demo',
         'provider_label': 'WebDAV',
-        'account': 'demo',
+        'account_name': 'demo',
       },
     ];
     c.status = {
