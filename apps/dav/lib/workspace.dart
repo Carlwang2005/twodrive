@@ -975,6 +975,20 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
               ),
             ),
           ),
+        if (c.canMount && (cache?['deletes_pending'] as num? ?? 0) > 0)
+          Card(
+            color: Colors.white,
+            child: ListTile(
+              title: Text('云端删除待确认：${cache?['deletes_pending']} 项'),
+              subtitle: Text(
+                '本地已删除。被拒绝：${cache?['deletes_rejected'] ?? 0} 项，等待重试：${cache?['deletes_deferred'] ?? 0} 项。任务已保留；修复权限或登录后可重新尝试。',
+              ),
+              trailing: OutlinedButton(
+                onPressed: c.busy || c.selected == null ? null : c.retryDeletes,
+                child: const Text('重新尝试'),
+              ),
+            ),
+          ),
         Card(
           color: Colors.white,
           child: Padding(

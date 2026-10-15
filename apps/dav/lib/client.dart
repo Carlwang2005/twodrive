@@ -38,7 +38,9 @@ class StorageClient extends ChangeNotifier {
   Timer? _poll;
   bool get connected => status['connected'] == true;
   bool get syncError =>
-      status['backup_failed'] == true || status['backup']?['state'] == 'error';
+      status['backup_failed'] == true ||
+      status['backup']?['state'] == 'error' ||
+      (status['cache']?['deletes_rejected'] as num? ?? 0) > 0;
   bool get paused => status['paused'] == true;
   List<Json> get syncActivity => [
     ...((status['backup']?['active'] as List?) ?? []),
@@ -345,6 +347,10 @@ class StorageClient extends ChangeNotifier {
   });
   Future<void> autostart(bool enabled) => action('更新自启动设置', () async {
     status = await request('autostart', {'enabled': enabled});
+  });
+  Future<void> retryDeletes() => action('安排云端删除重试', () async {
+    await request('retry_deletes', {'id': selected});
+    await refreshStatus();
   });
   Future<void> clearCache() => action('释放已同步缓存', () async {
     await request('clear_cache', {'id': selected});

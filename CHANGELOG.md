@@ -4,6 +4,10 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## Development 0.1.3 — Retained cloud deletion status
+
+Includes stable 0.2.14 diagnostics and durable deletion backoff, plus the earlier stable local unlink fix. Linux mount status separates local deletion from unconfirmed/rejected cloud cleanup and offers an explicit retry action. Direct desktop file deletion retains its synchronous error behavior. Original-object access restrictions remain unresolved; permissions and targets are unchanged.
+
 ## 0.2.14 — Diagnose and defer rejected cloud deletions
 
 Ordinary Graph/OAuth failures retain bounded, safe error codes and request correlation without remote messages or URLs. Pending deletions back off durably across restart while retaining caches and same-name protection. Status distinguishes local removal from unconfirmed cloud deletion; `retry-deletes` makes retained work eligible again. This does not establish or bypass the original object's access restriction.

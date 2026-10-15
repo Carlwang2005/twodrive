@@ -89,7 +89,9 @@ dev 桌面另有账号/Drive binding 及部分 remoteItem 过滤；直接文件�
 
 两项正式回归在隔离副本恢复旧 HTTP/auth/delete 和旧恢复实现后分别 exit 101（只得 HTTP 403 / 未记录失败与退避），新实现通过；这不是将整个依赖/数据库回退至旧版。工作区默认 Rust 170 项通过，随后新增的旧队列迁移回归与退避回归 2 项通过；25 Nautilus、4 Settings、严格 Clippy 与格式通过。7 项默认忽略的真实 FUSE 回归显式执行通过，隔离 MockBackend daemon 冒烟通过；FUSE 的远端为 mock，未访问真实 OneDrive 或检查原旧对象。既有缓存恢复测试改为明确提前重试后再断言成功，保留缓存/不重复上传断言。
 
-目标稳定版本 0.2.14-1；dev 交付与原生 CI、提交和发布链接待实际产生后补充。原对象具体拒绝根因仍未确认。本地恢复/安装：未执行。
+dev 已同步 main 的既有本地 unlink 修复和本次共享引擎改动；保留原 dev 的账号/Drive binding、create-only 条件上传、提供者隔离与全部故障历史。Development 升至 0.1.3，Linux 状态页显示删除待确认/被拒绝/退避计数，拒绝进入同步错误状态，提供 retry_deletes IPC 与“重新尝试”按钮；只让任务到期，不发送额外 DELETE 或改目标。桌面文件页直接删除仍同步返回错误，Windows 没有 FUSE 队列。
+
+本机 dev 根工作区 173 项默认 Rust 通过，独立工作区原有 64 项通过，新增删除状态/手动重试回归独立通过；两工作区严格 Clippy 与格式通过。Flutter analyze 通过；Flutter 单元、Linux/Windows 最终原生 CI 和 Release 待完成。稳定 deb 0.2.14-1 已构建，包内 CLI/daemon 实际版本与构建输出逐字节一致，包内 MockBackend daemon 冒烟通过。目标稳定版本 0.2.14-1、Development 0.1.3；最终交付与原生 CI、提交和发布链接待实际产生后补充。原对象具体拒绝根因仍未确认。本地恢复/安装：未执行。
 
 ## TD-20261014-16：升级前既有云端删除待办持续返回 HTTP 403
 

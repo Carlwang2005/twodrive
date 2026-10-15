@@ -54,6 +54,21 @@ class FakeClient extends StorageClient {
 }
 
 void main() {
+  test('retained rejected cloud deletions keep a visible sync error', () {
+    final c = FakeClient();
+    c.status = {
+      'cache': {'pending': 1, 'deletes_rejected': 1},
+    };
+    expect(c.syncError, isTrue);
+    expect(c.syncing, isTrue);
+    c.status = {
+      'cache': {'pending': 1, 'deletes_rejected': 0},
+    };
+    expect(c.syncError, isFalse);
+    expect(c.syncing, isTrue);
+    c.dispose();
+  });
+
   testWidgets('startup initializes native taskbar before configuring tray', (
     tester,
   ) async {

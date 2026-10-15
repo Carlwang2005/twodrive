@@ -178,6 +178,30 @@ impl App {
             return Ok(json!({"bytes":0,"pending":0,"released":0}));
         }
         let db = Database::new(path);
+        db.init()?;
+        let deletes = db.pending_deletes()?;
+        let deferred = deletes
+            .iter()
+            .filter(|d| !d.retry_due(twodrive_core::now_unix()))
+            .count();
+        let rejected = deletes
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.failure_kind,
+                    Some(
+                        twodrive_core::DeleteFailureKind::Permission
+                            | twodrive_core::DeleteFailureKind::Authentication
+                            | twodrive_core::DeleteFailureKind::Rejected
+                    )
+                )
+            })
+            .count();
+        let next_retry = deletes
+            .iter()
+            .filter(|d| !d.retry_due(twodrive_core::now_unix()))
+            .map(|d| d.next_retry_unix)
+            .min();
         let released = if clear { db.prune_cache(0)? } else { 0 };
         let records = db.all_records()?;
         let pending = records
@@ -193,7 +217,7 @@ impl App {
                 )
             })
             .count()
-            + db.pending_deletes()?.len()
+            + deletes.len()
             + db.pending_metadata_operations()?.len();
         let bytes: u64 = records
             .iter()
@@ -201,8 +225,16 @@ impl App {
             .filter_map(|p| fs::metadata(p).ok())
             .map(|m| m.len())
             .sum();
-        let waiting: Vec<_> = records.iter().filter(|r| matches!(r.state, FileState::Writing | FileState::Dirty | FileState::Uploading | FileState::Conflict | FileState::Error)).take(30).map(|r| json!({"name":r.metadata.name,"path":r.metadata.path,"kind":"upload","state":if matches!(r.state, FileState::Conflict | FileState::Error) {"需要处理"} else {"等待同步"},"bytes_done":0,"bytes_total":r.metadata.size})).collect();
-        Ok(json!({"bytes":bytes,"pending":pending,"released":released,"waiting":waiting}))
+        let mut waiting: Vec<_> = records.iter().filter(|r| matches!(r.state, FileState::Writing | FileState::Dirty | FileState::Uploading | FileState::Conflict | FileState::Error)).take(30).map(|r| json!({"name":r.metadata.name,"path":r.metadata.path,"kind":"upload","state":if matches!(r.state, FileState::Conflict | FileState::Error) {"需要处理"} else {"等待同步"},"bytes_done":0,"bytes_total":r.metadata.size})).collect();
+        waiting.extend(deletes.iter().take(30_usize.saturating_sub(waiting.len())).map(|d| json!({
+            "name":d.path.rsplit('/').next().unwrap_or(""),"kind":"delete",
+            "state":if matches!(d.failure_kind, Some(twodrive_core::DeleteFailureKind::Permission | twodrive_core::DeleteFailureKind::Authentication | twodrive_core::DeleteFailureKind::Rejected)) {"云端删除被拒绝，任务已保留"} else {"本地已删除，云端删除待确认"},
+            "next_retry_unix":d.next_retry_unix,"http_status":d.last_status
+        })));
+        Ok(
+            json!({"bytes":bytes,"pending":pending,"released":released,"waiting":waiting,
+            "deletes_pending":deletes.len(),"deletes_deferred":deferred,"deletes_rejected":rejected,"delete_next_retry_unix":next_retry}),
+        )
     }
     fn unmount(&mut self, check_pending: bool) -> anyhow::Result<()> {
         if self.mounted.is_none() {
@@ -545,6 +577,18 @@ impl App {
                 }
                 self.status()
             }
+            "retry_deletes" => {
+                let p = self.profile(string(a, "id")?)?;
+                let path = self.mount_state(&p).join("mount.sqlite3");
+                let count = if path.exists() {
+                    let db = Database::new(path);
+                    db.init()?;
+                    db.retry_pending_deletes()?
+                } else {
+                    0
+                };
+                Ok(json!({"eligible":count,"cloud_delete":"unconfirmed"}))
+            }
             "cache_info" | "clear_cache" => {
                 let p = self.profile(string(a, "id")?)?;
                 self.cache(&p, req.op == "clear_cache")
@@ -834,6 +878,75 @@ mod test_provider;
 mod tests {
     use super::*;
     use test_provider::OpaqueProvider;
+    #[test]
+    fn retained_cloud_deletion_is_visible_and_manual_retry_keeps_the_original_task() {
+        let temp = tempfile::tempdir().unwrap();
+        let active = Profile {
+            id: "active".into(),
+            revision: "revision".into(),
+            ..Default::default()
+        };
+        let state = State::new(temp.path().join("private")).unwrap();
+        let mut app = App {
+            args: Args {
+                state: state.dir.clone(),
+                peer_bin: PathBuf::new(),
+                launcher: PathBuf::new(),
+                mount_worker: None,
+                backup_worker: None,
+            },
+            state,
+            config: Config {
+                profiles: vec![active.clone()],
+                selected: Some(active.id.clone()),
+            },
+            connected: Some(active.clone()),
+            backend: Some(Backend::new(OpaqueProvider::default())),
+            gateway: None,
+            mounted: None,
+            backup: None,
+            network: Arc::default(),
+        };
+        let directory = app.mount_state(&active);
+        fs::create_dir_all(&directory).unwrap();
+        let db = Database::new(directory.join("mount.sqlite3"));
+        db.init().unwrap();
+        db.queue_remote_delete("private-cloud-id", "/old-file")
+            .unwrap();
+        db.defer_pending_delete(
+            "private-cloud-id",
+            Some(403),
+            twodrive_core::DeleteFailureKind::Permission,
+            0,
+        )
+        .unwrap();
+        let report = app.cache(&active, false).unwrap();
+        assert_eq!(report["pending"], 1);
+        assert_eq!(report["deletes_rejected"], 1);
+        assert_eq!(report["deletes_deferred"], 1);
+        assert_eq!(report["waiting"][0]["kind"], "delete");
+        assert!(!report.to_string().contains("private-cloud-id"));
+        let result = app
+            .handle(
+                &Request {
+                    id: 1,
+                    op: "retry_deletes".into(),
+                    args: json!({"id":"active"}),
+                },
+                Arc::default(),
+                &Arc::new(Mutex::new(std::io::stdout())),
+            )
+            .unwrap();
+        assert_eq!(result["eligible"], 1);
+        assert_eq!(result["cloud_delete"], "unconfirmed");
+        assert_eq!(db.pending_deletes().unwrap().len(), 1);
+        assert_eq!(
+            db.pending_deletes().unwrap()[0].remote_id,
+            "private-cloud-id"
+        );
+        assert_eq!(db.pending_deletes().unwrap()[0].next_retry_unix, 0);
+        assert_eq!(app.cache(&active, true).unwrap()["deletes_pending"], 1);
+    }
     #[test]
     fn connected_account_can_manage_other_profiles_without_changing_active_revision() {
         let temp = tempfile::tempdir().unwrap();
