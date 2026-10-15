@@ -774,13 +774,20 @@ fn concurrent_metadata_writers_wait_instead_of_failing_snapshot_upgrade() {
                 barrier.wait();
                 for index in 0..20 {
                     let id = format!("worker-{worker}-file-{index}");
+                    let started = std::time::Instant::now();
                     db.upsert_metadata(&MetadataEntry::new_file(
                         &id,
                         format!("/{id}.txt"),
                         index,
                         index as i64,
                         format!("etag-{id}"),
-                    ))?;
+                    )).map_err(|error| {
+                        let sqlite_code = match error.downcast_ref::<rusqlite::Error>() {
+                            Some(rusqlite::Error::SqliteFailure(code, _)) => Some(code.extended_code),
+                            _ => None,
+                        };
+                        anyhow::anyhow!("writer={worker} item={index} elapsed={:?} sqlite_code={sqlite_code:?}: {error:#}", started.elapsed())
+                    })?;
                 }
                 Ok(())
             })

@@ -16,6 +16,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo test -p twodrive-peer -p twodrive-core -p twodrive-backend --locked
+      - name: Repeat concurrent database regression
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 8; $attempt++) {
+            Write-Host "Database contention diagnostic attempt $attempt"
+            cargo test -p twodrive-core --locked
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - run: cargo build -p twodrive-peer --features test-fixture --bin peer-health-fixture --locked
       - shell: pwsh
         run: |
