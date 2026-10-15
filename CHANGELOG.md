@@ -4,6 +4,10 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## 0.2.14 — Diagnose and defer rejected cloud deletions
+
+Ordinary Graph/OAuth failures retain bounded, safe error codes and request correlation without remote messages or URLs. Pending deletions back off durably across restart while retaining caches and same-name protection. Status distinguishes local removal from unconfirmed cloud deletion; `retry-deletes` makes retained work eligible again. This does not establish or bypass the original object's access restriction.
+
 ## 0.2.13 — Delete files awaiting synchronization
 
 Closed dirty and uploading files can be removed immediately from the local namespace. Durable deletion records coordinate in-flight uploads, cloud cleanup, cached open handles and same-name recreation. After an interrupted unbound upload, recovery may finish that claimed transfer to obtain its cloud identity before deleting it. Includes the Nautilus pending-download feedback already shipped in 0.2.12.
