@@ -38,6 +38,18 @@ def archive(source, destination, prefix, epoch, excludes=()):
                 output.addfile(info)
 
 
+
+def debian_license_text(text):
+    # Debian copyright files reference the distribution's common Apache text.
+    # Retain every attribution before/after the canonical grant; the companion
+    # notices document above preserves the exact, complete upstream files too.
+    text = re.sub(
+        r"(?ms)^[ \t]*Apache License[ \t]*\n[ \t]*Version 2\.0, January 2004[^\n]*\n.*?^[ \t]*END OF TERMS AND CONDITIONS[ \t]*$",
+        "On Debian systems, the complete Apache License, Version 2.0 is in\n"
+        "/usr/share/common-licenses/Apache-2.0.", text)
+    return text.expandtabs(8)
+
+
 def notices(vendor, destination):
     copyright_path = destination.parent / "copyright"
     dep5 = []
@@ -82,7 +94,7 @@ def notices(vendor, destination):
                         'Comment: Upstream declared license expression: ' + package.get('license', 'see license file') + '\n\n'
                         'License: ' + label + '\n' +
                         '\n'.join(' ' + (line if line.strip() else '.')
-                                  for line in '\n\n'.join(texts).splitlines()) + '\n')
+                                  for line in debian_license_text('\n\n'.join(texts)).splitlines()) + '\n')
     with copyright_path.open('a') as copyright_output:
         copyright_output.write(''.join(dep5))
 
