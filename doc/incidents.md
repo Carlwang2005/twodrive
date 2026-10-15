@@ -84,7 +84,7 @@ Database clones 共享一个元数据写入 Mutex；单条和批量导入均在�
 
 ### 交付记录
 
-修复与记录随 [PR #30](https://github.com/LumiaBlack51/twodrive/pull/30) 交付；首轮诊断提交 [a9c28c7](https://github.com/LumiaBlack51/twodrive/commit/a9c28c7fbd49af60612ed4b2f424297abb1456a2)、更高并发诊断提交 [94192f0](https://github.com/LumiaBlack51/twodrive/commit/94192f0c7b0bf19042ba0315096f0530d5a313b2)。机制修复提交 [aa83dcd](https://github.com/LumiaBlack51/twodrive/commit/aa83dcd)；本轮未创建 Release。
+修复与记录随 [PR #30](https://github.com/LumiaBlack51/twodrive/pull/30) 交付；首轮诊断提交 [a9c28c7](https://github.com/LumiaBlack51/twodrive/commit/a9c28c7fbd49af60612ed4b2f424297abb1456a2)、更高并发诊断提交 [94192f0](https://github.com/LumiaBlack51/twodrive/commit/94192f0c7b0bf19042ba0315096f0530d5a313b2)。机制修复提交 [aa83dcd](https://github.com/LumiaBlack51/twodrive/commit/aa83dcd)；已合入 main [a1cd838](https://github.com/LumiaBlack51/twodrive/commit/a1cd838a72511bd7e74361d936cd6565d00c3d71)，原生 Linux/Windows 检查及三轮 Windows 高并发 core 复验通过。稳定版 0.2.15-1 发布准备中，发布链接与最终包验证待补充；不更新 dev Release。
 
 ## TD-20261015-15：Windows 并发元数据写入测试再次出现数据库锁拒绝
 
