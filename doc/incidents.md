@@ -49,6 +49,41 @@
 
 
 
+## TD-20261015-15：Windows 并发元数据写入测试再次出现数据库锁拒绝
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：失败证据已保存，本机 Linux 未复现；原 Windows 争用根因未确认。最终候选复验见 PR #29。
+- 影响版本与环境：main PR #29 候选 a8f5cc0 的 Windows runner；未发布。
+- 关联历史故障：[dev TD-20261014-07](https://github.com/LumiaBlack51/twodrive/blob/dev/doc/incidents.md#td-20261014-07development-发布-ci-的跨平台检查失败) 曾记录同一并发数据库测试的 database is locked，但当时没有定位/修复数据库机制。本次属于既有未定位问题再次同症状，尚未证明相同争用者或时序；不是已知修复代码的回归。
+
+### 症状与影响
+
+Native checks (Windows) 在 concurrent_metadata_writers_wait_instead_of_failing_snapshot_upgrade 的 worker 结果 unwrap 处报告 database is locked（SQLite error code 5）；该 crate 为 38 passed、1 failed。阻断 main 合并；没有现有安装或用户数据操作。新候选仅更改 Unix filesystem 测试和记录，Windows 数据库实现与原文档候选相同。
+
+### 触发条件与复现
+
+[Peer native CI 38730372070](https://github.com/LumiaBlack51/twodrive/actions/runs/38730372070) 的 [Windows job 116406379675](https://github.com/LumiaBlack51/twodrive/actions/runs/38730372070/job/116406379675)；测试通过屏障启动八个 writer，每个写入二十条，数据库配置 busy_timeout 为十秒。原文档候选 a8f8d10 的双平台 CI 通过；不能因此断言新失败来自 runner 故障。
+
+### 根因与证据
+
+日志确认 crates/twodrive-core/src/tests.rs:791 的 worker 返回 SQLite Busy。upsert_metadata 已使用 Immediate 事务，但原现场没有每次连接/锁等待的时间线，无法区分持锁过久、争用饥饿、存储/调度延迟或其他原因。没有证据把本轮 Unix mock 上传门控归为 Windows 数据库失败原因。
+
+### 解决办法与恢复操作
+
+不凭单条日志修改生产事务、增加等待上限、串行化或屏蔽并发断言；保留完整八 writer/160 条记录检查。对最终候选执行原生 CI 复验，实际结果见 PR。没有用户环境恢复操作。
+
+### 验证结果与边界
+
+本机 Linux cargo test -p twodrive-core --locked 的全部 40 项通过，含原并发写入测试；候选的 Linux native 与预览 Linux 也通过。未在本机复现 Windows 争用，因此未新增针对未经确认机制的测试或宣称修复。最终同数据库代码的 Windows CI 即使通过，也只说明该次执行通过，不能证明原争用机制已消失；没有真实 OneDrive 端到端验证。
+
+### 防复发措施与后续
+
+保留失败 job 与现有并发回归；如再次失败，需采集脱敏的每 worker 事务阶段和等待时长来定位争用，不能仅靠重跑或放宽断言给出根因结论。
+
+### 交付记录
+
+证据与边界随 [PR #29](https://github.com/LumiaBlack51/twodrive/pull/29) 保存，最终提交及检查见该 PR；本项没有数据库代码修复，也未创建 Release。
+
 ## TD-20261015-14：并发小文件测试依赖 mock 上传的短时间窗口
 
 - 日期：2026-10-15（Asia/Shanghai）
@@ -82,7 +117,7 @@ main 3746b1f 上仅增加 AGENTS.md 七行后，[Debian CI 38728962015](https://
 
 ### 交付记录
 
-修复与本记录一并提交至 [PR #29](https://github.com/LumiaBlack51/twodrive/pull/29)，最终提交与 CI 以该 PR 为准；本轮未创建 Release。
+测试修复 [a8f5cc0](https://github.com/LumiaBlack51/twodrive/commit/a8f5cc05f23e080f13463d647db58bafdb459457) 与本记录随 [PR #29](https://github.com/LumiaBlack51/twodrive/pull/29) 交付，最终检查以该 PR 为准；本轮未创建 Release。
 
 ## TD-20261015-13：原生 CI 上传重开测试依赖 100ms 观察窗口
 
