@@ -52,7 +52,7 @@
 ## TD-20261015-13：原生 CI 上传重开测试依赖 100ms 观察窗口
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已定位测试同步缺陷，屏障修复验证中。
+- 状态：已验证测试屏障、本地 FUSE 全套和最终 Linux/Windows CI；生产上传实现未改。
 - 影响版本与环境：稳定 main 既有 filesystem/tests.rs；本轮 Native checks (Linux) 38707734705 失败，之前本地和其他 CI 可通过。
 - 关联历史故障：TD-20261014-12 使用屏障验证上传/删除；本条是更早的两项重开/原子替换测试缺少同等同步，不据此认定生产上传回归。
 
@@ -74,7 +74,7 @@ CI 真实失败日志见 [Linux job](https://github.com/LumiaBlack51/twodrive/ac
 
 ### 验证结果与边界
 
-本地和最终 CI 结果待补充。旧 CI 失败已确认；不是完整生产故障复现，也不将一次重跑通过称为已经修复。
+本地 44 项 FUSE crate 默认测试、严格 Clippy/格式和最终 Linux 原生 CI 通过；最终包 171 项默认 Rust 和 7 项显式挂载回归通过。旧 CI 失败已确认；未在同一 GitHub 宿主逐步重放旧调度，修复的是测试同步协议，不是据此宣称生产上传缺陷已修复。
 
 ### 防复发措施与后续
 
@@ -82,13 +82,13 @@ CI 真实失败日志见 [Linux job](https://github.com/LumiaBlack51/twodrive/ac
 
 ### 交付记录
 
-随 Debian 迁移 PR #24 交付，最终提交与验证待补充。
+随 [PR #24](https://github.com/LumiaBlack51/twodrive/pull/24) 交付；测试/源码头 `408370942c39473688813935e46579fa84e9bbe8`，main 合并 `e003ec2eb4438677b58abcaa928b8cfa30018e42`。[最终原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178926) 已通过。
 
 
 ## TD-20261015-12：Debian clean 删除锁定依赖的 Cargo.toml.orig
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：已定位，修复待验证。
+- 状态：已验证 clean、完整离线 source rebuild、全部 16043 个 vendor 文件和最终 CI。
 - 影响版本与环境：TD-20261015-11 尚未发布的迁移候选 6167037；隔离 Ubuntu 24.04 容器。没有生产安装影响。
 - 关联历史故障：TD-20261015-11 的自包含 vendor 源码；不是云端或既有稳定客户端故障。
 
@@ -110,7 +110,7 @@ dh_clean 默认递归删除 *.orig，包括 cargo vendor 的上游清单备份�
 
 ### 验证结果与边界
 
-旧 clean 后完整性探针失败，首轮构建失败已保留日志；新 clean 后全部 16043 个 vendored 文件 SHA-256 通过，完整离线构建与 Rust/Python 测试通过；最终 CI 与源码提取复验待补充。仅隔离构建，无真实云端验证。
+旧 clean 后完整性探针失败，首轮构建失败已保留日志；新 clean 后全部 16043 个 vendored 文件 SHA-256 通过，完整离线构建与 Rust/Python 测试通过；最终 CI 在 .dsc 提取及再次 clean 后通过同一完整性检查。本机随后从最终 CI 的 .dsc 在 network none、无 Cargo cache 的新容器完整重建/测试通过，并再次核验全部源文件。仅隔离构建，无真实云端验证。
 
 ### 防复发措施与后续
 
@@ -118,13 +118,13 @@ scripts/test-debian-vendor.py 验证每个 vendored 文件 SHA-256，CI 在提�
 
 ### 交付记录
 
-修复提交、CI 与验证结果待补充；随 TD-20261015-11 一起交付，不单独发布故障候选。
+修复 [8380100](https://github.com/LumiaBlack51/twodrive/commit/8380100)；最终 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178838) 通过，随 TD-20261015-11 交付。未发布故障候选。
 
 
 ## TD-20261015-11：stable main Debian 打包流程与用户安装兼容性迁移
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：调查中 / 已定位打包机制，迁移与验证进行中。
+- 状态：已验证标准源码/二进制构建、离线重建、隔离升级及 laptop 用户安装更新；Release 保护校验进行中。
 - 影响版本与环境：main 7eb7f3d，稳定手工包 0.2.14-1；目标 0.2.14-2。Zorin 18.1 laptop 原为用户目录安装。
 - 关联历史故障：dev TD-20261015-04 已处理相同手工打包机制，但尚未同步 main；本轮是稳定分支迁移，不是原修复代码回归。TD-20261015-02/06 要求发布校验和管道退出码必须阻断后续动作。
 
@@ -143,11 +143,15 @@ scripts/test-debian-vendor.py 验证每个 vendored 文件 SHA-256，CI 在提�
 ### 解决办法与恢复操作
 
 只移植相关打包/验证文件，不引入 dev 应用代码；标准 dpkg-buildpackage、quilt 源码与锁定依赖 component，离线构建/测试、自动依赖、文档/版权、conffile、调试符号及安装升级检查。SQLite 切换为发行版库但不改 Rust 数据库 schema；须实际验证兼容。
-本地更新尚未执行；计划先检查写入并私有备份，再更新安装与核验进程，不清除历史待办或账号缓存。后续记录实际结果。
+本地更新已执行：Writing/Dirty/Uploading 为 0 后停止稳定服务，以 0700 私有备份保存约 2.1GiB 状态/缓存、配置/凭据、旧程序和自定义 unit，再从最终 CI deb 原字节更新现有用户目录安装。保留自定义 user unit、原自启动设置及所有数据路径；没有伪称 apt/dpkg 系统安装，也未操作 Development。旧、新数据库 integrity_check 均通过，现用 CLI/daemon 与最终 deb 字节一致，服务 active、NRestarts=0、FUSE 可读，配置/凭据字节未变，原有 1 项被拒绝删除和原聚合状态均保留。未清理用户恢复队列。私有恢复点保存在 ~/.local/share/twodrive-maintenance/backups/ 下，不进入 Git 或 Release。
 
 ### 验证结果与边界
 
-进行中。尚未执行新包构建、隔离升级、laptop 更新或真实云端验证。不得把模拟后端 FUSE 当作真实 OneDrive 端到端。官方 Debian archive 依赖/版权审核与入库不属于本次已完成结果。
+最终 4083709 的 Linux/Windows 原生、独立 WebDAV/QUIC、Windows 组合预览及 Debian CI 全部通过。包构建 171 项默认 Rust、25 Nautilus、4 Settings 和 6 发布保护测试通过；7 项 FUSE 回归用最终 .dsc 重建的测试程序与最终 CI CLI 显式通过。最终 CI 包 daemon 冒烟的 hydration/write/upload/move/delete/pin/release 通过。旧 0.2.14-1 实物在 libc6 检查上失败，新包通过；11 项桌面集成内容/权限相同，仅允许 Debian Python shebang 归一化。隔离系统的旧包升级、新安装、remove/reinstall/purge 均保留每个合成用户状态文件 SHA-256，服务未自动启用。
+
+最终完整 .changes 经 Debian profile Lintian 无 E 级错误，仅有检查器旧版本的 newer-standards-version；source overrides 仅解释原始手写 HTML、被误当 ar 的文本 GNU ld INPUT 脚本。版权正文引用 Debian common Apache 许可，完整第三方许可另随包保留。早期对可变 dist 并行扫描造成的 MD5 错配已在固定的最终 CI 产物上排除，不据此报告已发布包损坏。
+
+下载后核实 .dsc/.changes/.buildinfo 全部成员 SHA-256 与大小；从 .dsc 在断网、无 Cargo cache 容器完成真正的 binary rebuild 和测试。对 laptop 私有数据库副本，新包 status 成功且逻辑 schema/data 未变。实际 laptop 更新结果见上。边界：未新增真实 OneDrive 上传/下载/删除端到端验证，保留历史远端拒绝；不把模拟 FUSE 说成真实云端。官方 Debian archive 依赖/版权审核、sbuild/piuparts、入库与签名不属于本次已完成结果。
 
 ### 防复发措施与后续
 
@@ -155,7 +159,9 @@ main/dev 同步 AGENTS.md、CONTRIBUTING.md 和长期打包规范；CI 验证真
 
 ### 交付记录
 
-提交、PR、CI、Release 和 laptop 验证待补充。详见 [Debian 打包迁移](debian-packaging.md)。
+[main PR #24](https://github.com/LumiaBlack51/twodrive/pull/24) 已合入 `e003ec2eb4438677b58abcaa928b8cfa30018e42`；源标签 v0.2.14-2 指向 `408370942c39473688813935e46579fa84e9bbe8`，与合并树相同。最终 [Debian CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178838)、[原生 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178926)、[协议 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178859) 与 [Windows 组合 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38709178895) 全部通过。[dev policy PR #25](https://github.com/LumiaBlack51/twodrive/pull/25) 已合入 `4942f2ded44cdb805c397c90b932ca06c23dae0e`；GitHub active ruleset 25148176 要求 main/dev 均通过 Debian packaging policy。
+
+deb SHA-256：`e8bef619fb3253c2cbd2ebb2a08dd703763306a19992cad83728deb0b6875859`。11 项 Release 附件正在完整校验，公开时间待实测后补记。实际 laptop 已使用同一 deb 的程序字节。详见 [Debian 打包迁移](debian-packaging.md)。
 
 
 ## TD-20261015-02：Release 校验失败后仍执行公开操作
