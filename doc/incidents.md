@@ -49,40 +49,42 @@
 
 
 
-## TD-20261015-16：定位并修复 Windows 并发元数据数据库锁失败
+## TD-20261015-16：同实例元数据写者竞争耗尽 SQLite 锁等待
 
 - 日期：2026-10-15（Asia/Shanghai）
-- 状态：调查中 / 根因未确认。
-- 影响版本与环境：main 与 dev 共用的 twodrive-core SQLite 连接/写入路径；已知 Windows native CI 38730372070 失败。
-- 关联历史故障：TD-20261015-15 与 dev TD-20261014-07；此前仅记录并复验，没有确认或修复争用根因。本次为用户要求继续调查，不覆盖旧结论。
+- 状态：已验证受控旧失败/新通过与错误后放行；最终 Linux/Windows 候选检查见 PR #30。原历史 Windows 宿主的逐操作时序仍不可追溯。
+- 影响版本与环境：main 与 dev 共用 twodrive-core；历史 Windows native CI 38730372070 的八 writer 测试间歇失败。受控复现在 Linux 临时测试数据库，无用户数据操作。
+- 关联历史故障：TD-20261015-15 与 dev TD-20261014-07 此前未确认或修复争用机制。本条补充已证明的同实例写者争用机制，不将旧历史缺失的时序补写成已确认事实。
 
 ### 症状与影响
 
-八 writer 并发元数据测试间歇返回 SQLite Busy，阻断 Windows native 检查；后续运行可通过。没有已确认的用户数据损坏证据。
+八 writer 各写二十条时可返回 SQLite Busy，导致部分调用报错而非完成全部 160 条。没有已确认的用户数据损坏。原 native Windows 日志只有 join 处的 error code 5，不能从它推断具体语句。
 
 ### 触发条件与复现
 
-历史失败为 concurrent_metadata_writers_wait_instead_of_failing_snapshot_upgrade，八线程各写二十条。正在核对连接生命周期、事务阶段与错误扩展码，并设计可控竞争复现。
+诊断候选 a9c28c7 增加静态阶段、合成 worker/序号、耗时及扩展码。Linux 十轮单项、独立 20/40ms sync 延迟均通过；Windows 原 core 套件加八轮默认并发、随后八轮 32 测试线程的 core 复验也全部通过，证明原故障并非每次出现。
+
+保留 scripts/test-database-contention.sh：仅在 disposable core 测试进程中预加载 fixture，将 fsync/fdatasync 放到共享队列并各延迟 40ms，32 个测试线程并行。旧代码实测 39 passed、1 failed，100.54 秒；同一并发写入测试报告 writer=0 item=0 elapsed=10.0536s sqlite_code=5，阶段为 metadata upsert: beginning write transaction。这是可控共享存储竞争，不是原 Windows 宿主的精确重放。
 
 ### 根因与证据
 
-根因未确认；不能仅凭相同错误或重跑通过认定原因。下一步检查 WAL 连接打开/关闭、锁等待阶段和事务竞争的具体边界。
+Database clones 共享路径但没有共享元数据写入准入；每次 upsert 先提交元数据事务，再开启单独的全表 pin 重算事务。竞争者可在多个事务之间反复取得唯一写锁，使等待中的调用在事务开始处耗尽十秒 busy_timeout。受控日志定位到 BEGIN，排除了该复现中的快照升级或 WAL 读恢复错误。SQLite 只允许一个 writer，busy handler 不是应用级完整操作的排队协议；见 [SQLite isolation](https://www.sqlite.org/isolation.html) 与 [busy handler](https://www.sqlite.org/c3ref/busy_handler.html)。历史 Windows 原始日志缺少阶段，仍不能证明当时每一步与本次完全一致。
 
 ### 解决办法与恢复操作
 
-先补充静态事务阶段上下文和测试 worker/序号/耗时/SQLite 扩展码诊断，首轮 Windows 原 core 套件与八轮重复均通过，下一候选以 32 个测试线程重复八轮以增加资源竞争；尚未修改事务语义或等待上限。没有用户环境恢复操作。
+Database clones 共享一个元数据写入 Mutex；单条和批量导入均在准入后完成整次元数据更新、后代移动和 pin 重算，返回或出错时释放。读取不取该锁，其他 Database 实例和进程继续由 SQLite 仲裁。十秒 SQLite 超时、Immediate 事务、持久化、八 writer/160 条断言均保留，不吞掉 Busy 或放宽断言。没有修改用户服务、账号、现有数据库或已发布包。
 
 ### 验证结果与边界
 
-本机诊断候选 core 40 项、十轮单项基线及独立 20/40ms sync 延迟实验通过；首轮 Windows core 加八轮复验通过。继续测试串行磁盘 sync 竞争与更高 Windows 测试并发；尚无本轮机制修复。真实 OneDrive、用户数据库、已安装服务不在测试范围。
+相同受控 fixture 下，仅加入准入后的原 40 项 core 全部通过，128.17 秒；旧失败/新通过成立。新增 failed_metadata_write_does_not_block_another_clone，以真实 SQLite trigger 拒绝单条写入后，另一 clone 的批量导入必须在十秒内完成，并验证拒绝行未写入、接受行内容正确。最终本机正常 core 41 项、严格 core Clippy、格式及 diff 检查通过。可复用 fixture、完整工作区与最终原生结果见 PR #30 的检查；验证只使用临时 SQLite，没有真实 OneDrive 端到端验收，也不证明不同实例/不同进程的永久持锁或所有 SQLite Busy 均已消失。
 
 ### 防复发措施与后续
 
-补充有意义的受控竞争回归，尽可能证明旧代码失败、新代码通过；保留八 writer/160 条记录断言，并执行原生 Windows 验证。
+保留原八 writer 并发测试及 worker/扩展码诊断、错误后放行回归、Linux 慢共享 sync fixture；Windows CI 额外执行三轮 32 线程 core 套件。后续 Busy 应据阶段、扩展码及耗时区分同实例排队、外部写者和存储故障，不以重跑成功代替机制验证。
 
 ### 交付记录
 
-修复提交与 PR 待补充；没有创建 Release。
+修复与记录随 [PR #30](https://github.com/LumiaBlack51/twodrive/pull/30) 交付；首轮诊断提交 [a9c28c7](https://github.com/LumiaBlack51/twodrive/commit/a9c28c7fbd49af60612ed4b2f424297abb1456a2)、更高并发诊断提交 [94192f0](https://github.com/LumiaBlack51/twodrive/commit/94192f0c7b0bf19042ba0315096f0530d5a313b2)。修复提交待补充；本轮未创建 Release。
 
 ## TD-20261015-15：Windows 并发元数据写入测试再次出现数据库锁拒绝
 
@@ -118,6 +120,8 @@ Native checks (Windows) 在 concurrent_metadata_writers_wait_instead_of_failing_
 ### 交付记录
 
 证据与边界随 [PR #29](https://github.com/LumiaBlack51/twodrive/pull/29) 保存，最终提交及检查见该 PR；本项没有数据库代码修复，也未创建 Release。
+
+2026-10-15 后续：同实例元数据写者的受控十秒等待耗尽已在 TD-20261015-16 定位并增加共享准入保护。原 Windows 宿主逐操作时序仍缺失，保留本条当时“原因未确认”的证据边界；后续原生通过不单独作为定位依据。
 
 ## TD-20261015-14：并发小文件测试依赖 mock 上传的短时间窗口
 

@@ -19,8 +19,8 @@ jobs:
       - name: Repeat concurrent database regression
         shell: pwsh
         run: |
-          for ($attempt = 1; $attempt -le 8; $attempt++) {
-            Write-Host "Database contention diagnostic attempt $attempt"
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host "Database contention regression attempt $attempt"
             cargo test -p twodrive-core --locked -- --test-threads=32
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

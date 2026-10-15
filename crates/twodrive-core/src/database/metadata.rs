@@ -8,6 +8,13 @@ use crate::{FileRecord, FileState, MetadataEntry, now_unix};
 
 impl Database {
     pub fn upsert_metadata(&self, entry: &MetadataEntry) -> anyhow::Result<()> {
+        // SQLite permits one writer at a time. Admit the whole metadata update,
+        // including pin recomputation, so cloned callers cannot starve one
+        // another while competing for its separate write transactions.
+        let _writer = self
+            .metadata_write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("metadata write lock is poisoned"))?;
         self.upsert_metadata_inner(entry, true)
     }
 
@@ -15,6 +22,10 @@ impl Database {
         &self,
         entries: impl IntoIterator<Item = &'a MetadataEntry>,
     ) -> anyhow::Result<()> {
+        let _writer = self
+            .metadata_write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("metadata write lock is poisoned"))?;
         let mut conn = self.connect()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for entry in entries {
