@@ -46,6 +46,76 @@
 
 
 
+## TD-20261015-12：隔离 Deb 安装验收的根文件系统前置配置不完整
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证隔离安装、GTK 启动、已安装二进制的 mock FUSE 及卸载；不是 Deb 产品缺陷。
+- 影响版本与环境：0.2.14-2 Deb 的本地 Ubuntu Base / WSL2 验收 fixture。
+- 关联历史故障：TD-20261015-04/06 涉及包内容；本次是测试环境前提，不是同根因。
+
+### 症状与影响
+
+首轮 apt 因 `_apt`/nobody 的 setuid/setgroups 被拒绝而停止；随后 fixture 的 shell CRLF 触发非法 set 参数；Ubuntu Base 的默认 dpkg path-exclude 又使安装时省略手册，必需文档断言失败。均发生于隔离根目录，无宿主安装。
+
+### 触发条件与复现
+
+bubblewrap 单 UID user namespace 中运行需要多个系统 UID 的 apt；直接复制 Windows checkout 中的 shell fixture；使用带有裁剪手册/文档配置的 Ubuntu Base。三项是不同前置配置问题，未将它们归因于同一产品机制。
+
+### 根因与证据
+
+UID 映射只允许 0，apt 无法切换 `_apt`；fixture 含 CRLF；根文件系统显式配置 `path-exclude=/usr/share/man/*`。Deb 归档本身的手册与依赖检查均通过，CI 标准环境也已通过。
+
+### 解决办法与恢复操作
+
+仍隔离 mount/PID/IPC/UTS，使用已有 root 身份的完整 UID 范围；只对测试副本规范换行，只在 disposable rootfs 去除文档裁剪规则并重装。宿主应用、服务与系统策略未修改。
+
+### 验证结果与边界
+
+真实 deb 安装、上传清单/权限/依赖、CLI、GTK 设置进程在 Xvfb 存活、实际 `/usr/bin` CLI/daemon 的 FUSE hydration/write/upload/move/delete/pin/release，以及卸载全部通过。GTK accessibility bus 警告保留，未见 traceback/崩溃。后端为 mock，不是云账号或 Debian unstable/sbuild 验收。
+
+### 防复发措施与后续
+
+复验时检查 UID 范围、LF 和 dpkg 排除策略；保留包内容检查与运行记录。[0.1.5 验证](development-0.1.5.md)。
+
+### 交付记录
+
+[本机脱敏记录](runtime-validation-0.1.5.json)；最终发布源与附件哈希以 dev-v0.1.5 的 verification.json 为准。
+
+## TD-20261015-11：MSIX 验收进程从包外启动内部程序被拒绝
+
+- 日期：2026-10-15（Asia/Shanghai）
+- 状态：已验证实际 GUI 激活及包调试上下文 IPC/QUIC；没有修改应用安全权限。
+- 影响版本与环境：Development 0.1.5 原生 Windows 11 安装验收 fixture。
+- 关联历史故障：TD-20261015-09 同属测试生命周期；不是同一根因。
+
+### 症状与影响
+
+MSIX 安装、GUI/引擎真实包身份、退出及卸载通过，但从普通 Python 直接执行 WindowsApps 内引擎被 WinError 5 拒绝；失败构造器还遗留 stderr 文件句柄，使临时目录清理报 WinError 32，掩盖原错误。
+
+### 触发条件与复现
+
+未带包身份的外部 Popen 启动安装程序内部 helper。另一次外部代理尝试也由 GetCurrentPackageFullName 明确证实不继承包身份，已弃用该测试代理。
+
+### 根因与证据
+
+真实 GUI 启动的内部引擎拥有包身份；外部 fixture 不拥有身份，不能作为同一运行环境。旧 Engine fixture 在 Popen 抛错前打开日志，异常路径未关闭；受控 PermissionError 回归能复现句柄仍打开。
+
+### 解决办法与恢复操作
+
+使用微软官方 Invoke-CommandInDesktopPackage -PreventBreakaway 启动原共享测试，验证调试进程身份；实际 GUI 仍单独通过 AUMID 激活验证。Popen 异常路径关闭 fixture 日志。没有放宽 WindowsApps ACL、添加信任证书或修改安全设置。
+
+### 验证结果与边界
+
+安装、真实 GUI/引擎身份、更新通道标记、退出回收、包调试上下文六组真实 IPC/QUIC、卸载和依赖注册恢复通过。句柄关闭回归通过。包调试 token 与真实 GUI token 并非完全相同，不能据此宣称所有原生文件对话框、OAuth 或商店认证已验证。
+
+### 防复发措施与后续
+
+保留 test-msix-runtime.ps1、test-msix-context.py 和受控创建进程失败回归；测试拒绝替换已有同名测试包，最终恢复注册状态。[0.1.5 验证](development-0.1.5.md)。
+
+### 交付记录
+
+[本机脱敏记录](runtime-validation-0.1.5.json)；正式发布前须通过最终源 CI 与附件校验。
+
 ## TD-20261015-10：Windows 配置替换拒绝再次阻断桌面 CI
 
 - 日期：2026-10-15（Asia/Shanghai）

@@ -23,9 +23,13 @@ class Engine:
         self.active_revision = None
         env = dict(os.environ, XDG_CONFIG_HOME=str(root / 'config'), APPDATA=str(root / 'config'))
         self.log = (root / 'engine.stderr').open('w')
-        self.process = subprocess.Popen([engine, '--state', str(root / 'client'),
-            '--peer-bin', peer, '--launcher', peer], stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=self.log, text=True, encoding="utf-8", env=env)
+        try:
+            self.process = subprocess.Popen([engine, '--state', str(root / 'client'),
+                '--peer-bin', peer, '--launcher', peer], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=self.log, text=True, encoding="utf-8", env=env)
+        except BaseException:
+            self.log.close()
+            raise
         def read():
             for line in self.process.stdout:
                 self.events.put(json.loads(line))
