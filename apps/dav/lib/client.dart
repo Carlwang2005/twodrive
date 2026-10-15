@@ -100,7 +100,7 @@ class StorageClient extends ChangeNotifier {
             '账号名称暂不可用')
       : '未登录';
   String get trayTitle => connected
-      ? 'TwoDrive · $providerLabel · $account'
+      ? 'TwoDrive Development · $providerLabel · $account'
       : 'TwoDrive Development · 未连接';
   String get trayState => error != null || syncError
       ? 'error'
