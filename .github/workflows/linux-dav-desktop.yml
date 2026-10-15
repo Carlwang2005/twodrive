@@ -17,6 +17,9 @@ on:
       - 'scripts/test-storage-connections.py'
       - 'scripts/test-desktop-queue.py'
       - 'scripts/test-desktop-sharing.py'
+      - 'scripts/test_engine_fixture.py'
+      - 'scripts/test-msix-runtime.ps1'
+      - 'scripts/test-msix-context.py'
       - '.github/workflows/linux-dav-desktop.yml'
       - 'packaging/msix/**'
       - 'scripts/build-msix.ps1'
@@ -150,7 +153,13 @@ jobs:
       - name: Windows native tray smoke
         run: python scripts/test-desktop-windows-ui.py apps/dav/build/windows/x64/runner/Release/twodrive_dav.exe
       - name: Build validated unsigned MSIX test package
-        run: ./scripts/build-msix.ps1 -Bundle apps/dav/build/windows/x64/runner/Release -TestPackage
+        run: |
+          $syntaxErrors = $null
+          [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/test-msix-runtime.ps1'), [ref]$null, [ref]$syntaxErrors)
+          if ($syntaxErrors.Count) { throw ($syntaxErrors | Out-String) }
+          python -m unittest discover -s scripts -p test_engine_fixture.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/build-msix.ps1 -Bundle apps/dav/build/windows/x64/runner/Release -TestPackage
       - uses: actions/upload-artifact@v4
         with:
           name: twodrive-development-msix-test

@@ -19,7 +19,10 @@ foreach ($name in @('twodrive_dav.exe', 'twodrive-dev.exe', 'twodrive-dav-engine
 if ($TestPackage) {
     if ($IdentityName -or $Publisher -or $PublisherDisplayName) { throw 'TestPackage cannot use a Store identity.' }
     $IdentityName = 'TwoDrive.Development.Test'
-    $Publisher = 'CN=TwoDrive Development Test'
+    # Microsoft's reserved unsigned-package OID allows explicit -AllowUnsigned
+    # installation on Windows 11 without adding a certificate to a trust store.
+    # It is exclusive to the test identity; Store packages use Partner Center.
+    $Publisher = 'CN=TwoDrive Development Test, OID.2.25.311729368913984317654407730594956997722=1'
     $PublisherDisplayName = 'TwoDrive contributors (local test)'
 } elseif (-not $IdentityName -or -not $Publisher -or -not $PublisherDisplayName) {
     throw 'Supply the exact IdentityName, Publisher and PublisherDisplayName from Partner Center, or use -TestPackage.'
