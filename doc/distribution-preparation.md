@@ -75,6 +75,8 @@ See [debian/README.source](../debian/README.source),
 ## 验证记录
 
 - 本机 Windows：Development 37 个库测试与 7 个桌面引擎测试通过。
-- 旧版 0.1.4 完整 bundle 已成功生成通过 SDK 校验的测试 MSIX；首次清单错误及修正见故障记录。
-- Flutter、最新代码 MSIX 与 Debian CI：待本轮完成后补充。
+- Flutter 3.41.8 锁定依赖、analyze、30 项测试与 Windows release 构建通过；真实公开 GitHub 检查识别 Development 0.1.4。
+- 最新代码 MSIX 通过 SDK 校验；四个核心程序/DLL 哈希与构建目录一致，三个图标尺寸、测试身份和更新通道标记核对通过。输出 24,774,758 字节，未签名。
+- 桌面 IPC 文件/备份测试及本机两个进程的 QUIC/UDP/WebDAV 传输通过。本机托盘 smoke 未获得前台焦点，原生 CI 对照待完成，不能宣称本机完整 UI 通过。
+- Debian CI：待本轮完成后补充。
 - 尚未验证：商店提交/认证、签名安装后的全流程、Debian 官方依赖闭包及 sbuild、真实异地 NAT。
