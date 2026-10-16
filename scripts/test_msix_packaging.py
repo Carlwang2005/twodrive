@@ -41,7 +41,9 @@ class MsixPackagingTests(unittest.TestCase):
         # pwsh -> powershell.exe launch, that intermediate process preserves
         # PS7 module paths; Utility can then resolve to an incompatible module.
         # Let Windows PowerShell construct its own standard module path.
-        environment.pop('PSModulePath', None)
+        # Python exposes Windows environment keys in uppercase; a copied dict
+        # no longer has os.environ's case-insensitive lookup behavior.
+        environment = {k: v for k, v in environment.items() if k.upper() != 'PSMODULEPATH'}
         return subprocess.run([
             shutil.which('powershell.exe'), '-NoProfile', '-NonInteractive',
             '-File', str(ROOT / 'scripts/build-msix.ps1'),
