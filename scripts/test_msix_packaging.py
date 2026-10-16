@@ -36,13 +36,19 @@ class MsixPackagingTests(unittest.TestCase):
         (self.bundle / 'data/flutter_assets').mkdir()
 
     def invoke(self, *arguments, bundle=None, output=None):
+        environment = os.environ.copy()
+        # CI runs pwsh -> Python -> Windows PowerShell 5.1. Unlike a direct
+        # pwsh -> powershell.exe launch, that intermediate process preserves
+        # PS7 module paths; Utility can then resolve to an incompatible module.
+        # Let Windows PowerShell construct its own standard module path.
+        environment.pop('PSModulePath', None)
         return subprocess.run([
             shutil.which('powershell.exe'), '-NoProfile', '-NonInteractive',
             '-File', str(ROOT / 'scripts/build-msix.ps1'),
             '-Bundle', str(bundle or self.bundle),
             '-OutputDirectory', str(output or self.directory / 'output'),
             *arguments,
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+        ], env=environment, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
     def test_store_rejects_test_name_or_reserved_publisher(self):
         for name, publisher in (

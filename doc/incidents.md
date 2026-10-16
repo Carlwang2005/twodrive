@@ -46,6 +46,51 @@
 
 
 
+## TD-20261016-03：MSIX 新回归继承 PowerShell 7 模块路径导致 5.1 校验失败
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已修正测试子进程环境，原生复验待 CI。
+- 影响版本与环境：PR #35 新增 test_msix_packaging.py；Windows CI 的 pwsh → Python → powershell.exe 链。
+- 关联历史故障：TD-20261016-01/02 是被测打包策略；本条是新测试环境缺陷，未修改生产打包算法。
+
+### 症状与影响
+
+[首轮 Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/38862977139/job/116849284750)
+的 Rust、IPC、Flutter 和托盘通过；测试身份与合成商店身份的 MakeAppx 均打印
+Package creation succeeded，随后两项子用例因 Get-FileHash 未识别失败，未进行包内容断言。
+五组保留身份拒绝和 TestPackage 互斥检查通过。Linux 桌面 job 通过。
+
+### 触发条件与复现
+
+PowerShell 7 工作流启动 Python，Python 直接继承环境再启动 Windows PowerShell 5.1。
+首轮真实 CI 两个打包子用例均出现相同命令解析失败。
+
+### 根因与证据
+
+fixture 未清理父进程 PSModulePath。微软文档明确说明：经 Python 等中间进程启动 5.1
+会保留 PS7 路径，Microsoft.PowerShell.Utility 等共享模块名可解析到不兼容版本。
+日志确认宿主调用链与 Get-FileHash 缺失，但未记录具体被选中的模块文件；
+清除该单一环境变量后的相同测试将进一步验证此机制，不推断 PS5.1 本身缺少该命令。
+
+### 解决办法与恢复操作
+
+只从测试子进程的环境副本中删除 PSModulePath，让 5.1 按自身规则构造标准路径。
+不修改父进程、用户环境、模块安装、打包算法、证书或用户数据。
+
+### 验证结果与边界
+
+首轮失败保留；修复后原生两种模式的 SDK 打包与内容断言待 CI。
+本地主机 Python 编译通过，原生测试明确跳过，不计为已通过。
+
+### 防复发措施与后续
+
+保留真实 5.1 子进程打包，不切换宿主回避覆盖。依据：
+[微软 PSModulePath / 中间进程说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-7.6)。
+
+### 交付记录
+
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；首轮提交 368eae9，复验待补记。
+
 ## TD-20261016-02：MSIX 语言声明包含尚未本地化的英语界面
 
 - 日期：2026-10-16（Asia/Shanghai）
