@@ -40,6 +40,9 @@ defer updates to their distribution channel.
 
 ## MSIX
 
+最新正式上架差距、产品功能边界和执行顺序见
+[2026-10-16 Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)。
+
 构建完整 Windows Development bundle 后运行：
 
 ```powershell

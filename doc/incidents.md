@@ -46,6 +46,89 @@
 
 
 
+## TD-20261016-02：MSIX 语言声明包含尚未本地化的英语界面
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已修正清单，原生 SDK 产物验证待本 PR CI；未执行商店认证。
+- 影响版本与环境：Development 0.1.6 清单；不影响稳定 Linux 版。
+- 关联历史故障：无。属于语言元数据与现有界面不一致，不是 MSIX 安装失败。
+
+### 症状与影响
+
+清单声明 en-us/zh-cn，但 apps/dav 的页面、操作和错误主要是中文，没有英语本地化委托。
+商店语言声明不能据此代表完整英语体验。
+
+### 触发条件与复现
+
+读取 packaging/msix/AppxManifest.xml.in 的 Resources，对照 apps/dav/lib/main.dart 和 workspace.dart。
+未报告或模拟英语设备上新的运行时崩溃。
+
+### 根因与证据
+
+手工清单声明两种语言，但当前 Flutter UI 尚未实现相应英文资源。此结论来自源码，非认证结果。
+
+### 解决办法与恢复操作
+
+只保留 zh-cn；将来完成英语界面再添加。不修改用户系统语言、应用配置或已发布附件。
+
+### 验证结果与边界
+
+本地主机检查 XML 可解析；原生回归将读取实际 MakeAppx 包的 Resources，要求只有 zh-cn。
+Linux 上原生测试明确跳过；Windows CI 结果另行补记，不等于 UI 全面验收。
+
+### 防复发措施与后续
+
+保留 test_msix_packaging.py 的产物语言断言。首版商店材料如实描述中文界面。
+
+### 交付记录
+
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)。提交/PR 链接待创建。
+
+## TD-20261016-01：非测试 MSIX 构建允许保留 unsigned 测试身份
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已定位并补充输入拒绝，原生回归待本 PR CI。
+- 影响版本与环境：Development 0.1.6 的 scripts/build-msix.ps1；未观察到商店实际误提交。
+- 关联历史故障：TD-20261015-01 涉及 SDK 清单 schema；本条涉及测试/商店语义隔离，机制不同。
+
+### 症状与影响
+
+不传 -TestPackage，却手动传入 TwoDrive.Development.Test 或保留 unsigned OID，
+旧脚本只检查 Name 格式和 Publisher 的 CN= 前缀，可进入标为 store-unsigned 的输出路径。
+输出命名不能保证身份适合商店。没有发现正式签名或真实账号被冒用。
+
+### 触发条件与复现
+
+给非测试路径补齐三个身份参数，其中 Name 为保留测试名称，或 Publisher 含
+2.25.311729368913984317654407730594956997722 OID。旧源码的全部输入条件均允许它们。
+
+### 根因与证据
+
+原有互斥仅在 -TestPackage 分支禁止外部身份参数，反向路径没有拒绝保留身份。
+微软 unsigned 测试 OID 不属于正式 Publisher；应在 staging/SDK 前失败。
+
+### 解决办法与恢复操作
+
+非测试路径拒绝保留测试 Name（忽略大小写）及 OID（兼容 OID. 前缀、大小写和空格）。
+不改正式 Publisher、不生成证书、不信任证书、不安装或提交任何包，无用户恢复操作。
+
+### 验证结果与边界
+
+新增 Windows 回归用五组保留 Name/Publisher 输入确认明确拒绝、且没有创建输出目录；
+用真实 SDK 对完整 bundle 分别跑测试模式及临时合成商店身份模式，校验清单/版本/语言、
+未签名状态、渠道标记、便携安装器排除、包 SHA-256 与保留文件逐字节一致。
+合成身份不是 Partner Center 身份。Linux 上这三项原生测试明确跳过，等待 Windows CI；
+本次未运行实机、WACK 或认证，也未把源码推断写成原机重现。
+
+### 防复发措施与后续
+
+Windows MSIX 工作流必须执行 test_msix_packaging.py；合成身份包仅存在临时目录，
+不会上传为发行附件。真实 Partner Center 身份所有权仍需发布者核实。
+
+### 交付记录
+
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)。提交/PR 链接待创建。
+
 ## TD-20261015-19：本地 Deb 验收重复踩到 Windows 换行，并误用 shell 命令缓存
 
 - 日期：2026-10-15（Asia/Shanghai）
