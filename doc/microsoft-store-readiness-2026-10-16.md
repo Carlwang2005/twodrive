@@ -125,7 +125,16 @@ SHA-256 和保留 payload 的逐字节一致性。
 
 Linux 主机只能执行 Python 语法/发现，原生三项明确跳过；原生执行结果以本 PR Windows CI 为准。
 实机、WACK、正式身份和认证未在本次执行。故障条目见
-[TD-20261016-01/02](incidents.md)。
+[TD-20261016-01/02/03](incidents.md)。
+
+2026-10-16 CI 补记：验证源码
+[`432e35ca0962ebed3d81e7cececf810587699ce2`](https://github.com/LumiaBlack51/twodrive/commit/432e35ca0962ebed3d81e7cececf810587699ce2)。
+[桌面 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/38864468289) 的 Linux 检查通过；
+Windows 的 Rust/IPC、Flutter/托盘、三项原生 MSIX 回归及正式测试包生成/上传均通过。
+两种模式的内容断言在真实 Windows SDK 下执行，不是 Linux 跳过或静态文本检查。
+首轮 Python → PowerShell 5.1 的模块路径继承导致 hash 命令缺失，修复仅限测试子进程环境；
+失败及修正证据保存在 TD-20261016-03。此证据不包含普通用户 Windows 客户端、
+真实 Partner Center 身份、Store 签名分发、升级、WACK 或认证。
 
 ## 微软官方依据（2026-10-16 核对）
 

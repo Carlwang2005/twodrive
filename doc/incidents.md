@@ -49,7 +49,7 @@
 ## TD-20261016-03：MSIX 新回归继承 PowerShell 7 模块路径导致 5.1 校验失败
 
 - 日期：2026-10-16（Asia/Shanghai）
-- 状态：已修正测试子进程环境，原生复验待 CI。
+- 状态：已验证测试子进程环境修复后的原生打包；首轮失败保留。
 - 影响版本与环境：PR #35 新增 test_msix_packaging.py；Windows CI 的 pwsh → Python → powershell.exe 链。
 - 关联历史故障：TD-20261016-01/02 是被测打包策略；本条是新测试环境缺陷，未修改生产打包算法。
 
@@ -79,8 +79,10 @@ fixture 未清理父进程 PSModulePath。微软文档明确说明：经 Python 
 
 ### 验证结果与边界
 
-首轮失败保留；修复后原生两种模式的 SDK 打包与内容断言待 CI。
-本地主机 Python 编译通过，原生测试明确跳过，不计为已通过。
+首轮失败保留。源码 432e35c 的 Windows CI 已通过三项原生打包测试：五组保留身份拒绝、
+参数互斥、两种模式的实际 SDK 包与内容断言。与首轮相比，生产打包输入/算法未改，
+只修正测试子进程模块环境（按大小写不敏感删除环境键），支持该继承机制；
+具体被选择的模块文件仍未采集。链接见下。本地主机原生跳过不计为通过。
 
 ### 防复发措施与后续
 
@@ -89,12 +91,13 @@ fixture 未清理父进程 PSModulePath。微软文档明确说明：经 Python 
 
 ### 交付记录
 
-[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；首轮提交 368eae9，复验待补记。
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；首轮 368eae9 失败，
+[432e35c 原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38864468289/job/116854018353)通过全部测试及包产物检查。
 
 ## TD-20261016-02：MSIX 语言声明包含尚未本地化的英语界面
 
 - 日期：2026-10-16（Asia/Shanghai）
-- 状态：已修正清单，原生 SDK 产物验证待本 PR CI；未执行商店认证。
+- 状态：已验证实际 SDK 包的语言声明；未执行商店认证或全面 UI 本地化验收。
 - 影响版本与环境：Development 0.1.6 清单；不影响稳定 Linux 版。
 - 关联历史故障：无。属于语言元数据与现有界面不一致，不是 MSIX 安装失败。
 
@@ -118,8 +121,8 @@ fixture 未清理父进程 PSModulePath。微软文档明确说明：经 Python 
 
 ### 验证结果与边界
 
-本地主机检查 XML 可解析；原生回归将读取实际 MakeAppx 包的 Resources，要求只有 zh-cn。
-Linux 上原生测试明确跳过；Windows CI 结果另行补记，不等于 UI 全面验收。
+本地主机 XML 解析通过。432e35c 的原生回归已读取两种实际 MakeAppx 包的 Resources，
+均只有 zh-cn；见 TD-20261016-03 的 CI 链接。不等于 UI 全面验收或英语系统实机测试。
 
 ### 防复发措施与后续
 
@@ -127,12 +130,13 @@ Linux 上原生测试明确跳过；Windows CI 结果另行补记，不等于 UI
 
 ### 交付记录
 
-见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)。提交/PR 链接待创建。
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)及
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；验证源码 432e35c，CI 链接见 TD-20261016-03。
 
 ## TD-20261016-01：非测试 MSIX 构建允许保留 unsigned 测试身份
 
 - 日期：2026-10-16（Asia/Shanghai）
-- 状态：已定位并补充输入拒绝，原生回归待本 PR CI。
+- 状态：已验证原生输入拒绝及两种打包模式；未核实真实 Partner Center 身份。
 - 影响版本与环境：Development 0.1.6 的 scripts/build-msix.ps1；未观察到商店实际误提交。
 - 关联历史故障：TD-20261015-01 涉及 SDK 清单 schema；本条涉及测试/商店语义隔离，机制不同。
 
@@ -162,7 +166,8 @@ Linux 上原生测试明确跳过；Windows CI 结果另行补记，不等于 UI
 新增 Windows 回归用五组保留 Name/Publisher 输入确认明确拒绝、且没有创建输出目录；
 用真实 SDK 对完整 bundle 分别跑测试模式及临时合成商店身份模式，校验清单/版本/语言、
 未签名状态、渠道标记、便携安装器排除、包 SHA-256 与保留文件逐字节一致。
-合成身份不是 Partner Center 身份。Linux 上这三项原生测试明确跳过，等待 Windows CI；
+合成身份不是 Partner Center 身份。432e35c 的 Windows CI 已通过三项原生测试，
+见 TD-20261016-03 的链接；Linux 主机的原生跳过不计为通过。
 本次未运行实机、WACK 或认证，也未把源码推断写成原机重现。
 
 ### 防复发措施与后续
@@ -172,7 +177,8 @@ Windows MSIX 工作流必须执行 test_msix_packaging.py；合成身份包仅�
 
 ### 交付记录
 
-见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)。提交/PR 链接待创建。
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)及
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；验证源码 432e35c，CI 链接见 TD-20261016-03。
 
 ## TD-20261015-19：本地 Deb 验收重复踩到 Windows 换行，并误用 shell 命令缓存
 
