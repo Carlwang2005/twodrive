@@ -27,6 +27,10 @@ if ($TestPackage) {
 } elseif (-not $IdentityName -or -not $Publisher -or -not $PublisherDisplayName) {
     throw 'Supply the exact IdentityName, Publisher and PublisherDisplayName from Partner Center, or use -TestPackage.'
 }
+if (-not $TestPackage -and ($IdentityName -ieq 'TwoDrive.Development.Test' -or
+    $Publisher -match '(?i)(OID\.)?2\.25\.311729368913984317654407730594956997722\s*=')) {
+    throw 'The reserved unsigned test identity/Publisher cannot be used for a Store package. Use -TestPackage or the exact Partner Center identity.'
+}
 if ($IdentityName -notmatch '^[A-Za-z0-9.-]{3,50}$' -or $Publisher -notmatch '^CN=') { throw 'Invalid package identity.' }
 if (-not $Version) {
     $cargo = Get-Content -LiteralPath (Join-Path $projectRoot 'experiments\twodrive-dev\Cargo.toml') -Raw

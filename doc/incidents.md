@@ -46,6 +46,140 @@
 
 
 
+## TD-20261016-03：MSIX 新回归继承 PowerShell 7 模块路径导致 5.1 校验失败
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已验证测试子进程环境修复后的原生打包；首轮失败保留。
+- 影响版本与环境：PR #35 新增 test_msix_packaging.py；Windows CI 的 pwsh → Python → powershell.exe 链。
+- 关联历史故障：TD-20261016-01/02 是被测打包策略；本条是新测试环境缺陷，未修改生产打包算法。
+
+### 症状与影响
+
+[首轮 Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/38862977139/job/116849284750)
+的 Rust、IPC、Flutter 和托盘通过；测试身份与合成商店身份的 MakeAppx 均打印
+Package creation succeeded，随后两项子用例因 Get-FileHash 未识别失败，未进行包内容断言。
+五组保留身份拒绝和 TestPackage 互斥检查通过。Linux 桌面 job 通过。
+
+### 触发条件与复现
+
+PowerShell 7 工作流启动 Python，Python 直接继承环境再启动 Windows PowerShell 5.1。
+首轮真实 CI 两个打包子用例均出现相同命令解析失败。
+
+### 根因与证据
+
+fixture 未清理父进程 PSModulePath。微软文档明确说明：经 Python 等中间进程启动 5.1
+会保留 PS7 路径，Microsoft.PowerShell.Utility 等共享模块名可解析到不兼容版本。
+日志确认宿主调用链与 Get-FileHash 缺失，但未记录具体被选中的模块文件；
+清除该单一环境变量后的相同测试将进一步验证此机制，不推断 PS5.1 本身缺少该命令。
+
+### 解决办法与恢复操作
+
+只从测试子进程的环境副本中删除 PSModulePath，让 5.1 按自身规则构造标准路径。
+不修改父进程、用户环境、模块安装、打包算法、证书或用户数据。
+
+### 验证结果与边界
+
+首轮失败保留。源码 432e35c 的 Windows CI 已通过三项原生打包测试：五组保留身份拒绝、
+参数互斥、两种模式的实际 SDK 包与内容断言。与首轮相比，生产打包输入/算法未改，
+只修正测试子进程模块环境（按大小写不敏感删除环境键），支持该继承机制；
+具体被选择的模块文件仍未采集。链接见下。本地主机原生跳过不计为通过。
+
+### 防复发措施与后续
+
+保留真实 5.1 子进程打包，不切换宿主回避覆盖。依据：
+[微软 PSModulePath / 中间进程说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-7.6)。
+
+### 交付记录
+
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；首轮 368eae9 失败，
+[432e35c 原生复验](https://github.com/LumiaBlack51/twodrive/actions/runs/38864468289/job/116854018353)通过全部测试及包产物检查。
+
+## TD-20261016-02：MSIX 语言声明包含尚未本地化的英语界面
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已验证实际 SDK 包的语言声明；未执行商店认证或全面 UI 本地化验收。
+- 影响版本与环境：Development 0.1.6 清单；不影响稳定 Linux 版。
+- 关联历史故障：无。属于语言元数据与现有界面不一致，不是 MSIX 安装失败。
+
+### 症状与影响
+
+清单声明 en-us/zh-cn，但 apps/dav 的页面、操作和错误主要是中文，没有英语本地化委托。
+商店语言声明不能据此代表完整英语体验。
+
+### 触发条件与复现
+
+读取 packaging/msix/AppxManifest.xml.in 的 Resources，对照 apps/dav/lib/main.dart 和 workspace.dart。
+未报告或模拟英语设备上新的运行时崩溃。
+
+### 根因与证据
+
+手工清单声明两种语言，但当前 Flutter UI 尚未实现相应英文资源。此结论来自源码，非认证结果。
+
+### 解决办法与恢复操作
+
+只保留 zh-cn；将来完成英语界面再添加。不修改用户系统语言、应用配置或已发布附件。
+
+### 验证结果与边界
+
+本地主机 XML 解析通过。432e35c 的原生回归已读取两种实际 MakeAppx 包的 Resources，
+均只有 zh-cn；见 TD-20261016-03 的 CI 链接。不等于 UI 全面验收或英语系统实机测试。
+
+### 防复发措施与后续
+
+保留 test_msix_packaging.py 的产物语言断言。首版商店材料如实描述中文界面。
+
+### 交付记录
+
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)及
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；验证源码 432e35c，CI 链接见 TD-20261016-03。
+
+## TD-20261016-01：非测试 MSIX 构建允许保留 unsigned 测试身份
+
+- 日期：2026-10-16（Asia/Shanghai）
+- 状态：已验证原生输入拒绝及两种打包模式；未核实真实 Partner Center 身份。
+- 影响版本与环境：Development 0.1.6 的 scripts/build-msix.ps1；未观察到商店实际误提交。
+- 关联历史故障：TD-20261015-01 涉及 SDK 清单 schema；本条涉及测试/商店语义隔离，机制不同。
+
+### 症状与影响
+
+不传 -TestPackage，却手动传入 TwoDrive.Development.Test 或保留 unsigned OID，
+旧脚本只检查 Name 格式和 Publisher 的 CN= 前缀，可进入标为 store-unsigned 的输出路径。
+输出命名不能保证身份适合商店。没有发现正式签名或真实账号被冒用。
+
+### 触发条件与复现
+
+给非测试路径补齐三个身份参数，其中 Name 为保留测试名称，或 Publisher 含
+2.25.311729368913984317654407730594956997722 OID。旧源码的全部输入条件均允许它们。
+
+### 根因与证据
+
+原有互斥仅在 -TestPackage 分支禁止外部身份参数，反向路径没有拒绝保留身份。
+微软 unsigned 测试 OID 不属于正式 Publisher；应在 staging/SDK 前失败。
+
+### 解决办法与恢复操作
+
+非测试路径拒绝保留测试 Name（忽略大小写）及 OID（兼容 OID. 前缀、大小写和空格）。
+不改正式 Publisher、不生成证书、不信任证书、不安装或提交任何包，无用户恢复操作。
+
+### 验证结果与边界
+
+新增 Windows 回归用五组保留 Name/Publisher 输入确认明确拒绝、且没有创建输出目录；
+用真实 SDK 对完整 bundle 分别跑测试模式及临时合成商店身份模式，校验清单/版本/语言、
+未签名状态、渠道标记、便携安装器排除、包 SHA-256 与保留文件逐字节一致。
+合成身份不是 Partner Center 身份。432e35c 的 Windows CI 已通过三项原生测试，
+见 TD-20261016-03 的链接；Linux 主机的原生跳过不计为通过。
+本次未运行实机、WACK 或认证，也未把源码推断写成原机重现。
+
+### 防复发措施与后续
+
+Windows MSIX 工作流必须执行 test_msix_packaging.py；合成身份包仅存在临时目录，
+不会上传为发行附件。真实 Partner Center 身份所有权仍需发布者核实。
+
+### 交付记录
+
+见 [Microsoft Store 评估](microsoft-store-readiness-2026-10-16.md)及
+[PR #35](https://github.com/LumiaBlack51/twodrive/pull/35)；验证源码 432e35c，CI 链接见 TD-20261016-03。
+
 ## TD-20261015-19：本地 Deb 验收重复踩到 Windows 换行，并误用 shell 命令缓存
 
 - 日期：2026-10-15（Asia/Shanghai）
