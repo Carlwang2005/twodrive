@@ -218,18 +218,29 @@ impl Database {
         target_local_id: &str,
         new_path: &str,
     ) -> anyhow::Result<FileRecord> {
+        let new_path = normalize_cloud_path(new_path);
+        let mut conn = self.connect()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Read both identities under the write transaction: a delta or upload
+        // acknowledgement must not change the replacement preconditions.
         let source = self
-            .get_by_remote_id(source_local_id)?
+            .query_record(&tx,
+                "SELECT remote_id, path, parent_path, name, is_dir, size, modified_unix, etag, state, cache_path, cache_accessed_unix, pin_explicit, pin_origin_remote_id, pin_inheritance_blocked, cloud_remote_id, local_mode FROM files WHERE remote_id = ?1",
+                params![source_local_id])?
             .ok_or_else(|| anyhow::anyhow!("replacement source disappeared"))?;
         let target = self
-            .get_by_remote_id(target_local_id)?
+            .query_record(&tx,
+                "SELECT remote_id, path, parent_path, name, is_dir, size, modified_unix, etag, state, cache_path, cache_accessed_unix, pin_explicit, pin_origin_remote_id, pin_inheritance_blocked, cloud_remote_id, local_mode FROM files WHERE remote_id = ?1",
+                params![target_local_id])?
             .ok_or_else(|| anyhow::anyhow!("replacement target disappeared"))?;
         if source.metadata.is_dir || target.metadata.is_dir {
             anyhow::bail!("cannot replace a directory as a file");
         }
-        let new_path = normalize_cloud_path(new_path);
-        let mut conn = self.connect()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        anyhow::ensure!(target.metadata.path == new_path, "replacement target moved");
+        if source_local_id == target_local_id {
+            // Preserve content, state, upload claims and pending metadata jobs.
+            return Ok(target);
+        }
         tx.execute(
             "DELETE FROM pending_metadata_operations WHERE local_id IN (?1, ?2)",
             params![source_local_id, target_local_id],
@@ -248,11 +259,12 @@ impl Database {
                 params![source_cloud_id, source.metadata.path, now_unix()],
             )?;
         }
-        tx.execute(
+        let removed = tx.execute(
             "DELETE FROM files WHERE remote_id = ?1",
             params![source_local_id],
         )?;
-        tx.execute(
+        anyhow::ensure!(removed == 1, "replacement source was not removed");
+        let updated = tx.execute(
             r#"
             UPDATE files
             SET path = ?1,
@@ -282,6 +294,7 @@ impl Database {
                 source.local_mode,
             ],
         )?;
+        anyhow::ensure!(updated == 1, "replacement target was not updated");
         tx.commit()?;
         self.recompute_pin_inheritance()?;
         self.get_by_remote_id(target_local_id)?

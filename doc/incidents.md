@@ -49,6 +49,66 @@
 
 
 
+## TD-20261017-01：文件管理器移动 PDF 返回输入/输出错误
+
+- 日期：2026-10-17（Asia/Shanghai）
+- 状态：已修复并验证受控竞争机制；本地升级与 main PR 交付进行中。原现场完整刷新时序未确认。
+- 影响版本与环境：Linux/Nautilus + TwoDrive OneDrive FUSE；本机 CLI 报告 0.2.15，daemon 从用户目录运行，14:17:28 启动。本轮没有独立核实该 daemon 的构建提交；复现使用当前 main 源码 eec97e6。
+- 关联历史故障：TD-20261014-12（已关闭待上传文件的 unlink 限制）、TD-20260915-01（待处理目录内创建失败）及[父目录移动与子项同步顺序](folder-move-sync-2026-09-11.md)。本次复现为同一身份自替换，与前述 unlink 状态限制和创建过滤机制不同；没有证据认定为其修复回归。
+
+### 症状与影响
+
+用户报告将已有 PDF 移入同一挂载内的子目录时，文件管理器提示 Input/output error。17:58:22.175958（Asia/Shanghai）daemon 记录 `twodrive rename error: local replacement disappeared`。随后只读查询显示源路径、目标路径及同名文件均不在本地索引中。错误提示本身不能证明 PDF 内容损坏。
+
+真实 Graph 只读核对曾得到源路径 404、目标路径 200，目标文件为 244,856 字节；随后原目标也返回 404，同名搜索为空。用户确认排查期间仍在整理、移动文件，之后告知已完成。不能把后续路径变化当成软件再次删除云端文件的证据，最终云端位置尚未确认。
+
+### 触发条件与复现
+
+未主动移动用户文件。隔离 MockBackend 与临时 SQLite 的最小复现：
+
+1. 缓存一份已绑定云端身份的文件，FUSE inode 仍指向旧目录条目。
+2. 模拟云端已移动该文件，导入更新后的元数据，但不刷新旧目录。
+3. 刷新目标目录；同一身份可同时由旧路径 inode 与新路径 inode 表示。
+4. 从旧目录视图再次执行相同目标的 rename。
+
+新增 `stale_source_inode_rename_preserves_file_already_at_destination` 显式运行后稳定失败，报告 `rename deleted the existing local identity: Err(local replacement disappeared)`，与实际日志的内部错误一致。
+
+### 根因与证据
+
+`filesystem/mutations.rs::rename_record` 先通过旧路径取得 inode，再按身份读取数据库中的最新源记录。若后台元数据已将该身份移动到目标，源与目标可成为同一条记录，但代码仍调用 `Database::replace_file_locally`。
+
+`database/mutations.rs::replace_file_locally` 未拒绝或短路相同 source/target 身份：事务先 DELETE 源，再 UPDATE 已被删除的同一目标；UPDATE 行数未校验，事务仍提交。事务后查询目标为空，返回 `local replacement disappeared`，FUSE 再将其映射为 EIO。隔离测试确认本地记录被删除；该复现中云端对象与原缓存字节未由这一事务删除。
+
+实际错误前约 2.5 秒有一次 delta 导入完成；当时日志没有保留该 PDF 的源/目标身份及逐操作轨迹。因此已确认可导致完全相同错误的缺陷及其触发条件，但不能把模拟时序冒称原现场完整重放，也未排除原现场的其他并发删除窗口。
+
+### 解决办法与恢复操作
+
+初次按用户“判断原因”的请求开展诊断时，没有修改生产实现、安装程序或重启服务，没有写入现用数据库或云端。用户随后明确授权恢复该 PDF、修改代码、更新本地程序并向 main 提 PR 和合并。
+
+单独的本地保全操作：在缓存中找到唯一大小为 244,856 字节的 PDF 候选，文件头尾完整，`pdftotext` 可正常读取且文本主题与报告相符；当前索引已无该缓存引用。将其复制到本机下载目录的 `TwoDrive-recovery-20261017/`，副本权限 0600，源/副本 SHA-256 一致；原缓存保留。该副本仅为恢复候选，没有回填索引或自动上传，也没有与云端内容逐字节核对。
+
+授权后的恢复：核实整理后的目标目录已有同名云端文件，真实下载的全部 244,856 字节与上述候选一致。在线备份现用 SQLite 后，使用现有 GraphBackend/Database API 仅重新导入这一项已验证的云端元数据，恢复缺失的本地索引；通过现用 FUSE 重新读取后亦逐字节一致。没有重复上传、覆盖云端对象、清空队列或替换整个数据库；原缓存与保全副本保留。此操作独立于代码修复，恢复的是已存在的云端文件。
+
+代码修复：FUSE rename 检测到源/目标为同一身份时刷新两个目录视图并更新仍链接的写句柄路径，直接确认已完成的移动，不进入覆盖流程、不将打开的句柄标为 unlink。数据库替换在 Immediate 事务内重新读取源/目标并验证目标仍位于预期路径；相同身份直接返回原记录，保留缓存、权限、上传声明及元数据待办。真正覆盖时要求源删除和目标更新各影响一行，否则整个事务回滚。
+
+### 验证结果与边界
+
+- 已阅读相关历史故障和移动、创建调查。
+- `cargo test -p twodrive-fs --locked stale_source_inode_rename_preserves_file_already_at_destination -- --ignored --nocapture`：当前实现 0 passed / 1 failed，断言确认记录消失且返回与实际相同的内部错误。此为真实 Rust 调用链、临时 SQLite 与 MockBackend，不是真实 OneDrive 移动端到端验证。
+- 初次诊断保存的该回归曾明确标记为已知缺陷忽略；修复阶段已移除忽略，新增两个打开的读句柄、旧路径消失及新目录无重复项断言，修复后通过。
+- 新增 `self_replacement_preserves_cached_content_upload_claim_and_pending_move`、`replacement_rejects_a_target_that_has_moved_without_changing_records` 和 `replacement_rolls_back_source_deletion_when_target_update_is_ignored`。旧生产实现三项全部失败，修复后三项全部通过；最后一项使用真实 SQLite trigger 忽略目标更新，验证失败不能提交源删除或丢失元数据待办。
+- 新增 `mounted_rename_after_cloud_move_keeps_content_and_open_handle`：实际隔离 FUSE 挂载与 MockBackend 中模拟云端先移动，再从缓存的旧路径执行系统 rename；修复后路径、数据库记录、内容和已打开句柄均保留。它因依赖 FUSE 默认忽略，本机已显式通过。
+- 本机 `cargo build --workspace --locked`、格式、严格工作区 Clippy、完整默认 Rust 工作区 176 项（9 项默认忽略）、25 项 Nautilus、4 项 Settings 与 6 项 release guard 测试通过。八项实际 FUSE 回归已全部显式通过，独立 mock daemon 的 hydration/write/upload/move/delete/pin/release 冒烟通过；剩余 peer 更新子进程默认忽略用例本机本轮未执行，由原生 CI 覆盖。
+- 初次旧路径内容请求 404 时未取得云端字节；授权恢复后已验证整理后目标的真实 Graph 下载、候选副本与现用挂载读取全部一致。恢复验证不是对本次竞争条件的真实 OneDrive 端到端重放；原生产时序、外部客户端同时编辑、断网/崩溃及其他所有 EIO 原因均未覆盖。
+
+### 防复发措施与后续
+
+保留同身份短路、事务内前提核实和受影响行数校验，以及上述默认回归和显式挂载回归；既有不同文件真正覆盖、上传代次、权限和 unlink 回归亦需保持通过。已确认修复的机制是同身份自替换与目标更新未生效时的错误提交，不能据此保证所有同步故障或 EIO 永不出现。正常本地整理属于应支持的操作。
+
+### 交付记录
+
+修复分支 `codex/fix-stale-rename`；提交与 main PR 待创建。本地程序升级待执行；未请求或发布新 Release。用户文件、数据库备份和恢复候选仅保存在本机，不纳入仓库。
+
 ## TD-20261015-16：同实例元数据写者竞争耗尽 SQLite 锁等待
 
 - 日期：2026-10-15（Asia/Shanghai）
