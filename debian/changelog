@@ -1,3 +1,14 @@
+twodrive (0.2.16-1) unstable; urgency=medium
+
+  * Preserve file identity when a repeated rename follows a cloud-completed move.
+  * Validate replacement preconditions within the SQLite write transaction and
+    roll back source deletion when the target cannot be updated.
+  * Add cached-inode, open-handle and actual FUSE regression coverage.
+  * Keep the stable README focused on shipped GNOME/Linux functionality.
+  * Retain standard offline dpkg-buildpackage/debhelper source and binary builds.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Sat, 17 Oct 2026 18:21:04 +0800
+
 twodrive (0.2.15-1) unstable; urgency=medium
 
   * Serialize metadata updates across Database clones to prevent same-instance
