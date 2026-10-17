@@ -49,6 +49,141 @@
 
 
 
+## TD-20261017-03：发布准备中的 HTTPS 标签推送连接停滞
+
+- 日期：2026-10-17（Asia/Shanghai）
+- 状态：重试完成，标签对象已核实；首次连接停滞的网络/传输根因未确认。
+- 影响版本与环境：本机向 GitHub 推送新标签 v0.2.16-1 的维护操作；与 TwoDrive 文件同步代码无关。
+- 关联历史故障：无。
+
+### 症状与影响
+
+首次 git push 在 HTTPS 子进程中超过一分钟没有输出，远端 API 当时仍返回标签不存在；后续草稿创建步骤没有执行。没有覆盖已有远端标签或公开未验证的 Release。
+
+### 触发条件与复现
+
+正常推送首次出现的注解标签；此前分支推送与 GitHub API 正常。没有主动制造网络故障来复现。
+
+### 根因与证据
+
+观察到 git-remote-https 持续等待，没有保留 HTTP 传输轨迹或服务端诊断，不能据此断言 GitHub 故障、账号权限问题或某一代理根因。
+
+### 解决办法与恢复操作
+
+仅终止本次自建的 git push/传输子进程，核实远端状态后，使用 45 秒命令上限和 30 秒低速超时重试。推送成功，远端注解标签对象 76e667c86d76cd2d274b1a3409b3a930ebcacf59 与原本地对象一致，目标为 9322a761604d7a36924abf0092f5b837c2814e59。没有 force push 或移动标签；随后才创建发布草稿。
+
+### 验证结果与边界
+
+远端 API、git push 结果和草稿目标一致；首次传输停滞原因仍未确认。没有可复现的软件缺陷，未添加推测性的生产回归；该恢复不等于发布制品已通过验证。
+
+### 防复发措施与后续
+
+维护推送使用有界等待；未知结果必须先读远端状态再重试。继续执行完整 Release 校验门控，不能以标签推送成功替代包验证。
+
+### 交付记录
+
+随 [PR #36](https://github.com/LumiaBlack51/twodrive/pull/36) 留档；发布阶段及安装验证结果由 Release 的 verification.json 记录。
+
+## TD-20261017-02：本地升级停止服务后普通卸载被资源忙拒绝
+
+- 日期：2026-10-17（Asia/Shanghai）
+- 状态：本地恢复已验证；造成短暂挂载引用的具体进程未确认，未修改程序机制。
+- 影响版本与环境：本机 0.2.15 用户服务升级准备阶段；自定义 unit 已有 `fusermount3 -uz` 的启动前清理。
+- 关联历史故障：TD-20261017-01 的本地更新操作，属于恢复步骤中的另一项失败，不是 PDF 自替换的根因。
+
+### 症状与影响
+
+18:17 停止服务后，额外执行的普通 `fusermount3 -u` 返回 Device or resource busy。安装步骤尚未替换二进制，异常处理立即重新启动原程序；没有写入或删除用户文件。
+
+### 触发条件与复现
+
+停止前 SQLite 的 Writing/Dirty/Uploading 为零，未发现挂载内可写文件描述符。只观察到本次普通卸载失败，未主动制造用户进程引用以重复复现。
+
+### 根因与证据
+
+内核当时拒绝普通卸载，但没有保存拒绝瞬间的完整引用轨迹，不能猜测具体持有者。原服务恢复后 `fuser` 只报告 kernel mount，`/proc` 扫描未找到 cwd/root 引用。现有 unit 的启动前操作已使用延迟卸载，并成功恢复原挂载。
+
+### 解决办法与恢复操作
+
+确认原服务正常恢复后，再次检查无待写文件/可写描述符，停止服务，沿用已有 unit 的 `fusermount3 -uz` 方式分离旧挂载。完成完整私有备份后才替换 CLI/daemon 并启动。没有杀死应用进程、修改服务配置、清空缓存或删除恢复队列。
+
+### 验证结果与边界
+
+重试成功；新 daemon 的运行文件与构建输出 SHA-256 一致，挂载内恢复 PDF 字节一致，SQLite integrity_check 为 ok，配置/凭据字节不变，原 3 项元数据待办与 1 项删除待办身份保留。没有定位最初资源忙的持有者，也不将延迟卸载称为对所有卸载失败的代码修复。
+
+### 防复发措施与后续
+
+升级必须保留停止失败/卸载失败后的服务恢复路径；在确认无待写数据并保全恢复状态后遵循现有服务的挂载生命周期。此次没有可复现的软件缺陷，因此未添加推测性的生产回归。
+
+### 交付记录
+
+随 [PR #36](https://github.com/LumiaBlack51/twodrive/pull/36) 留档；备份与验证汇总仅保存在本机私有维护目录。
+
+## TD-20261017-01：文件管理器移动 PDF 返回输入/输出错误
+
+- 日期：2026-10-17（Asia/Shanghai）
+- 状态：已修复并验证受控竞争机制，修复构建已部署本机；后续发布验证和交付状态见下方 PR/Release 记录。原现场完整刷新时序未确认。
+- 影响版本与环境：Linux/Nautilus + TwoDrive OneDrive FUSE；本机旧 CLI/运行中 daemon 均独立报告 0.2.15，daemon 从用户目录运行，14:17:28 启动。本轮没有独立核实旧 daemon 的构建提交；复现使用 main 源码 eec97e6。
+- 关联历史故障：TD-20261014-12（已关闭待上传文件的 unlink 限制）、TD-20260915-01（待处理目录内创建失败）及[父目录移动与子项同步顺序](folder-move-sync-2026-09-11.md)。本次复现为同一身份自替换，与前述 unlink 状态限制和创建过滤机制不同；没有证据认定为其修复回归。
+
+### 症状与影响
+
+用户报告将已有 PDF 移入同一挂载内的子目录时，文件管理器提示 Input/output error。17:58:22.175958（Asia/Shanghai）daemon 记录 `twodrive rename error: local replacement disappeared`。随后只读查询显示源路径、目标路径及同名文件均不在本地索引中。错误提示本身不能证明 PDF 内容损坏。
+
+真实 Graph 只读核对曾得到源路径 404、目标路径 200，目标文件为 244,856 字节；随后原目标也返回 404，同名搜索为空。用户确认排查期间仍在整理、移动文件，之后告知已完成。不能把后续路径变化当成软件再次删除云端文件的证据，最终云端位置尚未确认。
+
+### 触发条件与复现
+
+未主动移动用户文件。隔离 MockBackend 与临时 SQLite 的最小复现：
+
+1. 缓存一份已绑定云端身份的文件，FUSE inode 仍指向旧目录条目。
+2. 模拟云端已移动该文件，导入更新后的元数据，但不刷新旧目录。
+3. 刷新目标目录；同一身份可同时由旧路径 inode 与新路径 inode 表示。
+4. 从旧目录视图再次执行相同目标的 rename。
+
+新增 `stale_source_inode_rename_preserves_file_already_at_destination` 显式运行后稳定失败，报告 `rename deleted the existing local identity: Err(local replacement disappeared)`，与实际日志的内部错误一致。
+
+### 根因与证据
+
+`filesystem/mutations.rs::rename_record` 先通过旧路径取得 inode，再按身份读取数据库中的最新源记录。若后台元数据已将该身份移动到目标，源与目标可成为同一条记录，但代码仍调用 `Database::replace_file_locally`。
+
+`database/mutations.rs::replace_file_locally` 未拒绝或短路相同 source/target 身份：事务先 DELETE 源，再 UPDATE 已被删除的同一目标；UPDATE 行数未校验，事务仍提交。事务后查询目标为空，返回 `local replacement disappeared`，FUSE 再将其映射为 EIO。隔离测试确认本地记录被删除；该复现中云端对象与原缓存字节未由这一事务删除。
+
+实际错误前约 2.5 秒有一次 delta 导入完成；当时日志没有保留该 PDF 的源/目标身份及逐操作轨迹。因此已确认可导致完全相同错误的缺陷及其触发条件，但不能把模拟时序冒称原现场完整重放，也未排除原现场的其他并发删除窗口。
+
+### 解决办法与恢复操作
+
+初次按用户“判断原因”的请求开展诊断时，没有修改生产实现、安装程序或重启服务，没有写入现用数据库或云端。用户随后明确授权恢复该 PDF、修改代码、更新本地程序并向 main 提 PR 和合并。
+
+单独的本地保全操作：在缓存中找到唯一大小为 244,856 字节的 PDF 候选，文件头尾完整，`pdftotext` 可正常读取且文本主题与报告相符；当前索引已无该缓存引用。将其复制到本机下载目录的 `TwoDrive-recovery-20261017/`，副本权限 0600，源/副本 SHA-256 一致；原缓存保留。该副本仅为恢复候选，没有回填索引或自动上传，也没有与云端内容逐字节核对。
+
+授权后的恢复：核实整理后的目标目录已有同名云端文件，真实下载的全部 244,856 字节与上述候选一致。在线备份现用 SQLite 后，使用现有 GraphBackend/Database API 仅重新导入这一项已验证的云端元数据，恢复缺失的本地索引；通过现用 FUSE 重新读取后亦逐字节一致。没有重复上传、覆盖云端对象、清空队列或替换整个数据库；原缓存与保全副本保留。此操作独立于代码修复，恢复的是已存在的云端文件。
+
+代码修复：FUSE rename 检测到源/目标为同一身份时刷新两个目录视图并更新仍链接的写句柄路径，直接确认已完成的移动，不进入覆盖流程、不将打开的句柄标为 unlink。数据库替换在 Immediate 事务内重新读取源/目标并验证目标仍位于预期路径；相同身份直接返回原记录，保留缓存、权限、上传声明及元数据待办。真正覆盖时要求源删除和目标更新各影响一行，否则整个事务回滚。
+
+首次本地更新已完成：源码修复提交 d670d3b 的 release CLI/daemon 先通过隔离 mock 冒烟；确认无待写文件后，停止服务并完整备份配置/凭据、数据库/缓存、旧程序及自定义 unit，再原子替换用户目录下两个二进制。保留安装布局、unit 和现有恢复数据；这一阶段为 0.2.15 修复构建，后续标准 0.2.16-1 Debian 包的本地安装结果单列于 Release 的 verification.json。普通卸载失败与恢复过程单列 TD-20261017-02。
+
+### 验证结果与边界
+
+- 已阅读相关历史故障和移动、创建调查。
+- `cargo test -p twodrive-fs --locked stale_source_inode_rename_preserves_file_already_at_destination -- --ignored --nocapture`：当前实现 0 passed / 1 failed，断言确认记录消失且返回与实际相同的内部错误。此为真实 Rust 调用链、临时 SQLite 与 MockBackend，不是真实 OneDrive 移动端到端验证。
+- 初次诊断保存的该回归曾明确标记为已知缺陷忽略；修复阶段已移除忽略，新增两个打开的读句柄、旧路径消失及新目录无重复项断言，修复后通过。
+- 新增 `self_replacement_preserves_cached_content_upload_claim_and_pending_move`、`replacement_rejects_a_target_that_has_moved_without_changing_records` 和 `replacement_rolls_back_source_deletion_when_target_update_is_ignored`。旧生产实现三项全部失败，修复后三项全部通过；最后一项使用真实 SQLite trigger 忽略目标更新，验证失败不能提交源删除或丢失元数据待办。
+- 新增 `mounted_rename_after_cloud_move_keeps_content_and_open_handle`：实际隔离 FUSE 挂载与 MockBackend 中模拟云端先移动，再从缓存的旧路径执行系统 rename；修复后路径、数据库记录、内容和已打开句柄均保留。它因依赖 FUSE 默认忽略，本机已显式通过。
+- 本机 `cargo build --workspace --locked`、格式、严格工作区 Clippy、完整默认 Rust 工作区 176 项（9 项默认忽略）、25 项 Nautilus、4 项 Settings 与 6 项 release guard 测试通过。八项实际 FUSE 回归已全部显式通过，独立 mock daemon 的 hydration/write/upload/move/delete/pin/release 冒烟通过；剩余 peer 更新子进程默认忽略用例本机本轮未执行，由原生 CI 覆盖。
+- 初次旧路径内容请求 404 时未取得云端字节；授权恢复后已验证整理后目标的真实 Graph 下载、候选副本与现用挂载读取全部一致。恢复验证不是对本次竞争条件的真实 OneDrive 端到端重放；原生产时序、外部客户端同时编辑、断网/崩溃及其他所有 EIO 原因均未覆盖。
+- 本机首次升级后运行 daemon 与构建输出 SHA-256 一致；CLI/daemon 分别为 `8d411961d7ae83315a88fdf80b71bdeb46d10bb45fab40c321dda1fa9be33423`、`6ee69656988088a431f012639cef02146a73535cbf76b1709a52ccb67d815807`。数据库完整性为 ok，配置/凭据字节不变，恢复 PDF 字节一致，原 3 项元数据待办与 1 项删除待办身份全部保留；没有将历史待办清空当作修复。
+
+### 防复发措施与后续
+
+保留同身份短路、事务内前提核实和受影响行数校验，以及上述默认回归和显式挂载回归；既有不同文件真正覆盖、上传代次、权限和 unlink 回归亦需保持通过。已确认修复的机制是同身份自替换与目标更新未生效时的错误提交，不能据此保证所有同步故障或 EIO 永不出现。正常本地整理属于应支持的操作。
+
+### 交付记录
+
+修复提交 [d670d3b](https://github.com/LumiaBlack51/twodrive/commit/d670d3b9b0cd50cf77e95f95cd975ee121e82b02)，[PR #36](https://github.com/LumiaBlack51/twodrive/pull/36)。用户随后补充授权精简中英文 README、检查其他待合并 PR、发布稳定 0.2.16-1 并清理本轮临时产物。发布源码固定为 [9322a76](https://github.com/LumiaBlack51/twodrive/commit/9322a761604d7a36924abf0092f5b837c2814e59) / v0.2.16-1，之后本条记录更新不改变应用代码或锁定依赖。[Release 草稿](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.16-1)已创建并附 verification.json 进度记录，只有完整制品校验、源码及安装验证通过并确认源码已整合 main 后才公开；最终公开状态与完整验证数据以该 Release 和 verification.json 为准。
+
+Debian 继续使用仓库 dpkg-buildpackage/debhelper、锁定 vendored 依赖的离线构建，并保留源码/二进制/调试包、buildinfo 和 changes 全套制品与清单；不恢复手工打包路径。Ubuntu/rustup 的构建依赖检查例外与尚未完成的 Debian 官方入库审计仍按打包规范披露。用户文件、数据库备份和恢复候选仅保存在本机，不纳入仓库；清理临时产物时保留最终完整发布制品和未提交开发内容。
+
 ## TD-20261015-16：同实例元数据写者竞争耗尽 SQLite 锁等待
 
 - 日期：2026-10-15（Asia/Shanghai）

@@ -848,6 +848,118 @@ fn failed_metadata_write_does_not_block_another_clone() {
 }
 
 #[test]
+fn self_replacement_preserves_cached_content_upload_claim_and_pending_move() {
+    let test = TestDatabase::new("self-replacement");
+    let id = "cloud-source";
+    let cache = test.root.join("source.cache");
+    fs::write(&cache, b"saved").unwrap();
+    add_file(&test.db, id, "/source");
+    test.db.mark_cached(id, &cache).unwrap();
+    test.db.mark_dirty_with_size(id, 5).unwrap();
+    test.db.set_local_mode(id, 0o750).unwrap();
+    assert!(
+        test.db
+            .begin_upload(&test.db.get_by_remote_id(id).unwrap().unwrap())
+            .unwrap()
+    );
+    test.db.move_subtree_and_queue(id, "/moved").unwrap();
+    let before = test.db.get_by_remote_id(id).unwrap().unwrap();
+    let operation = test.db.pending_metadata_operation(id).unwrap().unwrap();
+
+    let after = test.db.replace_file_locally(id, id, "/moved").unwrap();
+
+    assert_eq!(after.metadata.path, before.metadata.path);
+    assert_eq!(after.metadata.size, before.metadata.size);
+    assert_eq!(after.metadata.etag, before.metadata.etag);
+    assert_eq!(after.cloud_remote_id, before.cloud_remote_id);
+    assert_eq!(after.cache_path, before.cache_path);
+    assert_eq!(after.state, FileState::Uploading);
+    assert_eq!(after.local_mode, Some(0o750));
+    let retained = test.db.pending_metadata_operation(id).unwrap().unwrap();
+    assert_eq!(retained.kind, operation.kind);
+    assert_eq!(retained.path, operation.path);
+    assert_eq!(retained.queued_unix, operation.queued_unix);
+    let claim: (String, String, String) = Connection::open(test.db.path()).unwrap().query_row(
+        "SELECT upload_path, upload_target_id, upload_cache_path FROM files WHERE remote_id = ?1",
+        [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(
+        claim,
+        (
+            "/source".into(),
+            id.into(),
+            cache.to_string_lossy().into_owned()
+        )
+    );
+    assert!(test.db.pending_deletes().unwrap().is_empty());
+    assert_eq!(fs::read(&cache).unwrap(), b"saved");
+}
+
+#[test]
+fn replacement_rejects_a_target_that_has_moved_without_changing_records() {
+    let test = TestDatabase::new("replacement-moved-target");
+    add_file(&test.db, "source", "/source");
+    add_file(&test.db, "target", "/target");
+    test.db
+        .move_subtree_and_queue("target", "/elsewhere")
+        .unwrap();
+
+    assert!(
+        test.db
+            .replace_file_locally("source", "target", "/target")
+            .is_err()
+    );
+
+    assert!(test.db.get_by_path("/source").unwrap().is_some());
+    assert!(test.db.get_by_path("/elsewhere").unwrap().is_some());
+    assert!(test.db.get_by_path("/target").unwrap().is_none());
+    assert_eq!(
+        test.db
+            .pending_metadata_operation("target")
+            .unwrap()
+            .unwrap()
+            .path,
+        "/elsewhere"
+    );
+    assert!(test.db.pending_deletes().unwrap().is_empty());
+}
+
+#[test]
+fn replacement_rolls_back_source_deletion_when_target_update_is_ignored() {
+    let test = TestDatabase::new("replacement-update-ignored");
+    add_file(&test.db, "source", "/source");
+    add_file(&test.db, "target", "/target");
+    test.db
+        .move_subtree_and_queue("source", "/moved-source")
+        .unwrap();
+    Connection::open(test.db.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER ignore_target_update BEFORE UPDATE ON files
+         WHEN OLD.remote_id = 'target' BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+
+    assert!(
+        test.db
+            .replace_file_locally("source", "target", "/target")
+            .is_err()
+    );
+
+    assert!(test.db.get_by_path("/moved-source").unwrap().is_some());
+    assert!(test.db.get_by_path("/target").unwrap().is_some());
+    assert_eq!(
+        test.db
+            .pending_metadata_operation("source")
+            .unwrap()
+            .unwrap()
+            .path,
+        "/moved-source"
+    );
+    assert!(test.db.pending_deletes().unwrap().is_empty());
+}
+
+#[test]
 fn local_permissions_survive_cloud_updates_release_and_replacement() {
     let test = TestDatabase::new("local-permissions");
     let cache = test.root.join("program.cache");

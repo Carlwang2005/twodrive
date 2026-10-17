@@ -1532,6 +1532,147 @@ fn closed_write_publishes_mtime_before_reopen_and_directory_refresh() {
 }
 
 #[test]
+#[ignore = "requires /dev/fuse and fusermount3; uses an isolated temporary mount"]
+fn mounted_rename_after_cloud_move_keeps_content_and_open_handle() {
+    let root = test_root("mounted-stale-source-rename");
+    let mount = root.join("mount");
+    fs::create_dir_all(&mount).unwrap();
+    let db = Database::new(root.join("test.sqlite3"));
+    db.init().unwrap();
+    let backend = MockBackend::new();
+    sync_metadata(&db, &backend).unwrap();
+    let original = db.get_by_path("/README-cloud.txt").unwrap().unwrap();
+    let filesystem = TwoDriveFs::new(db.clone(), root.join("cache"), backend).unwrap();
+    let backend = Arc::clone(&filesystem.backend);
+    let session = fuser::spawn_mount2(filesystem, &mount, &[]).unwrap();
+    let source = mount.join("README-cloud.txt");
+    let target = mount.join("Documents/README-cloud.txt");
+    let content = fs::read(&source).unwrap();
+    let mut open_source = fs::File::open(&source).unwrap();
+    let moved = backend
+        .rename(
+            original.cloud_remote_id.as_deref().unwrap(),
+            "/Documents/README-cloud.txt",
+        )
+        .unwrap();
+    db.upsert_metadata_batch([&moved]).unwrap();
+    // Refresh only the destination, keeping the old source lookup cached.
+    assert!(
+        fs::read_dir(mount.join("Documents"))
+            .unwrap()
+            .any(|entry| { entry.unwrap().file_name() == OsStr::new("README-cloud.txt") })
+    );
+    assert!(target.is_file());
+
+    fs::rename(&source, &target).unwrap();
+
+    let current = db
+        .get_by_remote_id(&original.metadata.remote_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.metadata.path, "/Documents/README-cloud.txt");
+    assert_eq!(current.state, FileState::Cached);
+    assert_eq!(fs::read(&target).unwrap(), content);
+    let mut from_handle = Vec::new();
+    open_source.read_to_end(&mut from_handle).unwrap();
+    assert_eq!(from_handle, content);
+    assert!(!source.exists());
+    assert!(db.pending_deletes().unwrap().is_empty());
+    assert!(db.pending_metadata_operations().unwrap().is_empty());
+    assert_eq!(
+        backend
+            .download(current.cloud_remote_id.as_deref().unwrap())
+            .unwrap(),
+        content
+    );
+    drop(open_source);
+    drop(session);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn stale_source_inode_rename_preserves_file_already_at_destination() {
+    let mut test = TestFs::new("stale-source-self-replacement");
+    let original = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    let cache = test.fs.ensure_cached(&original).unwrap();
+    let content = fs::read(&cache).unwrap();
+    let source_ino = test.fs.inodes.ino_for_path("/README-cloud.txt").unwrap();
+    let source_fh = test.fs.open_read_handle(source_ino, cache.clone()).unwrap();
+    let destination = "/Documents/README-cloud.txt";
+    let moved = test
+        .fs
+        .backend
+        .rename(original.cloud_remote_id.as_deref().unwrap(), destination)
+        .unwrap();
+    test.fs.db.upsert_metadata_batch([&moved]).unwrap();
+    // A delta has moved the identity, but the old directory still has its inode.
+    // Looking at the destination can expose another inode for the same identity.
+    test.fs.refresh_child_records("/Documents");
+    assert!(test.fs.inodes.ino_for_path("/README-cloud.txt").is_some());
+    assert!(test.fs.inodes.ino_for_path(destination).is_some());
+    let target_ino = test.fs.inodes.ino_for_path(destination).unwrap();
+    let target_fh = test.fs.open_read_handle(target_ino, cache.clone()).unwrap();
+    let parent = test.fs.inodes.ino_for_path("/Documents").unwrap();
+    let result = test.fs.rename_record(
+        ROOT_INO,
+        OsStr::new("README-cloud.txt"),
+        parent,
+        OsStr::new("README-cloud.txt"),
+    );
+    let current = test
+        .fs
+        .db
+        .get_by_remote_id(&original.metadata.remote_id)
+        .unwrap();
+    assert!(
+        current.is_some(),
+        "rename deleted the existing local identity: {result:?}"
+    );
+    let current = current.unwrap();
+    assert!(result.is_ok(), "already completed move failed: {result:?}");
+    assert_eq!(current.metadata.path, destination);
+    assert_eq!(current.cloud_remote_id, original.cloud_remote_id);
+    assert_eq!(current.cache_path.as_ref(), Some(&cache));
+    assert_eq!(current.state, FileState::Cached);
+    assert_eq!(fs::read(&cache).unwrap(), content);
+    assert_eq!(
+        test.fs
+            .backend
+            .download(current.cloud_remote_id.as_deref().unwrap())
+            .unwrap(),
+        content
+    );
+    assert!(test.fs.db.pending_deletes().unwrap().is_empty());
+    assert!(test.fs.db.pending_metadata_operations().unwrap().is_empty());
+    assert!(test.fs.inodes.ino_for_path("/README-cloud.txt").is_none());
+    assert_eq!(
+        test.fs
+            .inodes
+            .children_for_ino(parent)
+            .iter()
+            .filter(|(_, record)| record.metadata.remote_id == original.metadata.remote_id)
+            .count(),
+        1
+    );
+    for fh in [source_fh, target_fh] {
+        assert!(!test.fs.read_handles[&fh].unlinked);
+        assert_eq!(
+            test.fs
+                .read_open_handle(fh, 0, content.len() as u32)
+                .unwrap(),
+            content
+        );
+        test.fs.release_read_handle(fh).unwrap();
+    }
+    assert!(cache.is_file());
+}
+
+#[test]
 fn editor_style_temp_file_can_replace_an_existing_remote_file() {
     let mut test = TestFs::new("atomic-replace");
     let old_target = test

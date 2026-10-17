@@ -126,6 +126,19 @@ impl<B: CloudBackend> TwoDriveFs<B> {
                 .then_some(*fh)
         });
         if let Some(target) = self.db.get_by_path(&new_path)? {
+            if target.metadata.remote_id == record.metadata.remote_id {
+                // A cloud refresh may already have moved this identity while
+                // the source directory still exposes its old inode. Refresh
+                // the names without replacing the file or unlinking handles.
+                self.refresh_child_records(&parent_path);
+                self.refresh_child_records(&newparent_path);
+                for handle in self.write_handles.values_mut().filter(|handle| {
+                    handle.record_remote_id == record.metadata.remote_id && !handle.unlinked
+                }) {
+                    handle.path = new_path.clone();
+                }
+                return Ok(());
+            }
             if target.metadata.is_dir || record.metadata.is_dir {
                 anyhow::bail!("cannot replace directories during rename");
             }
