@@ -75,6 +75,28 @@ impl Database {
         )?)
     }
 
+    /// Detach an inconsistent clean cache without deleting recovery material or
+    /// touching a local write that started after the caller inspected it.
+    pub fn invalidate_cached_snapshot(&self, record: &FileRecord) -> anyhow::Result<bool> {
+        Ok(self.connect()?.execute(
+            "UPDATE files SET cache_path = NULL, cache_accessed_unix = NULL,
+                state = CASE WHEN pin_explicit = 1 OR pin_origin_remote_id IS NOT NULL
+                    THEN 'hydrating' ELSE 'online_only' END,
+                download_generation = download_generation + 1
+             WHERE remote_id = ?1 AND cache_path IS ?2 AND etag = ?3 AND size = ?4
+               AND state IN ('cached', 'pinned') AND cloud_remote_id IS NOT NULL",
+            params![
+                record.metadata.remote_id,
+                record
+                    .cache_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy()),
+                record.metadata.etag,
+                record.metadata.size as i64
+            ],
+        )? == 1)
+    }
+
     pub fn begin_hydration(&self, remote_id: &str, generation: i64) -> anyhow::Result<bool> {
         Ok(self.connect()?.execute(
             "UPDATE files SET state = CASE WHEN pin_explicit = 1 OR pin_origin_remote_id IS NOT NULL THEN 'pinned' ELSE 'hydrating' END, cache_path = NULL, cache_accessed_unix = NULL
@@ -101,6 +123,15 @@ impl Database {
         if !eligible {
             return Ok(false);
         }
+        let expected_size: u64 = tx.query_row(
+            "SELECT size FROM files WHERE remote_id = ?1",
+            params![remote_id],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(
+            fs::metadata(temporary)?.len() == expected_size,
+            "download length does not match the current metadata"
+        );
         // Serialize publication with release and local writes, including the final-byte race.
         fs::rename(temporary, cache)?;
         tx.execute("UPDATE files SET state = CASE WHEN pin_explicit = 1 OR pin_origin_remote_id IS NOT NULL THEN 'pinned' ELSE 'cached' END,

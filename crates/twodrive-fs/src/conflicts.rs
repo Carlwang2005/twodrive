@@ -53,8 +53,10 @@ pub(crate) fn preserve_conflict_copy<B: CloudBackend>(
     }
     db.upsert_metadata(&conflict)?;
     db.mark_cached(&conflict.remote_id, cache_path)?;
-    db.upsert_metadata(&latest_original)?;
+    // The conflict copy now owns the local bytes. Release the original's
+    // protected conflict state before importing the winning cloud version.
     db.mark_online_only(&original.metadata.remote_id)?;
+    db.upsert_metadata(&latest_original)?;
     Ok(conflict)
 }
 

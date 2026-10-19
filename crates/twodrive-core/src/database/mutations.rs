@@ -378,31 +378,6 @@ impl Database {
         Ok(still_current)
     }
 
-    pub(super) fn move_descendants(&self, old_path: &str, new_path: &str) -> anyhow::Result<()> {
-        let descendants = self.list_descendants(old_path)?;
-        if descendants.is_empty() {
-            return Ok(());
-        }
-        let mut conn = self.connect()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        for record in descendants {
-            let suffix = record
-                .metadata
-                .path
-                .strip_prefix(old_path)
-                .ok_or_else(|| anyhow::anyhow!("descendant path lost its parent prefix"))?;
-            let path = normalize_cloud_path(&format!("{new_path}{suffix}"));
-            let parent_path = parent_cloud_path(&path);
-            let name = cloud_name(&path);
-            tx.execute(
-                "UPDATE files SET path = ?1, parent_path = ?2, name = ?3 WHERE remote_id = ?4",
-                params![path, parent_path, name, record.metadata.remote_id],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     // Re-read under a write transaction: the caller's snapshot may predate a save.
     pub fn remove_by_remote_id(&self, remote_id: &str) -> anyhow::Result<()> {
         let mut conn = self.connect()?;

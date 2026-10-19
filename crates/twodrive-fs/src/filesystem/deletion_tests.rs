@@ -573,8 +573,7 @@ fn deleted_hydration_cannot_publish_cache_after_unlink() {
         assert!(download.join().unwrap().is_err());
     });
     assert!(db.get_by_path("/stream.bin").unwrap().is_none());
-    assert!(!cache.join("stream").exists());
-    assert!(!cache.join("stream.tmp").exists());
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 0);
     assert_eq!(recover_pending_deletes(&db, &backend).unwrap(), 1);
     fs::remove_dir_all(root).unwrap();
 }

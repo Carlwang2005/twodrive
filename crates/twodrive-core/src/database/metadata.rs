@@ -1,5 +1,4 @@
 use super::Database;
-use anyhow::Context;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::path::Path;
 
@@ -8,20 +7,23 @@ use crate::{FileRecord, FileState, MetadataEntry, now_unix};
 
 impl Database {
     pub fn upsert_metadata(&self, entry: &MetadataEntry) -> anyhow::Result<()> {
-        // SQLite permits one writer at a time. Admit the whole metadata update,
-        // including pin recomputation, so cloned callers cannot starve one
-        // another while competing for its separate write transactions.
-        let _writer = self
-            .metadata_write_lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("metadata write lock is poisoned"))?;
-        self.upsert_metadata_inner(entry, true)
+        self.upsert_metadata_entries([entry], false)
     }
 
     pub fn upsert_metadata_batch<'a>(
         &self,
         entries: impl IntoIterator<Item = &'a MetadataEntry>,
     ) -> anyhow::Result<()> {
+        self.upsert_metadata_entries(entries, true)
+    }
+
+    fn upsert_metadata_entries<'a>(
+        &self,
+        entries: impl IntoIterator<Item = &'a MetadataEntry>,
+        block_new_pin_inheritance: bool,
+    ) -> anyhow::Result<()> {
+        // Keep identity resolution, local-generation protection and cache
+        // invalidation in one writer transaction for both import paths.
         let _writer = self
             .metadata_write_lock
             .lock()
@@ -67,7 +69,7 @@ impl Database {
                     SELECT 1 FROM files
                     WHERE path = ?1
                       AND remote_id <> ?2
-                      AND state IN ('writing', 'dirty', 'uploading')
+                      AND state IN ('writing', 'dirty', 'uploading', 'conflict')
                 )
                 "#,
                 params![entry.path, local_id],
@@ -78,7 +80,7 @@ impl Database {
                 SELECT EXISTS(
                     SELECT 1 FROM files
                     WHERE remote_id = ?1
-                      AND state IN ('writing', 'dirty', 'uploading')
+                      AND state IN ('writing', 'dirty', 'uploading', 'conflict')
                 )
                 "#,
                 params![local_id],
@@ -88,6 +90,16 @@ impl Database {
                 continue;
             }
 
+            // Never pair a remote version's metadata with another version's
+            // bytes. Retain the old file on disk for open handles/recovery;
+            // cancel in-flight downloads before accepting the new metadata.
+            tx.execute(
+                "UPDATE files SET cache_path = NULL, cache_accessed_unix = NULL,
+                    state = 'online_only', download_generation = download_generation + 1
+                 WHERE remote_id = ?1 AND is_dir = 0
+                   AND (etag <> ?2 OR size <> ?3 OR is_dir <> ?4)",
+                params![local_id, entry.etag, entry.size as i64, entry.is_dir as i64],
+            )?;
             let old_path = tx
                 .query_row(
                     "SELECT path FROM files WHERE remote_id = ?1",
@@ -106,7 +118,7 @@ impl Database {
                     cloud_remote_id,
                     pin_inheritance_blocked
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                 ON CONFLICT(remote_id) DO UPDATE SET
                     path = excluded.path,
                     parent_path = excluded.parent_path,
@@ -132,7 +144,8 @@ impl Database {
                     entry.modified_unix,
                     entry.etag,
                     FileState::OnlineOnly.as_str(),
-                    entry.remote_id,
+                    (!entry.remote_id.starts_with("local-upload-")).then_some(&entry.remote_id),
+                    block_new_pin_inheritance as i64,
                 ],
             )?;
 
@@ -168,134 +181,6 @@ impl Database {
         }
         tx.commit()?;
         self.recompute_pin_inheritance()
-    }
-
-    pub(super) fn upsert_metadata_inner(
-        &self,
-        entry: &MetadataEntry,
-        recompute_pins: bool,
-    ) -> anyhow::Result<()> {
-        if self
-            .is_pending_delete(&entry.remote_id, &entry.path)
-            .context("metadata upsert: checking pending deletion")?
-        {
-            return Ok(());
-        }
-        let incoming_cloud_id =
-            (!entry.remote_id.starts_with("local-upload-")).then_some(entry.remote_id.clone());
-        let existing = match incoming_cloud_id.as_deref() {
-            Some(cloud_remote_id) => self.get_by_cloud_remote_id(cloud_remote_id),
-            None => self.get_by_remote_id(&entry.remote_id),
-        }
-        .context("metadata upsert: reading cloud identity")?;
-        let local_id = existing
-            .as_ref()
-            .map(|record| record.metadata.remote_id.clone())
-            .unwrap_or_else(|| entry.remote_id.clone());
-        if self
-            .has_pending_metadata_at_or_above(&entry.path)
-            .context("metadata upsert: checking path operations")?
-            || self
-                .has_pending_metadata_at_or_above(
-                    existing
-                        .as_ref()
-                        .map(|record| record.metadata.path.as_str())
-                        .unwrap_or(&entry.path),
-                )
-                .context("metadata upsert: checking existing operations")?
-        {
-            return Ok(());
-        }
-        if self
-            .get_by_path(&entry.path)
-            .context("metadata upsert: reading path")?
-            .is_some_and(|record| {
-                record.metadata.remote_id != local_id
-                    && matches!(
-                        record.state,
-                        FileState::Writing | FileState::Dirty | FileState::Uploading
-                    )
-            })
-        {
-            return Ok(());
-        }
-        if self
-            .get_by_remote_id(&local_id)
-            .context("metadata upsert: reading local identity")?
-            .is_some_and(|record| {
-                matches!(
-                    record.state,
-                    FileState::Writing | FileState::Dirty | FileState::Uploading
-                )
-            })
-        {
-            if recompute_pins {
-                self.recompute_pin_inheritance()
-                    .context("metadata upsert: recomputing pin inheritance")?;
-            }
-            return Ok(());
-        }
-        let old_path = self
-            .get_by_remote_id(&local_id)
-            .context("metadata upsert: reading previous path")?
-            .map(|record| record.metadata.path);
-        let mut conn = self
-            .connect()
-            .context("metadata upsert: opening write connection")?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .context("metadata upsert: beginning write transaction")?;
-        tx.execute(
-            "DELETE FROM files WHERE path = ?1 AND remote_id <> ?2",
-            params![entry.path, local_id],
-        )
-        .context("metadata upsert: removing displaced path")?;
-        tx.execute(
-            r#"
-            INSERT INTO files (
-                remote_id, path, parent_path, name, is_dir, size, modified_unix, etag, state,
-                cloud_remote_id
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            ON CONFLICT(remote_id) DO UPDATE SET
-                path = excluded.path,
-                parent_path = excluded.parent_path,
-                name = excluded.name,
-                is_dir = excluded.is_dir,
-                size = excluded.size,
-                modified_unix = CASE
-                        WHEN files.is_dir = 0 AND files.etag <> ''
-                             AND files.etag = excluded.etag AND files.size = excluded.size
-                        THEN files.modified_unix
-                        ELSE excluded.modified_unix
-                    END,
-                etag = excluded.etag,
-                cloud_remote_id = excluded.cloud_remote_id
-            "#,
-            params![
-                local_id,
-                entry.path,
-                entry.parent_path,
-                entry.name,
-                entry.is_dir as i64,
-                entry.size as i64,
-                entry.modified_unix,
-                entry.etag,
-                FileState::OnlineOnly.as_str(),
-                incoming_cloud_id,
-            ],
-        )?;
-        tx.commit()
-            .context("metadata upsert: committing write transaction")?;
-        if let Some(old_path) = old_path.filter(|old_path| old_path != &entry.path) {
-            self.move_descendants(&old_path, &entry.path)
-                .context("metadata upsert: moving descendants")?;
-        }
-        if recompute_pins {
-            self.recompute_pin_inheritance()
-                .context("metadata upsert: recomputing pin inheritance")?;
-        }
-        Ok(())
     }
 
     pub fn bind_cloud_identity(

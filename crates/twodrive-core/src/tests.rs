@@ -1025,6 +1025,138 @@ fn local_permissions_survive_cloud_updates_release_and_replacement() {
 }
 
 #[test]
+fn remote_content_updates_detach_cached_bytes_and_cancel_old_downloads() {
+    for batch in [false, true] {
+        for pinned in [false, true] {
+            for (size, etag) in [(3, "v2"), (9, "v2"), (6, "v2"), (3, "v1")] {
+                let test = TestDatabase::new("remote-cache-version");
+                let original = MetadataEntry::new_file("cloud", "/slides.pptx", 6, 1, "v1");
+                test.db.upsert_metadata(&original).unwrap();
+                let cache = test.root.join("old.cache");
+                fs::write(&cache, b"oldzip").unwrap();
+                test.db.mark_cached("cloud", &cache).unwrap();
+                test.db.set_explicit_pin("cloud", pinned).unwrap();
+                let generation = test.db.download_generation("cloud").unwrap();
+                // Echoes and metadata-only moves retain the cache and local mtime.
+                let mut moved = original.clone();
+                moved.path = "/renamed.pptx".into();
+                moved.name = "renamed.pptx".into();
+                moved.modified_unix = 2;
+                if batch {
+                    test.db.upsert_metadata_batch([&moved]).unwrap();
+                } else {
+                    test.db.upsert_metadata(&moved).unwrap();
+                }
+                let echoed = test.db.get_by_remote_id("cloud").unwrap().unwrap();
+                assert_eq!(echoed.cache_path.as_deref(), Some(cache.as_path()));
+                assert_eq!(echoed.metadata.modified_unix, 1);
+                assert_eq!(test.db.download_generation("cloud").unwrap(), generation);
+
+                let changed = MetadataEntry::new_file("cloud", "/renamed.pptx", size, 3, etag);
+                if batch {
+                    test.db.upsert_metadata_batch([&changed]).unwrap();
+                } else {
+                    test.db.upsert_metadata(&changed).unwrap();
+                }
+                let current = test.db.get_by_remote_id("cloud").unwrap().unwrap();
+                assert!(
+                    current.cache_path.is_none(),
+                    "new metadata retained old content"
+                );
+                assert_eq!(current.metadata.size, size);
+                assert_eq!(current.effective_pinned(), pinned);
+                assert_eq!(fs::read(&cache).unwrap(), b"oldzip");
+                assert!(test.db.download_generation("cloud").unwrap() > generation);
+                assert!(!test.db.begin_hydration("cloud", generation).unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn remote_update_during_hydration_rejects_late_publication() {
+    for batch in [false, true] {
+        let test = TestDatabase::new("download-remote-version");
+        add_file(&test.db, "cloud", "/file");
+        let generation = test.db.download_generation("cloud").unwrap();
+        assert!(test.db.begin_hydration("cloud", generation).unwrap());
+        let changed = MetadataEntry::new_file("cloud", "/file", 3, 2, "new-etag");
+        if batch {
+            test.db.upsert_metadata_batch([&changed]).unwrap();
+        } else {
+            test.db.upsert_metadata(&changed).unwrap();
+        }
+        let temporary = test.root.join("late.tmp");
+        let cache = test.root.join("late.cache");
+        fs::write(&temporary, b"old!").unwrap();
+        assert!(
+            !test
+                .db
+                .finish_hydration("cloud", generation, &temporary, &cache)
+                .unwrap()
+        );
+        assert!(!cache.exists());
+    }
+}
+
+#[test]
+fn cache_repair_and_remote_import_preserve_pending_local_content() {
+    for state in [
+        FileState::Writing,
+        FileState::Dirty,
+        FileState::Uploading,
+        FileState::Conflict,
+    ] {
+        for batch in [false, true] {
+            let test = TestDatabase::new("remote-preserve-local");
+            add_file(&test.db, "cloud", "/file");
+            let cache = test.root.join("cache");
+            fs::write(&cache, b"local unsynced content").unwrap();
+            test.db.mark_cached("cloud", &cache).unwrap();
+            let clean_snapshot = test.db.get_by_remote_id("cloud").unwrap().unwrap();
+            test.db.mark_state("cloud", state).unwrap();
+            assert!(!test.db.invalidate_cached_snapshot(&clean_snapshot).unwrap());
+            let changed = MetadataEntry::new_file("cloud", "/file", 3, 2, "new-etag");
+            if batch {
+                test.db.upsert_metadata_batch([&changed]).unwrap();
+            } else {
+                test.db.upsert_metadata(&changed).unwrap();
+            }
+            let current = test.db.get_by_remote_id("cloud").unwrap().unwrap();
+            assert_eq!(current.state, state);
+            assert_eq!(current.metadata.size, 4);
+            assert_eq!(current.cache_path.as_deref(), Some(cache.as_path()));
+            assert_eq!(fs::read(cache).unwrap(), b"local unsynced content");
+        }
+    }
+}
+
+#[test]
+fn hydration_never_publishes_a_cache_of_the_wrong_length() {
+    let test = TestDatabase::new("hydration-length");
+    add_file(&test.db, "cloud", "/file");
+    let generation = test.db.download_generation("cloud").unwrap();
+    assert!(test.db.begin_hydration("cloud", generation).unwrap());
+    let temporary = test.root.join("partial");
+    let cache = test.root.join("cache");
+    fs::write(&temporary, b"bad").unwrap();
+    assert!(
+        test.db
+            .finish_hydration("cloud", generation, &temporary, &cache)
+            .is_err()
+    );
+    assert!(!cache.exists());
+    assert!(
+        test.db
+            .get_by_remote_id("cloud")
+            .unwrap()
+            .unwrap()
+            .cache_path
+            .is_none()
+    );
+}
+
+#[test]
 fn upload_binding_preserves_the_local_identity() {
     let test = TestDatabase::new("stable-local-identity");
     let local_id = "local-upload-stable";

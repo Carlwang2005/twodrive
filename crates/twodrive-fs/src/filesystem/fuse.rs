@@ -44,14 +44,14 @@ impl<B: CloudBackend> Filesystem for TwoDriveFs<B> {
         };
 
         match self.attr_for_ino(ino) {
-            Some(attr) => reply.entry(&TTL, &attr, 0),
+            Some(attr) => reply.entry(&attribute_ttl(&attr), &attr, 0),
             None => reply.error(libc::ENOENT),
         }
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match self.attr_for_ino(ino) {
-            Some(attr) => reply.attr(&TTL, &attr),
+            Some(attr) => reply.attr(&attribute_ttl(&attr), &attr),
             None => reply.error(libc::ENOENT),
         }
     }
@@ -111,7 +111,7 @@ impl<B: CloudBackend> Filesystem for TwoDriveFs<B> {
             }
         }
         match self.attr_for_ino(ino) {
-            Some(attr) => reply.attr(&TTL, &attr),
+            Some(attr) => reply.attr(&attribute_ttl(&attr), &attr),
             None => reply.error(libc::ENOENT),
         }
     }
@@ -182,6 +182,14 @@ impl<B: CloudBackend> Filesystem for TwoDriveFs<B> {
         match self.record_for_ino(ino) {
             Some(record) if !record.metadata.is_dir => {
                 let record = self.refresh_record(&record);
+                let record = match reconcile_cached_record(&self.db, &record) {
+                    Ok(record) => record,
+                    Err(err) => {
+                        eprintln!("twodrive cache validation error: {err:#}");
+                        reply.error(libc::EIO);
+                        return;
+                    }
+                };
                 if flags & libc::O_ACCMODE != libc::O_RDONLY {
                     match self.create_overwrite_upload(record, flags & libc::O_TRUNC != 0) {
                         Ok((_ino, fh, _attr)) => reply.opened(fh, 0),
@@ -223,9 +231,11 @@ impl<B: CloudBackend> Filesystem for TwoDriveFs<B> {
                         ReadHandle {
                             open_attr: attr_for_record(ino, &record),
                             ino,
-                            cache_path: self
-                                .cache_dir
-                                .join(sanitize_cache_name(&record.metadata.remote_id)),
+                            cache_path: download_cache_path(
+                                &self.cache_dir,
+                                &record.metadata.remote_id,
+                                generation,
+                            ),
                             _cache_guard: Arc::new(Mutex::new(None)),
                             unlinked: false,
                             deferred_record: Some(record),
@@ -626,7 +636,7 @@ impl<B: CloudBackend> Filesystem for TwoDriveFs<B> {
         reply: ReplyCreate,
     ) {
         match self.create_upload_with_mode(parent, name, flags, mode & !umask) {
-            Ok((_ino, fh, attr)) => reply.created(&TTL, &attr, 0, fh, 0),
+            Ok((_ino, fh, attr)) => reply.created(&attribute_ttl(&attr), &attr, 0, fh, 0),
             Err(err) => {
                 eprintln!("twodrive create upload error: {err:#}");
                 reply.error(libc::EIO);

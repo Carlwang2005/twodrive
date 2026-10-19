@@ -16,7 +16,8 @@ use twodrive_core::{Database, FileRecord, FileState, join_cloud_path};
 
 use crate::activity::{ActivityGuard, clear_activity_file};
 use crate::cache_io::{
-    has_existing_cache, read_slice, sanitize_cache_name, unique_suffix, write_slice,
+    download_cache_path, has_existing_cache, read_slice, reconcile_cached_record,
+    sanitize_cache_name, unique_suffix, write_slice,
 };
 use crate::conflicts::record_upload_etag;
 use crate::hydration::{hydrate_generation, hydrate_record};
@@ -89,6 +90,13 @@ impl<B: CloudBackend> TwoDriveFs<B> {
         }
 
         if let Some(record) = self.record_for_ino(ino) {
+            // Writers publish size in memory before close; clean files may
+            // have received new cloud metadata without a directory listing.
+            let record = if self.write_handles.values().any(|handle| handle.ino == ino) {
+                record
+            } else {
+                self.refresh_record(&record)
+            };
             return Some(attr_for_record(ino, &record));
         }
 
@@ -175,6 +183,17 @@ struct WriteHandle {
 
 pub(crate) const ROOT_INO: u64 = 1;
 pub(crate) const TTL: Duration = Duration::from_secs(30);
+
+fn attribute_ttl(attr: &FileAttr) -> Duration {
+    // Background imports cannot notify this dispatcher's inode table. Fresh
+    // file attributes prevent cached i_size from truncating a remote version.
+    // Normal open replies (without KEEP_CACHE) also discard old data pages.
+    if attr.kind == FileType::RegularFile {
+        Duration::ZERO
+    } else {
+        TTL
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilesystemStats {
