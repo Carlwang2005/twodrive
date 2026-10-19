@@ -52,7 +52,7 @@
 ## TD-20261019-04：IPC 冒烟测试仍假定缓存路径等于文件身份
 
 - 日期：2026-10-19（Asia/Shanghai）
-- 状态：本地旧失败/新通过，原生 Windows 最终重跑待确认。
+- 状态：已验证；旧脚本失败/新脚本通过，最终 Linux 与 Windows 原生 IPC/打包均通过。
 - 影响版本与环境：PR #37 的 Windows Full/Lite 打包后 IPC 测试，准备源码 `342d01b`。
 - 关联历史故障：TD-20261019-01 中 Rust 引擎测试的相同旧路径假设遗漏了独立 Python 进程测试；TD-20260916-W02 同为 IPC 测试，但本次没有编码错误。
 
@@ -74,7 +74,7 @@ Windows 原生构建成功，IPC 完成下载后，脚本按文件身份拼接�
 
 ### 验证结果与边界
 
-修改前脚本稳定失败；相同引擎、同一脚本修改后通过，包括上传确认、下载字节、断连、重启设置保留。最终 Windows 命名管道和 Full/Lite 打包流程待重跑；本地 Unix socket 结果不能替代 Windows 结果，也不是真实 OneDrive 测试。
+修改前脚本稳定失败；相同引擎、同一脚本修改后通过，包括上传确认、下载字节、断连、重启设置保留。最终 [Windows 命名管道与 Full/Lite 打包](https://github.com/LumiaBlack51/twodrive/actions/runs/39232477598) 已通过，Linux 同一进程脚本亦通过。Windows 结果来自真实原生 CI，不将本地 Unix socket 结果当作替代；两者均不是真实 OneDrive 测试。
 
 ### 防复发措施与后续
 
@@ -82,7 +82,7 @@ Windows 原生构建成功，IPC 完成下载后，脚本按文件身份拼接�
 
 ### 交付记录
 
-随 PR #37 修复；最终 CI 与发布状态待补充。
+修复源提交 `48d91632d45c03f0b9084fc0c3c71e57d832fe3e` 随 [PR #37](https://github.com/LumiaBlack51/twodrive/pull/37) 合入 main；已包含于 [0.2.17-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.17-1)。
 
 ## TD-20261019-03：0.2.17 发布准备遗漏独立工作区锁文件版本
 
@@ -117,7 +117,7 @@ PR #37 的独立工作区 Clippy 在依赖解析时因 `--locked` 拒绝继续�
 
 ### 交付记录
 
-随 PR #37 修复，最终提交和发布结果待补充。
+锁文件门控提交 `342d01b9b639eccd3588462093b005d1e41e9362` 随 PR #37 合入 main；最终源码 `48d9163` 的 [独立工作区](https://github.com/LumiaBlack51/twodrive/actions/runs/39232477593) 和 [root 原生检查](https://github.com/LumiaBlack51/twodrive/actions/runs/39232477707) 均通过，已包含于 0.2.17-1。
 
 ## TD-20261019-02：本机升级备份重复复制完整缓存，产生不必要的大副本
 
@@ -154,12 +154,12 @@ PR #37 的独立工作区 Clippy 在依赖解析时因 `--locked` 拒绝继续�
 
 ### 交付记录
 
-本条随 0.2.17-1 发布准备保存，清理已完成；实际发布结果待补充。
+本条随 [PR #37](https://github.com/LumiaBlack51/twodrive/pull/37) 和 [0.2.17-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.17-1) 交付。正式包安装验证后，又删除 2 个已被最近回退程序替代的旧 ELF（11,985,632 字节）；累计清理 2,740 个文件、41,710,531,964 逻辑字节。新的本机升级只保全约 38.5 MB 数据库/状态、配置及上一版程序，当时没有待同步缓存引用，所以没有复制缓存；历史唯一恢复材料继续保留。该次空引用备份不代表已验收所有非空 Dirty/Uploading 备份场景。私人清单与路径不进入仓库；[脱敏验证汇总](cache-version-validation-2026-10-19.json) 记录范围。
 
 ## TD-20261019-01：缓存长度与元数据 size 不一致导致 PPTX 挂载读取截断
 
 - 日期：2026-10-19（Asia/Shanghai）
-- 状态：已修复并于 2026-10-19 部署本机；隔离竞争机制、真实单文件下载及新服务挂载读取已验证，未发布 Release。造成原现场版本分离的具体操作时序未确认。
+- 状态：已修复并正式发布 0.2.17-1，本机已更新到正式包的 0.2.17；隔离竞争机制、原生 CI、真实单文件下载及新服务挂载读取已验证。造成原现场版本分离的具体操作时序未确认。
 - 影响版本与环境：Linux/TwoDrive FUSE、OnlyOffice 9.4.0。现场 CLI 与运行进程 `/proc/<pid>/exe --version` 均独立报告 0.2.16，未核实其构建提交；调查基线为 main 合并提交 `507d776`，不据此断言最早受影响版本。
 - 关联历史故障：[旧上传覆盖下载缓存](download-placeholder-race-2026-09-10.md)、[PDF 保存 mtime](pdf-save-reliability-2026-09-09.md)。本次复现来自远端元数据导入后缺少缓存版本失效，与旧上传代次响应、mtime 回写的机制不同；无证据证明那两项修复回归。
 
@@ -211,7 +211,7 @@ PR #37 的独立工作区 Clippy 在依赖解析时因 `--locked` 拒绝继续�
 - 部署前重新执行 184 项工作区测试、9 项显式隔离 FUSE 测试均通过；慢共享磁盘同步夹具下 core 的 48 项回归全部通过（193.85 秒）。`cargo build --workspace --release --locked --offline` 成功，构建产物的独立 mock daemon 冒烟验证 hydration/write/upload/move/delete/pin/release 通过。
 - 安装后使用已安装的 release CLI，在独立数据库/缓存与临时凭据副本中，只读下载真实 OneDrive 的该 PPT；下载前后云端 ETag/size 稳定，新下载全部字节与生产挂载一致，ZIP CRC 通过。该探针只把单项元数据放入隔离数据库，不重放生产待办、不进行云端文件写入；临时凭据副本已删除。
 - 下载版本竞争、同大小不同 ETag、同 ETag 不同大小、pin 保留、迟到下载、错误下载长度和本地待同步代次保护均有回归。开发过程中，原 StreamingBackend 替身缺少其合成文件的元数据而导致取消测试等不到下载开始，已补齐替身契约；Windows mock 引擎测试因硬编码旧缓存文件名报 NotFound，已改为从数据库取得实际缓存路径并保留字节断言。两类失败均已在最终完整测试中通过，未屏蔽原检查。
-- **边界**：FUSE 自动测试使用 MockBackend；Windows 测试在 Linux 上运行，未做 Windows 原生 CI。真实 OneDrive 已验证单项只读元数据、安装后新程序的完整下载和生产挂载读取比对；没有执行真实“Office 云编辑 → delta → 再下载”端到端验证。用户在安装前已确认当前内容为最新版，安装后未替用户操作 OnlyOffice UI。新服务正常恢复既有队列，不等同于本次额外构造云端写入测试，也不承诺所有同类错误永久消失。
+- **边界**：FUSE 自动测试使用 MockBackend；本机修复构建阶段的 Windows 测试在 Linux 上运行；后续正式发布阶段已完成原生 Windows CI，见交付补记。真实 OneDrive 已验证单项只读元数据、安装后新程序的完整下载和生产挂载读取比对；没有执行真实“Office 云编辑 → delta → 再下载”端到端验证。用户在安装前已确认当前内容为最新版，安装后未替用户操作 OnlyOffice UI。新服务正常恢复既有队列，不等同于本次额外构造云端写入测试，也不承诺所有同类错误永久消失。
 
 ### 防复发措施与后续
 
@@ -222,6 +222,16 @@ PR #37 的独立工作区 Clippy 在依赖解析时因 `--locked` 拒绝继续�
 ### 交付记录
 
 本机部署的修复源提交为 `f39856c4b94618375b6c3b02d586336cabba5ac6`，release 构建与实际运行文件已核对。用户补充“更新本机就好了，不用发布”前，修复分支推送已完成；随后仅继续本机更新，未创建 PR 或 Release、未发布安装包。本条部署结果随本地后续记录提交保存，不再推送。
+
+2026-10-19 正式发布补记：用户随后明确要求清理冗余历史备份并“完成完整发布流程”，取代此前仅更新本机的范围。[PR #37](https://github.com/LumiaBlack51/twodrive/pull/37) 已合入 main，合并提交 `78eda152d34896439d286ca834045d6a041a8eb0`；不可移动的源码标签 `v0.2.17-1` 指向已整合的 `48d91632d45c03f0b9084fc0c3c71e57d832fe3e`。最终八项 CI 全部通过，包括 Linux/Windows 原生检查、独立工作区、Full/Lite IPC/打包及 Debian 包检查。
+
+最终下载制品逐项核实 `.dsc`/`.changes`/`.buildinfo` 的 3/7/3 个成员大小与 SHA-256；319 个 Git 源文件的字节、符号链接及执行位一致。最终 `.dsc` 实际解包后，在空 Cargo home、Docker 禁网容器中通过 dpkg-buildpackage/离线构建和 184 项 Rust、25 Nautilus、4 Settings、6 发布门控测试；构建后及 clean 后 16,043 个 vendor 文件校验通过。本机 Cargo 与 CI 的 262 个 vendor 清单仅相差新版 Cargo 的说明字段，实际依赖内容一致；实际最终源码包已单独重建，未用该差异冒称全部输入逐字节相等。
+
+最终包从 0.2.16-1 升级、卸载、重装、purge 的一次性 Ubuntu 验证通过，合成用户状态哈希不变；15 个既有运行集成文件内容/权限兼容，最终包的实际隔离 FUSE daemon 冒烟通过。两程序的 ELF build ID 对应调试包，debug info/line 存在。Lintian 无错误，两项警告为 changelog 行长与检查器只认识旧 Standards-Version。Ubuntu debugedit 对现有 LLVM DWARF 扩展仍有诊断；未单独验收调试器源码映射。沿用已记录的 Ubuntu/rustup 编译器依赖检查例外，不宣称 Debian 官方归档接受或跨编译器字节可复现。
+
+本机最终再次核实无活动可写句柄/Writing 后，仅做约 38.5 MB 的小范围回退备份，以最终 deb 的 CLI/daemon 原子替换并重启原自定义服务。运行文件哈希与包内程序一致，版本 0.2.17；数据库 integrity_check、配置/凭据及 unit 字节、原 3 项元数据待办和 1 项删除待办身份均通过，PPT 完整读取与停服前一致、ZIP CRC 通过。另用新安装 CLI 在隔离数据库中只读下载真实 OneDrive 单文件，下载前后 ETag/size 稳定，完整内容与生产挂载一致；临时凭据/下载副本已清除。依然没有执行真实 Office 云编辑 → delta → 再下载的往返测试。
+
+[Release 0.2.17-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.17-1) 已公开并设为稳定 Latest。发布前后均经统一门控核实 11 个附件的完整集合、状态、长度、远端 SHA-256 和注解标签解析目标；源码/二进制/调试包、buildinfo/changes 及校验汇总保留完整。详细结果见[脱敏验证汇总](cache-version-validation-2026-10-19.json) 和 Release 的 verification.json。完整缓存备份问题及后续清理独立见 TD-20261019-02；原故障具体操作时序与真实 Office 往返仍是验证边界。
 
 ## TD-20261017-03：发布准备中的 HTTPS 标签推送连接停滞
 
