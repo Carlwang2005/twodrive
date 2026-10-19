@@ -1,3 +1,14 @@
+twodrive (0.2.17-1) unstable; urgency=medium
+
+  * Invalidate cached bytes and in-flight downloads on remote version changes.
+  * Revalidate FUSE file sizes and keep reads on their opened cache descriptor.
+  * Reject inconsistent cache lengths and remote edits during downloads.
+  * Preserve local writes, conflict copies and same-version metadata echoes.
+  * Add remote-update, download-publication and mounted ZIP regressions.
+  * Retain standard offline dpkg-buildpackage/debhelper source and binary builds.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Mon, 19 Oct 2026 17:28:40 +0800
+
 twodrive (0.2.16-1) unstable; urgency=medium
 
   * Preserve file identity when a repeated rename follows a cloud-completed move.

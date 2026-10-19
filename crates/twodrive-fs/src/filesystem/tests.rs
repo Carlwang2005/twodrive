@@ -407,6 +407,18 @@ struct StreamingBackend {
 }
 
 impl CloudBackend for StreamingBackend {
+    fn get_metadata(&self, remote_id: &str) -> anyhow::Result<Option<MetadataEntry>> {
+        if remote_id == "stream" {
+            return Ok(Some(MetadataEntry::new_file(
+                "stream",
+                "/stream.bin",
+                1_048_576,
+                0,
+                "etag",
+            )));
+        }
+        self.inner.get_metadata(remote_id)
+    }
     fn list_all(&self) -> anyhow::Result<Vec<MetadataEntry>> {
         self.inner.list_all()
     }
@@ -1588,6 +1600,201 @@ fn mounted_rename_after_cloud_move_keeps_content_and_open_handle() {
     drop(open_source);
     drop(session);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn remote_update_refreshes_inode_size_without_a_directory_listing() {
+    let test = TestFs::new("remote-inode-size");
+    let record = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    let ino = test.fs.inodes.ino_for_path(&record.metadata.path).unwrap();
+    let mut changed = record.metadata;
+    changed.size = 7;
+    changed.etag = "cloud-edit".into();
+    test.fs.db.upsert_metadata_batch([&changed]).unwrap();
+    assert_eq!(test.fs.attr_for_ino(ino).unwrap().size, 7);
+}
+
+struct EditingDownloadBackend {
+    inner: MockBackend,
+    revision: AtomicUsize,
+    wrong_length: bool,
+}
+
+impl CloudBackend for EditingDownloadBackend {
+    fn list_all(&self) -> anyhow::Result<Vec<MetadataEntry>> {
+        self.inner.list_all()
+    }
+    fn get_metadata(&self, id: &str) -> anyhow::Result<Option<MetadataEntry>> {
+        let mut metadata = self.inner.get_metadata(id)?;
+        if let Some(entry) = &mut metadata {
+            entry.etag = format!(
+                "{}-revision-{}",
+                entry.etag,
+                self.revision.load(Ordering::SeqCst)
+            );
+        }
+        Ok(metadata)
+    }
+    fn download(&self, id: &str) -> anyhow::Result<Vec<u8>> {
+        let mut content = self.inner.download(id)?;
+        if self.wrong_length {
+            content.pop();
+        } else if self.revision.swap(1, Ordering::SeqCst) > 0 {
+            content[0] = b'!';
+        }
+        Ok(content)
+    }
+    fn upload(&self, path: &str, content: Vec<u8>) -> anyhow::Result<MetadataEntry> {
+        self.inner.upload(path, content)
+    }
+    fn create_folder(&self, path: &str) -> anyhow::Result<MetadataEntry> {
+        self.inner.create_folder(path)
+    }
+    fn rename(&self, id: &str, path: &str) -> anyhow::Result<MetadataEntry> {
+        self.inner.rename(id, path)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+}
+
+#[test]
+fn hydration_rejects_same_size_cloud_edit_and_wrong_download_length() {
+    for wrong_length in [false, true] {
+        let root = test_root("download-version-race");
+        fs::create_dir_all(&root).unwrap();
+        let db = Database::new(root.join("db"));
+        db.init().unwrap();
+        let backend = EditingDownloadBackend {
+            inner: MockBackend::new(),
+            revision: AtomicUsize::new(0),
+            wrong_length,
+        };
+        let metadata = backend.get_metadata("file-readme").unwrap().unwrap();
+        db.upsert_metadata(&metadata).unwrap();
+        let record = db.get_by_remote_id("file-readme").unwrap().unwrap();
+        let cache = root.join("cache");
+        assert!(hydrate_record(&db, &cache, &backend, &record).is_err());
+        let current = db.get_by_remote_id("file-readme").unwrap().unwrap();
+        assert!(current.cache_path.is_none());
+        assert_eq!(fs::read_dir(&cache).unwrap().count(), 0);
+        if !wrong_length {
+            assert_ne!(current.metadata.etag, metadata.etag);
+            assert!(db.download_generation("file-readme").unwrap() > 0);
+            let path = hydrate_record(&db, &cache, &backend, &current).unwrap();
+            let mut expected = backend.inner.download("file-readme").unwrap();
+            expected[0] = b'!';
+            assert_eq!(fs::read(path).unwrap(), expected);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "requires /dev/fuse, fusermount3 and python3; uses an isolated temporary mount"]
+fn mounted_remote_zip_updates_return_current_complete_bytes_without_listing() {
+    let root = test_root("mounted-remote-zip");
+    let mount = root.join("mount");
+    fs::create_dir_all(&mount).unwrap();
+    let generated = Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import pathlib, sys, zipfile
+root = pathlib.Path(sys.argv[1])
+for version, size in enumerate([65536, 32768, 131072]):
+    with zipfile.ZipFile(root / f'{version}.zip', 'w') as z:
+        z.writestr('version.txt', str(version))
+        z.writestr('payload.bin', bytes([65 + version]) * size)
+"#,
+        ])
+        .arg(&root)
+        .status()
+        .unwrap();
+    assert!(generated.success());
+    let db = Database::new(root.join("db"));
+    db.init().unwrap();
+    let backend = MockBackend::new();
+    let initial = fs::read(root.join("0.zip")).unwrap();
+    let entry = backend.upload("/slides.pptx", initial.clone()).unwrap();
+    db.upsert_metadata(&entry).unwrap();
+    let filesystem = TwoDriveFs::new(db.clone(), root.join("cache"), backend).unwrap();
+    let backend = Arc::clone(&filesystem.backend);
+    let session = fuser::spawn_mount2(filesystem, &mount, &[]).unwrap();
+    let path = mount.join("slides.pptx");
+    assert_eq!(fs::read(&path).unwrap(), initial);
+    for version in 1..=2 {
+        let expected = fs::read(root.join(format!("{version}.zip"))).unwrap();
+        let changed = backend.upload("/slides.pptx", expected.clone()).unwrap();
+        db.upsert_metadata_batch([&changed]).unwrap();
+        // Do not read_dir or wait for the old 30-second attribute TTL.
+        assert_eq!(fs::metadata(&path).unwrap().len(), expected.len() as u64);
+        assert_eq!(fs::read(&path).unwrap(), expected);
+        let checked = Command::new("python3").args(["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; assert z.read('version.txt').decode()==sys.argv[2]"])
+            .arg(&path).arg(version.to_string()).status().unwrap();
+        assert!(checked.success());
+    }
+    drop(session);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn mismatched_clean_cache_downloads_current_content_and_preserves_old_bytes() {
+    let test = TestFs::new("mismatched-cache-length");
+    let original = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    fs::create_dir_all(&test.fs.cache_dir).unwrap();
+    let old_cache = test.fs.cache_dir.join("legacy-cache");
+    fs::write(&old_cache, b"an older cached version").unwrap();
+    test.fs
+        .db
+        .mark_cached(&original.metadata.remote_id, &old_cache)
+        .unwrap();
+    let record = test
+        .fs
+        .db
+        .get_by_remote_id(&original.metadata.remote_id)
+        .unwrap()
+        .unwrap();
+    let path = test.fs.ensure_cached(&record).unwrap();
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        test.fs
+            .backend
+            .download(&original.metadata.remote_id)
+            .unwrap()
+    );
+    assert_ne!(path, old_cache);
+    assert_eq!(fs::read(old_cache).unwrap(), b"an older cached version");
+}
+
+#[test]
+fn open_read_handle_keeps_its_file_when_cache_path_is_replaced() {
+    let mut test = TestFs::new("read-cache-generation");
+    let record = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    let ino = test.fs.inodes.ino_for_path(&record.metadata.path).unwrap();
+    let cache = test.fs.ensure_cached(&record).unwrap();
+    let expected = fs::read(&cache).unwrap();
+    let fh = test.fs.open_read_handle(ino, cache.clone()).unwrap();
+    let replacement = cache.with_extension("replacement");
+    fs::write(&replacement, b"new bytes at the same path").unwrap();
+    fs::rename(&replacement, &cache).unwrap();
+    assert_eq!(test.fs.read_open_handle(fh, 0, 4096).unwrap(), expected);
+    test.fs.release_read_handle(fh).unwrap();
 }
 
 #[test]
