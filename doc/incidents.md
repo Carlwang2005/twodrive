@@ -52,7 +52,7 @@
 ## TD-20261019-01：缓存长度与元数据 size 不一致导致 PPTX 挂载读取截断
 
 - 日期：2026-10-19（Asia/Shanghai）
-- 状态：已修复并验证隔离机制；已完成原文件的单项本地缓存引用恢复；源码修复尚未部署或发布。造成原现场版本分离的具体操作时序未确认。
+- 状态：已修复并于 2026-10-19 部署本机；隔离竞争机制、真实单文件下载及新服务挂载读取已验证，未发布 Release。造成原现场版本分离的具体操作时序未确认。
 - 影响版本与环境：Linux/TwoDrive FUSE、OnlyOffice 9.4.0。现场 CLI 与运行进程 `/proc/<pid>/exe --version` 均独立报告 0.2.16，未核实其构建提交；调查基线为 main 合并提交 `507d776`，不据此断言最早受影响版本。
 - 关联历史故障：[旧上传覆盖下载缓存](download-placeholder-race-2026-09-10.md)、[PDF 保存 mtime](pdf-save-reliability-2026-09-09.md)。本次复现来自远端元数据导入后缺少缓存版本失效，与旧上传代次响应、mtime 回写的机制不同；无证据证明那两项修复回归。
 
@@ -92,23 +92,29 @@
 
 本地恢复（独立于代码部署）：两份完整内容分别保全在应用的私有 recovery 目录；保留原缓存。再次完整下载并核对云端版本稳定、ZIP CRC 后，对目标缓存取得排他锁，在线备份 SQLite，在 Immediate 事务内重读并核验原身份、size/ETag/cache/state、无本地元数据待办及上传声明，再仅切换这一项的 cache_path、访问时间及下载代次。没有更改远端文件或上传缓存，没有替换整个数据库、安装程序或重启服务。恢复后原挂载路径全部 18,996,653 字节与核实的当前云端副本逐字节一致、ZIP CRC 通过、19 页；数据库 integrity_check 为 ok。OnlyOffice 内存中已打开的旧文档需重新打开，未替用户关闭应用或覆盖其未保存编辑。
 
+2026-10-19 本机部署：用户另行明确授权部署，并在最终停服前确认保存关闭 OnlyOffice。活动写入复查曾发现文档被新进程再次以可写方式打开，切换在停服前被阻止，待用户再次关闭后才继续。最终门控确认无可写挂载句柄、无 Writing；停止原用户服务并沿用已有的延迟卸载方式，完整备份约 41 GB 应用数据/缓存、配置、恢复材料及旧程序。备份数据库完整性、同步待办身份、待同步缓存字节和配置副本校验通过后，以原子替换安装 release CLI/daemon，并启动原自定义 unit。没有运行会覆盖服务配置的桌面安装器，没有清理队列或安装/发布 deb。
+
+新服务 13:36:19 +08:00 起运行的 daemon 与构建输出 SHA-256 完全一致，CLI 亦一致；版本文本仍为 0.2.16，属于本地修复构建。服务配置与凭据/配置字节不变，数据库 integrity_check 为 ok。原 PPT 通过新挂载读取的全部字节与停服备份一致，metadata/cache/stat/read 均为 18,996,653 字节，ZIP CRC 通过。原 3 项元数据待办与 1 项删除待办身份保持，已关闭文档的 Dirty 上传经正常恢复完成，最终无 Writing/Dirty/Uploading/Conflict；不将仍保留的历史待办称为云端同步完成。完整回退材料及机器可读部署记录仅保存在本机私有维护目录。
+
 ### 验证结果与边界
 
 - 旧数据库实现下，两项新增回归分别失败于“新元数据仍保留旧缓存”和“旧下载仍可发布”；旧 FUSE 实现下，属性未刷新、长度不符仍复用缓存、句柄跟随替换路径三项新增回归分别失败。修复后相同测试通过。
 - 最终 Linux 工作区默认 Rust 测试 184 项通过；9 项通常忽略的隔离实际 FUSE 挂载测试全部显式通过，包含远端 ZIP 缩小/增大后无需目录 listing 或 TTL 等待即可读取当前完整版本，并由 Python ZipFile 校验 CRC/版本标记。
 - 25 项 Nautilus、4 项 Settings 测试通过；workspace build、全目标严格 Clippy、格式及 diff 检查通过。
+- 部署前重新执行 184 项工作区测试、9 项显式隔离 FUSE 测试均通过；慢共享磁盘同步夹具下 core 的 48 项回归全部通过（193.85 秒）。`cargo build --workspace --release --locked --offline` 成功，构建产物的独立 mock daemon 冒烟验证 hydration/write/upload/move/delete/pin/release 通过。
+- 安装后使用已安装的 release CLI，在独立数据库/缓存与临时凭据副本中，只读下载真实 OneDrive 的该 PPT；下载前后云端 ETag/size 稳定，新下载全部字节与生产挂载一致，ZIP CRC 通过。该探针只把单项元数据放入隔离数据库，不重放生产待办、不进行云端文件写入；临时凭据副本已删除。
 - 下载版本竞争、同大小不同 ETag、同 ETag 不同大小、pin 保留、迟到下载、错误下载长度和本地待同步代次保护均有回归。开发过程中，原 StreamingBackend 替身缺少其合成文件的元数据而导致取消测试等不到下载开始，已补齐替身契约；Windows mock 引擎测试因硬编码旧缓存文件名报 NotFound，已改为从数据库取得实际缓存路径并保留字节断言。两类失败均已在最终完整测试中通过，未屏蔽原检查。
-- **边界**：FUSE 自动测试使用 MockBackend；Windows 测试在 Linux 上运行，未做 Windows 原生 CI。真实 OneDrive 仅执行该文件的只读元数据/下载和本地缓存恢复后挂载读取比对，没有执行本修复程序的真实“Office 云编辑 → delta → 再下载”端到端验证。新程序尚未安装，旧运行程序仍可能在后续云端更新后再现缺陷；未验证 OnlyOffice 重新加载后的 UI。
+- **边界**：FUSE 自动测试使用 MockBackend；Windows 测试在 Linux 上运行，未做 Windows 原生 CI。真实 OneDrive 已验证单项只读元数据、安装后新程序的完整下载和生产挂载读取比对；没有执行真实“Office 云编辑 → delta → 再下载”端到端验证。用户在安装前已确认当前内容为最新版，安装后未替用户操作 OnlyOffice UI。新服务正常恢复既有队列，不等同于本次额外构造云端写入测试，也不承诺所有同类错误永久消失。
 
 ### 防复发措施与后续
 
 保留回归 `remote_content_updates_detach_cached_bytes_and_cancel_old_downloads`、`remote_update_during_hydration_rejects_late_publication`、`cache_repair_and_remote_import_preserve_pending_local_content`、`hydration_never_publishes_a_cache_of_the_wrong_length`、`remote_update_refreshes_inode_size_without_a_directory_listing`、`mismatched_clean_cache_downloads_current_content_and_preserves_old_bytes`、`open_read_handle_keeps_its_file_when_cache_path_is_replaced`、`hydration_rejects_same_size_cloud_edit_and_wrong_download_length` 及 `mounted_remote_zip_updates_return_current_complete_bytes_without_listing`。
 
-缓存版本必须随元数据原子切换；不得仅用缓存长度修正云端 size 或自动上传旧缓存。保留单项恢复备份、旧字节与缓存指针回退证据，仅存于本机私有目录。用户已确认当前内容为最新版；后续需要完成源码交付/部署及实际 Office 云端编辑往返。本次保全的旧缓存不自动删除。
+缓存版本必须随元数据原子切换；不得仅用缓存长度修正云端 size 或自动上传旧缓存。保留单项恢复备份、旧字节与缓存指针回退证据，仅存于本机私有目录。用户已确认当前内容为最新版，本机部署已完成；实际 Office 云端编辑往返仍未执行。本次保全的旧缓存不自动删除。
 
 ### 交付记录
 
-尚未提交或发布。
+本机部署的修复源提交为 `f39856c4b94618375b6c3b02d586336cabba5ac6`，release 构建与实际运行文件已核对。用户补充“更新本机就好了，不用发布”前，修复分支推送已完成；随后仅继续本机更新，未创建 PR 或 Release、未发布安装包。本条部署结果随本地后续记录提交保存，不再推送。
 
 ## TD-20261017-03：发布准备中的 HTTPS 标签推送连接停滞
 
