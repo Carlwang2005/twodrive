@@ -38,6 +38,11 @@ For the Linux regression that models a slow shared disk-sync queue, run
 the disposable core test process. This is a controlled contention test, not a
 replay of a particular Windows host or a real OneDrive test.
 
+Before changing shared package versions, refresh both the root `Cargo.lock` and
+`experiments/twodrive-dev/Cargo.lock`. Run
+`python3 scripts/check-local-package-locks.py` before pushing release preparation;
+the native Linux workflow and Debian source preparation enforce this check.
+
 Environment-dependent mounted tests are ignored by default; a normal test run does not establish that they passed. Inspect their requirements and use isolated FUSE mounts. Mock tests are not evidence of live Graph behavior.
 
 All release `.deb` packages on **main and dev** must follow the [Debian packaging policy](doc/debian-packaging.md). Build from a clean committed tree with [scripts/build-deb.sh](scripts/build-deb.sh), after installing the prerequisites in [debian/README.source](debian/README.source). The helper prepares locked dependency sources, then uses `dpkg-buildpackage`/debhelper; retain and verify the complete source/binary manifests in `dist/debian/`. Manual `dpkg-deb --build` release packaging is prohibited. For source installation, run `cargo build --workspace --release`, follow the [sign-in guide](doc/getting-started.md) using `target/release/twodrive` to configure/sign in, then inspect and run [scripts/install-desktop-integration.sh](scripts/install-desktop-integration.sh). **The installer starts the user service**; do not run it just to test. Check service and `PATH` precedence before mixing package/source installs.
