@@ -49,10 +49,45 @@
 
 
 
+## TD-20261019-04：IPC 冒烟测试仍假定缓存路径等于文件身份
+
+- 日期：2026-10-19（Asia/Shanghai）
+- 状态：本地旧失败/新通过，原生 Windows 最终重跑待确认。
+- 影响版本与环境：PR #37 的 Windows Full/Lite 打包后 IPC 测试，准备源码 `342d01b`。
+- 关联历史故障：TD-20261019-01 中 Rust 引擎测试的相同旧路径假设遗漏了独立 Python 进程测试；TD-20260916-W02 同为 IPC 测试，但本次没有编码错误。
+
+### 症状与影响
+
+Windows 原生构建成功，IPC 完成下载后，脚本按文件身份拼接旧缓存路径并报 FileNotFoundError。发布被拦截；未影响生产服务或修改用户云端文件。
+
+### 触发条件与复现
+
+共享 hydration 为每个下载代次采用独立缓存路径后，执行 `scripts/test-windows-ipc.py` 的上传、release、重新下载流程。[真实失败 CI](https://github.com/LumiaBlack51/twodrive/actions/runs/39231036484) 和 Linux 同一隔离进程脚本均在旧路径字节断言处失败。
+
+### 根因与证据
+
+测试将存储布局细节作为接口，未使用数据库发布的 cache_path；此前只修正了 Rust 单元测试的相邻假设。IPC 已报告下载完成，数据库中的实际路径可读取完整合成内容，不能把脚本的旧路径 NotFound 称为运行时丢失缓存。
+
+### 解决办法与恢复操作
+
+脚本从隔离数据库只读查询同一文件身份，核实 cached、长度、缓存仍位于隔离目录及完整字节一致；保留全部 IPC 流程断言。Linux CI 增加同一跨平台 IPC 进程脚本，在较慢的 Windows 打包前也能发现此类遗漏。无生产恢复操作。
+
+### 验证结果与边界
+
+修改前脚本稳定失败；相同引擎、同一脚本修改后通过，包括上传确认、下载字节、断连、重启设置保留。最终 Windows 命名管道和 Full/Lite 打包流程待重跑；本地 Unix socket 结果不能替代 Windows 结果，也不是真实 OneDrive 测试。
+
+### 防复发措施与后续
+
+保留数据库状态/长度/路径约束和字节断言；共享缓存布局变化时同时检查 Rust 测试和进程级冒烟。未屏蔽 Windows job，也未把失败重标为成功。
+
+### 交付记录
+
+随 PR #37 修复；最终 CI 与发布状态待补充。
+
 ## TD-20261019-03：0.2.17 发布准备遗漏独立工作区锁文件版本
 
 - 日期：2026-10-19（Asia/Shanghai）
-- 状态：已修复锁定版本并通过本地检查，最终原生 CI 待确认。
+- 状态：已修复；本地检查及源码 `342d01b` 的独立 Linux/Windows CI 均通过。
 - 影响版本与环境：0.2.17-1 准备提交 `7019586`，独立 experiments/twodrive-dev 的 Linux/Windows CI。
 - 关联历史故障：TD-20261014-14。属于发布版本同步流程再次遗漏，不是云端缓存失效机制回归；旧记录的处理建议未形成提前阻止发布准备的自动检查。
 
@@ -74,7 +109,7 @@ PR #37 的独立工作区 Clippy 在依赖解析时因 `--locked` 拒绝继续�
 
 ### 验证结果与边界
 
-旧锁的 locked metadata 失败；新锁相同命令通过。新增两个 Python 回归及所有锁版本检查通过，最终 Linux/Windows 构建结果待确认。没有移除 `--locked` 或跳过失败任务。
+旧锁的 locked metadata 失败；新锁相同命令通过。新增两个 Python 回归及所有锁版本检查通过，[独立 Linux/Windows 构建](https://github.com/LumiaBlack51/twodrive/actions/runs/39231036535) 和 [root 原生检查](https://github.com/LumiaBlack51/twodrive/actions/runs/39231036485) 均通过。相邻 IPC 脚本遗漏另记 TD-20261019-04。没有移除 `--locked` 或跳过失败任务。
 
 ### 防复发措施与后续
 
