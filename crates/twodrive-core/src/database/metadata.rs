@@ -90,9 +90,25 @@ impl Database {
                 continue;
             }
 
-            // Never pair a remote version's metadata with another version's
-            // bytes. Retain the old file on disk for open handles/recovery;
-            // cancel in-flight downloads before accepting the new metadata.
+            // Detach and retire the old version atomically. Reclamation waits
+            // for every durable reference and locked reader/upload to finish.
+            let obsolete = tx
+                .query_row(
+                    "SELECT cache_path, size FROM files WHERE remote_id = ?1 AND is_dir = 0
+                   AND cache_path IS NOT NULL AND state IN ('cached', 'pinned')
+                   AND (etag <> ?2 OR size <> ?3 OR is_dir <> ?4)",
+                    params![local_id, entry.etag, entry.size as i64, entry.is_dir as i64],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)),
+                )
+                .optional()?;
+            if let Some((path, size)) = obsolete
+                && std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == size)
+            {
+                tx.execute(
+                    "INSERT OR IGNORE INTO retired_cache(cache_path) VALUES (?1)",
+                    params![path],
+                )?;
+            }
             tx.execute(
                 "UPDATE files SET cache_path = NULL, cache_accessed_unix = NULL,
                     state = 'online_only', download_generation = download_generation + 1

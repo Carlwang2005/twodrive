@@ -84,6 +84,76 @@ fn add_file(db: &Database, id: &str, path: &str) {
 }
 
 #[test]
+fn retired_remote_versions_wait_for_references_and_file_locks_across_restart() {
+    let test = TestDatabase::new("retired-cache");
+    let cache_dir = test.root.join("cache");
+    fs::create_dir(&cache_dir).unwrap();
+    let old = cache_dir.join("old-version");
+    let unknown = cache_dir.join("untracked-recovery");
+    fs::write(&old, b"old!").unwrap();
+    fs::write(&unknown, b"untracked user content").unwrap();
+    add_file(&test.db, "cloud", "/file");
+    test.db.mark_cached("cloud", &old).unwrap();
+    let guard = fs::File::open(&old).unwrap();
+    guard.lock_shared().unwrap();
+    test.db
+        .upsert_metadata(&MetadataEntry::new_file("cloud", "/file", 5, 2, "new-etag"))
+        .unwrap();
+    assert!(
+        test.db
+            .get_by_path("/file")
+            .unwrap()
+            .unwrap()
+            .cache_path
+            .is_none()
+    );
+    let restarted = Database::new(test.db.path());
+    restarted.init().unwrap();
+    assert_eq!(restarted.prune_retired_cache(&cache_dir).unwrap(), 0);
+    drop(guard);
+    let conn = Connection::open(test.db.path()).unwrap();
+    conn.execute(
+        "UPDATE files SET upload_cache_path=?1 WHERE remote_id='cloud'",
+        [&old.to_string_lossy()],
+    )
+    .unwrap();
+    assert_eq!(restarted.prune_retired_cache(&cache_dir).unwrap(), 0);
+    conn.execute("UPDATE files SET upload_cache_path=NULL", [])
+        .unwrap();
+    conn.execute("INSERT INTO pending_deletes(remote_id,path,cache_path,queued_unix) VALUES ('pending','/pending',?1,1)", [&old.to_string_lossy()]).unwrap();
+    assert_eq!(restarted.prune_retired_cache(&cache_dir).unwrap(), 0);
+    conn.execute("DELETE FROM pending_deletes", []).unwrap();
+    assert_eq!(restarted.prune_retired_cache(&cache_dir).unwrap(), 1);
+    assert!(!old.exists());
+    assert_eq!(fs::read(&unknown).unwrap(), b"untracked user content");
+    assert_eq!(restarted.prune_retired_cache(&cache_dir).unwrap(), 0);
+}
+
+#[test]
+fn retired_cache_cannot_remove_a_reused_current_generation_or_outside_file() {
+    let test = TestDatabase::new("retired-cache-reuse");
+    let cache_dir = test.root.join("cache");
+    fs::create_dir(&cache_dir).unwrap();
+    let cache = cache_dir.join("cache");
+    let outside = test.root.join("outside");
+    fs::write(&cache, b"data").unwrap();
+    fs::write(&outside, b"private").unwrap();
+    add_file(&test.db, "current", "/current");
+    test.db.mark_cached("current", &cache).unwrap();
+    let conn = Connection::open(test.db.path()).unwrap();
+    for path in [&cache, &outside] {
+        conn.execute(
+            "INSERT INTO retired_cache(cache_path) VALUES (?1)",
+            [path.to_string_lossy()],
+        )
+        .unwrap();
+    }
+    assert_eq!(test.db.prune_retired_cache(&cache_dir).unwrap(), 0);
+    assert_eq!(fs::read(&cache).unwrap(), b"data");
+    assert_eq!(fs::read(&outside).unwrap(), b"private");
+}
+
+#[test]
 fn deletion_claim_reads_latest_cloud_binding_and_migrates_idempotently() {
     let test = TestDatabase::new("delete-cloud-binding");
     let cache = test.root.join("cache");

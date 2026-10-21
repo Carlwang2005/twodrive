@@ -4,6 +4,10 @@
 
 User-facing highlights moved from the former README. Releases hold published assets and verification notes; [debian/changelog](debian/changelog) retains package history. These entries describe changes at release time, not fresh test results or a guarantee of current behavior.
 
+## 0.2.18 — Cache retirement and automatic retention
+
+Superseded saves and clean remote versions enter a durable reclamation queue. Open readers/writers, upload claims and pending deletions defer removal; unknown cache and recovery files are preserved. The daemon now applies `cache.retain_for` (default 30 days) in its background maintenance cycle, with pin, in-progress and recent-access protection.
+
 ## 0.2.16 — Repeated moves preserve the file
 
 A rename from an outdated directory view now recognizes when cloud metadata has already moved the same file to the destination. It refreshes the directory names while preserving file contents and open handles. Database replacement also preserves self-replacements, rejects moved targets, and rolls back when the target update does not take effect.

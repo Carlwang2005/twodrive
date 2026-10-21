@@ -188,6 +188,14 @@ impl<B: CloudBackend> TwoDriveFs<B> {
             }
             self.upload_pool
                 .enqueue(updated.metadata.remote_id.clone())?;
+            if target.cache_path != updated.cache_path
+                && let Some(cache) = &target.cache_path
+                && let Err(err) = self.cleanup_unlinked_cache(cache)
+            {
+                // The rename has committed. The durable retirement queue will
+                // retry cleanup; never report a completed save as a failure.
+                eprintln!("twodrive: superseded cache cleanup deferred: {err:#}");
+            }
             return Ok(());
         }
 

@@ -97,6 +97,63 @@ impl Database {
         )? == 1)
     }
 
+    /// Reclaim only an explicitly retired cache, never arbitrary files found
+    /// in the cache directory. Old untracked files can be recovery material.
+    pub fn prune_retired_cache(&self, cache_dir: &Path) -> anyhow::Result<usize> {
+        let paths = self
+            .connect()?
+            .prepare("SELECT cache_path FROM retired_cache")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut removed = 0;
+        for path in paths {
+            let path = Path::new(&path);
+            if path.parent() == Some(cache_dir) && self.remove_unreferenced_cache(path)? {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    /// The write transaction protects all durable references; file locks also
+    /// protect readers, writers and uploads after their database path changes.
+    pub fn remove_unreferenced_cache(&self, path: &Path) -> anyhow::Result<bool> {
+        let mut conn = self.connect()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let referenced: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM files WHERE cache_path = ?1 OR upload_cache_path = ?1)
+                OR EXISTS(SELECT 1 FROM pending_deletes WHERE cache_path = ?1 OR upload_cache_path = ?1)",
+            params![path.to_string_lossy()], |row| row.get(0))?;
+        if referenced {
+            return Ok(false);
+        }
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() => Some(metadata),
+            Ok(_) => return Ok(false),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => return Err(err.into()),
+        };
+        let file = if metadata.is_some() {
+            Some(fs::File::open(path)?)
+        } else {
+            None
+        };
+        if let Some(file) = &file {
+            match file.try_lock() {
+                Ok(()) => {}
+                Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
+                Err(err) => return Err(err.into()),
+            }
+            fs::remove_file(path)?;
+        }
+        tx.execute(
+            "DELETE FROM retired_cache WHERE cache_path = ?1",
+            params![path.to_string_lossy()],
+        )?;
+        tx.commit()?;
+        Ok(file.is_some())
+    }
+
     pub fn begin_hydration(&self, remote_id: &str, generation: i64) -> anyhow::Result<bool> {
         Ok(self.connect()?.execute(
             "UPDATE files SET state = CASE WHEN pin_explicit = 1 OR pin_origin_remote_id IS NOT NULL THEN 'pinned' ELSE 'hydrating' END, cache_path = NULL, cache_accessed_unix = NULL
@@ -202,6 +259,14 @@ impl Database {
     }
 
     pub fn release_record(&self, record: &FileRecord) -> anyhow::Result<bool> {
+        self.release_cached_record(record, None)
+    }
+
+    fn release_cached_record(
+        &self,
+        record: &FileRecord,
+        cutoff: Option<i64>,
+    ) -> anyhow::Result<bool> {
         let mut conn = self.connect()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = self.query_record(&tx,
@@ -214,8 +279,22 @@ impl Database {
             || record.effective_pinned()
             || !matches!(record.state, FileState::Cached)
             || record.cloud_remote_id.is_none()
+            || cutoff.is_some_and(|cutoff| {
+                record
+                    .cache_accessed_unix
+                    .is_some_and(|accessed| accessed > cutoff)
+            })
         {
             return Ok(false);
+        }
+        if let Some(path) = &record.cache_path {
+            let protected: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM files WHERE upload_cache_path=?1 OR (remote_id<>?2 AND cache_path=?1))
+                 OR EXISTS(SELECT 1 FROM pending_deletes WHERE cache_path=?1 OR upload_cache_path=?1)",
+                params![path.to_string_lossy(), record.metadata.remote_id], |row| row.get(0))?;
+            if protected {
+                return Ok(false);
+            }
         }
         let cache_file = match record.cache_path.as_ref().map(fs::File::open).transpose() {
             Ok(file) => file,
@@ -334,10 +413,61 @@ impl Database {
 
         let mut pruned = 0;
         for record in records {
-            if self.release_record(&record)? {
+            if self.release_cached_record(&record, Some(cutoff))? {
                 pruned += 1;
             }
         }
         Ok(pruned)
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use crate::MetadataEntry;
+
+    #[test]
+    fn retention_rechecks_recent_access_and_durable_upload_claims() {
+        let root = std::env::temp_dir().join(format!(
+            "twodrive-retention-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let db = Database::new(root.join("db"));
+        db.init().unwrap();
+        let cache = root.join("cache");
+        fs::write(&cache, b"data").unwrap();
+        db.upsert_metadata(&MetadataEntry::new_file("file", "/file", 4, 1, "etag"))
+            .unwrap();
+        db.mark_cached("file", &cache).unwrap();
+        db.connect()
+            .unwrap()
+            .execute("UPDATE files SET cache_accessed_unix=1", [])
+            .unwrap();
+        let stale = db.get_by_path("/file").unwrap().unwrap();
+        db.mark_cache_accessed("file").unwrap();
+        assert!(
+            !db.release_cached_record(&stale, Some(now_unix() - 60))
+                .unwrap()
+        );
+        db.connect()
+            .unwrap()
+            .execute(
+                "UPDATE files SET cache_accessed_unix=1, upload_cache_path=cache_path",
+                [],
+            )
+            .unwrap();
+        assert_eq!(db.prune_cache(60).unwrap(), 0);
+        db.connect()
+            .unwrap()
+            .execute("UPDATE files SET upload_cache_path=NULL", [])
+            .unwrap();
+        assert_eq!(db.prune_cache(60).unwrap(), 1);
+        assert!(!cache.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }
