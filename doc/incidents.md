@@ -92,7 +92,7 @@
 
 ### 交付记录
 
-修复与本机清理进行中；提交、PR、Release 及最终删除/构建产物清理结果待实际完成后补充。
+修复源提交 `ab31687faf272eb12cc6dae60cd6a57d340e8931` 已提交 [PR #40](https://github.com/LumiaBlack51/twodrive/pull/40)。该源码的 Linux/Windows 原生检查已通过（[运行记录](https://github.com/LumiaBlack51/twodrive/actions/runs/39582857041)）；完整 Debian/桌面 CI、Release、本机最终直接删除与构建产物清理待实际完成后补充。
 
 ## TD-20261019-04：IPC 冒烟测试仍假定缓存路径等于文件身份
 
