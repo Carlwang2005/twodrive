@@ -139,6 +139,10 @@ release is replaced by this Development build.
 
 ## Windows desktop
 
+The current opt-in native filesystem experiment is documented in
+[Windows CFAPI adapter](windows-cfapi-2026-10-21.md). It is separate from the
+desktop and does not enable Windows mounting or claim Explorer acceptance.
+
 The same Flutter UI and IPC engine now have a native Windows runner, cloud tray,
 per-user paths, owned process jobs and opt-in startup entry. Windows CI builds the
 portable directory and exercises local WebDAV file operations and folder backups.

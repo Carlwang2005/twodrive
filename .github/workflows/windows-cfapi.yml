@@ -1,0 +1,26 @@
+name: Isolated CFAPI adapter
+on:
+  pull_request:
+    paths: ['experiments/windows-cfapi/**', '.github/workflows/windows-cfapi.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adapter:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --manifest-path experiments/windows-cfapi/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path experiments/windows-cfapi/Cargo.toml --all-targets --locked -- -D warnings
+      - run: cargo test --manifest-path experiments/windows-cfapi/Cargo.toml --locked
+      - run: cargo build --manifest-path experiments/windows-cfapi/Cargo.toml --release --locked
+      # No automatic host registration. Native fixture execution is opt-in and
+      # separately recorded; compile/unit success is not Explorer acceptance.
+      - if: runner.os == 'Windows'
+        run: experiments/windows-cfapi/target/release/twodrive-cfapi-probe.exe

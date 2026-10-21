@@ -1,0 +1,451 @@
+//! Real CldApi adapter for generated fixtures only. Registration is explicitly opt-in.
+use crate::{LocalStatus, transfer_range};
+use std::{
+    ffi::c_void,
+    fs,
+    mem::{offset_of, size_of},
+    os::windows::ffi::OsStrExt,
+    os::windows::fs::MetadataExt,
+    path::{Path, PathBuf},
+    ptr,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+};
+use twodrive_core::FileState;
+use windows_sys::Win32::{
+    Foundation::*,
+    Storage::{CloudFilters::*, FileSystem::*},
+};
+
+type Result<T> = std::result::Result<T, String>;
+const ID: &[u8] = b"twodrive-cfapi-generated-fixture-v1";
+const SIZE: usize = 65536;
+const OFFLINE: i32 = 0xC000CF11u32 as i32;
+const FAILED: i32 = 0xC000CF12u32 as i32;
+
+fn hr(value: i32, action: &str) -> Result<()> {
+    if value < 0 {
+        Err(format!("{action}: HRESULT 0x{:08X}", value as u32))
+    } else {
+        Ok(())
+    }
+}
+fn wide(path: &Path) -> Vec<u16> {
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
+pub fn payload() -> Vec<u8> {
+    (0..SIZE).map(|i| (i % 251) as u8).collect()
+}
+
+pub fn platform() -> Result<CF_PLATFORM_INFO> {
+    let mut info = CF_PLATFORM_INFO::default();
+    hr(
+        unsafe { CfGetPlatformInfo(&mut info) },
+        "query CFAPI platform",
+    )?;
+    Ok(info)
+}
+
+#[derive(Default)]
+struct Source {
+    calls: AtomicUsize,
+    failures: AtomicUsize,
+    offline: AtomicBool,
+}
+
+// The OS owns callback pointers until CfDisconnectSyncRoot returns. Source is
+// boxed for a stable address and outlives that call, including error unwinding.
+unsafe extern "system" fn fetch(
+    info: *const CF_CALLBACK_INFO,
+    params: *const CF_CALLBACK_PARAMETERS,
+) {
+    // SAFETY: CldApi supplies valid pointers for the duration of this callback.
+    let (info, params) = unsafe { (&*info, &*params) };
+    let source = unsafe { &*(info.CallbackContext as *const Source) };
+    source.calls.fetch_add(1, Ordering::SeqCst);
+    let requested = unsafe { params.Anonymous.FetchData };
+    let mut status = FAILED;
+    let mut bytes = Vec::new();
+    let mut offset = requested.RequiredFileOffset;
+    let mut length = requested.RequiredLength;
+    // Never dereference callback paths or use identity as a path. The source is
+    // intentionally immutable, bounded and local; no production provider here.
+    let outcome = std::panic::catch_unwind(|| {
+        if info.FileIdentity.is_null() || info.FileIdentityLength as usize != ID.len() {
+            return None;
+        }
+        let identity =
+            unsafe { std::slice::from_raw_parts(info.FileIdentity.cast::<u8>(), ID.len()) };
+        if identity != ID {
+            return None;
+        }
+        transfer_range(offset, length, SIZE)
+    });
+    if source.offline.load(Ordering::SeqCst) {
+        status = OFFLINE;
+    } else if let Ok(Some((start, end))) = outcome {
+        bytes = payload();
+        offset = start as i64;
+        length = (end - start) as i64;
+        status = 0;
+    }
+    let operation = CF_OPERATION_INFO {
+        StructSize: size_of::<CF_OPERATION_INFO>() as u32,
+        Type: CF_OPERATION_TYPE_TRANSFER_DATA,
+        ConnectionKey: info.ConnectionKey,
+        TransferKey: info.TransferKey,
+        RequestKey: info.RequestKey,
+        CorrelationVector: info.CorrelationVector,
+        ..Default::default()
+    };
+    let mut transfer = CF_OPERATION_PARAMETERS {
+        ParamSize: (offset_of!(CF_OPERATION_PARAMETERS, Anonymous)
+            + size_of::<CF_OPERATION_PARAMETERS_0_0>()) as u32,
+        ..Default::default()
+    };
+    transfer.Anonymous.TransferData = CF_OPERATION_PARAMETERS_0_0 {
+        Flags: CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
+        CompletionStatus: status,
+        Buffer: if bytes.is_empty() {
+            ptr::null()
+        } else {
+            unsafe { bytes.as_ptr().add(offset as usize).cast() }
+        },
+        Offset: offset,
+        Length: length,
+    };
+    // CfExecute consumes this buffer synchronously; it cannot outlive bytes.
+    let completion = unsafe { CfExecute(&operation, &mut transfer) };
+    if status != 0 || completion < 0 {
+        source.failures.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+pub struct Session {
+    root: PathBuf,
+    registered: bool,
+    connection: Option<CF_CONNECTION_KEY>,
+    source: Box<Source>,
+}
+
+impl Session {
+    /// Only a NEW empty root beneath a canonical parent is accepted. Never
+    /// updates an existing registration or adopts another client's placeholder.
+    pub fn create(root: &Path) -> Result<Self> {
+        if !root.is_absolute() || root.exists() || root.file_name().is_none() {
+            return Err("fixture root must be a new absolute directory".into());
+        }
+        let parent = root
+            .parent()
+            .ok_or("missing parent")?
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        for ancestor in parent.ancestors() {
+            let metadata = fs::symlink_metadata(ancestor).map_err(|e| e.to_string())?;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err("fixture ancestors must not be reparse points".into());
+            }
+        }
+        let mut existing = CF_SYNC_ROOT_BASIC_INFO::default();
+        if unsafe {
+            CfGetSyncRootInfoByPath(
+                wide(&parent).as_ptr(),
+                CF_SYNC_ROOT_INFO_BASIC,
+                (&mut existing as *mut CF_SYNC_ROOT_BASIC_INFO).cast(),
+                size_of_val(&existing) as u32,
+                ptr::null_mut(),
+            )
+        } >= 0
+        {
+            return Err("fixture parent already belongs to a sync root".into());
+        }
+        let root = parent.join(root.file_name().unwrap());
+        fs::create_dir(&root).map_err(|e| e.to_string())?;
+        let mut session = Self {
+            root,
+            registered: false,
+            connection: None,
+            source: Box::default(),
+        };
+        let name = wide(Path::new("TwoDrive isolated CFAPI experiment"));
+        let version = wide(Path::new(env!("CARGO_PKG_VERSION")));
+        let registration = CF_SYNC_REGISTRATION {
+            StructSize: size_of::<CF_SYNC_REGISTRATION>() as u32,
+            ProviderName: name.as_ptr(),
+            ProviderVersion: version.as_ptr(),
+            SyncRootIdentity: ID.as_ptr().cast(),
+            SyncRootIdentityLength: ID.len() as u32,
+            ..Default::default()
+        };
+        let policies = CF_SYNC_POLICIES {
+            StructSize: size_of::<CF_SYNC_POLICIES>() as u32,
+            Hydration: CF_HYDRATION_POLICY {
+                Primary: CF_HYDRATION_POLICY_FULL,
+                Modifier: CF_HYDRATION_POLICY_MODIFIER_NONE,
+            },
+            Population: CF_POPULATION_POLICY {
+                Primary: CF_POPULATION_POLICY_ALWAYS_FULL,
+                Modifier: CF_POPULATION_POLICY_MODIFIER_NONE,
+            },
+            InSync: CF_INSYNC_POLICY_TRACK_ALL,
+            HardLink: CF_HARDLINK_POLICY_NONE,
+            PlaceholderManagement: CF_PLACEHOLDER_MANAGEMENT_POLICY_DEFAULT,
+        };
+        hr(
+            unsafe {
+                CfRegisterSyncRoot(
+                    wide(&session.root).as_ptr(),
+                    &registration,
+                    &policies,
+                    CF_REGISTER_FLAG_NONE,
+                )
+            },
+            "register generated root",
+        )?;
+        session.registered = true;
+        session.connect()?;
+        Ok(session)
+    }
+
+    pub fn connect(&mut self) -> Result<()> {
+        if self.connection.is_some() {
+            return Err("already connected".into());
+        }
+        let table = [
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_FETCH_DATA,
+                Callback: Some(fetch),
+            },
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_NONE,
+                Callback: None,
+            },
+        ];
+        let mut key = 0;
+        hr(
+            unsafe {
+                CfConnectSyncRoot(
+                    wide(&self.root).as_ptr(),
+                    table.as_ptr(),
+                    (&*self.source as *const Source).cast::<c_void>(),
+                    CF_CONNECT_FLAG_NONE,
+                    &mut key,
+                )
+            },
+            "connect generated root",
+        )?;
+        self.connection = Some(key);
+        Ok(())
+    }
+    pub fn disconnect(&mut self) -> Result<()> {
+        if let Some(key) = self.connection {
+            hr(
+                unsafe { CfDisconnectSyncRoot(key) },
+                "disconnect generated root",
+            )?;
+            self.connection = None;
+        }
+        Ok(())
+    }
+    pub fn finish(&mut self) -> Result<()> {
+        self.disconnect()?;
+        if self.registered {
+            hr(
+                unsafe { CfUnregisterSyncRoot(wide(&self.root).as_ptr()) },
+                "unregister generated root",
+            )?;
+            self.registered = false;
+        }
+        Ok(())
+    }
+    pub fn calls(&self) -> usize {
+        self.source.calls.load(Ordering::SeqCst)
+    }
+    pub fn failures(&self) -> usize {
+        self.source.failures.load(Ordering::SeqCst)
+    }
+    pub fn offline(&self, value: bool) {
+        self.source.offline.store(value, Ordering::SeqCst);
+    }
+
+    pub fn placeholder(&self, relative: &Path) -> Result<PathBuf> {
+        // The harness supplies generated leaf names only, including a long leaf.
+        if relative.components().count() != 1
+            || relative.file_name().is_none()
+            || relative.is_absolute()
+        {
+            return Err("only a generated leaf name is accepted".into());
+        }
+        let name = wide(relative);
+        let mut entry = CF_PLACEHOLDER_CREATE_INFO {
+            RelativeFileName: name.as_ptr(),
+            FileIdentity: ID.as_ptr().cast(),
+            FileIdentityLength: ID.len() as u32,
+            Flags: CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
+            ..Default::default()
+        };
+        entry.FsMetadata.FileSize = SIZE as i64;
+        entry.FsMetadata.BasicInfo.FileAttributes = FILE_ATTRIBUTE_NORMAL;
+        let mut done = 0;
+        hr(
+            unsafe {
+                CfCreatePlaceholders(
+                    wide(&self.root).as_ptr(),
+                    &mut entry,
+                    1,
+                    CF_CREATE_FLAG_STOP_ON_ERROR,
+                    &mut done,
+                )
+            },
+            "create generated placeholder",
+        )?;
+        hr(entry.Result, "placeholder entry")?;
+        if done != 1 {
+            return Err("placeholder was not created".into());
+        }
+        Ok(self.root.join(relative))
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        if let Err(error) = self.finish() {
+            // Do not claim cleanup succeeded. Leaking the context is safer than
+            // dangling callback memory if the OS cannot disconnect.
+            eprintln!("cleanup incomplete: {error}");
+            if self.connection.is_some() {
+                let _ = Box::leak(std::mem::take(&mut self.source));
+            }
+        }
+    }
+}
+
+struct Handle(HANDLE, bool);
+impl Drop for Handle {
+    fn drop(&mut self) {
+        unsafe {
+            if self.1 {
+                CfCloseHandle(self.0);
+            } else {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+fn metadata_handle(path: &Path) -> Result<Handle> {
+    // OPEN_REPARSE_POINT + attributes-only does not request file content.
+    let handle = unsafe {
+        CreateFileW(
+            wide(path).as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(format!("open attributes: {}", unsafe { GetLastError() }));
+    }
+    Ok(Handle(handle, false))
+}
+
+fn status(handle: HANDLE, engine_state: FileState) -> Result<LocalStatus> {
+    // u64 buffer provides alignment for the variable-length standard-info blob.
+    let mut buffer = [0u64; 1024];
+    let mut returned = 0;
+    hr(
+        unsafe {
+            CfGetPlaceholderInfo(
+                handle,
+                CF_PLACEHOLDER_INFO_STANDARD,
+                buffer.as_mut_ptr().cast(),
+                size_of_val(&buffer) as u32,
+                &mut returned,
+            )
+        },
+        "inspect placeholder",
+    )?;
+    if returned < size_of::<CF_PLACEHOLDER_STANDARD_INFO>() as u32 {
+        return Err("short placeholder info".into());
+    }
+    let info = unsafe { &*buffer.as_ptr().cast::<CF_PLACEHOLDER_STANDARD_INFO>() };
+    let identity_end = offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity) + ID.len();
+    if info.FileIdentityLength as usize != ID.len() || identity_end > returned as usize {
+        return Err("foreign placeholder identity".into());
+    }
+    let identity = unsafe { std::slice::from_raw_parts(info.FileIdentity.as_ptr(), ID.len()) };
+    if identity != ID {
+        return Err("foreign placeholder identity".into());
+    }
+    Ok(LocalStatus {
+        resident: info.OnDiskDataSize >= SIZE as i64,
+        partial: info.OnDiskDataSize > 0 && info.OnDiskDataSize < SIZE as i64,
+        pinned: info.PinState == CF_PIN_STATE_PINNED,
+        os_in_sync: info.InSyncState == CF_IN_SYNC_STATE_IN_SYNC,
+        modified_bytes: info.ModifiedDataSize,
+        engine_state,
+        pending_operations: false,
+        open_handles: false,
+    })
+}
+
+pub fn inspect(path: &Path, engine_state: FileState) -> Result<LocalStatus> {
+    status(metadata_handle(path)?.0, engine_state)
+}
+
+pub fn pin(path: &Path, pinned: bool) -> Result<()> {
+    let mut handle = ptr::null_mut();
+    hr(
+        unsafe {
+            CfOpenFileWithOplock(
+                wide(path).as_ptr(),
+                CF_OPEN_FILE_FLAG_WRITE_ACCESS,
+                &mut handle,
+            )
+        },
+        "open pin oplock",
+    )?;
+    let handle = Handle(handle, true);
+    hr(
+        unsafe {
+            CfSetPinState(
+                handle.0,
+                if pinned {
+                    CF_PIN_STATE_PINNED
+                } else {
+                    CF_PIN_STATE_UNSPECIFIED
+                },
+                CF_SET_PIN_FLAG_NONE,
+                ptr::null_mut(),
+            )
+        },
+        "set pin intent",
+    )
+}
+
+/// Prototype only: engine_state is the harness's immutable fixture state. A
+/// production caller needs a durable generation/journal and item-lock adapter.
+pub fn release(path: &Path, engine_state: FileState) -> Result<()> {
+    let mut handle = ptr::null_mut();
+    hr(
+        unsafe {
+            CfOpenFileWithOplock(
+                wide(path).as_ptr(),
+                CF_OPEN_FILE_FLAG_EXCLUSIVE | CF_OPEN_FILE_FLAG_WRITE_ACCESS,
+                &mut handle,
+            )
+        },
+        "exclusive release oplock",
+    )?;
+    let handle = Handle(handle, true);
+    if !status(handle.0, engine_state)?.releasable() {
+        return Err("release refused: pin, dirty, pending or unconfirmed state".into());
+    }
+    hr(
+        unsafe { CfDehydratePlaceholder(handle.0, 0, -1, CF_DEHYDRATE_FLAG_NONE, ptr::null_mut()) },
+        "dehydrate clean fixture",
+    )
+}
