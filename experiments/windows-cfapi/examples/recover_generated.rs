@@ -34,14 +34,16 @@ fn main() -> anyhow::Result<()> {
         "existing generated journal required"
     );
     let mut bridge = None;
-    twodrive_local_files::native::recover_retained_generated(&root, &backup, |id| {
+    twodrive_local_files::native::recover_retained_generated(&root, &backup, |dataset, id| {
         // Do not open or mutate journal state until native and current-user
         // Shell identities and all retained files have been verified.
         if bridge.is_none() {
             bridge = Some(
-                local_files::LocalFileBridge::generated_fixture(
+                local_files::LocalFileBridge::generated_fixture_dataset(
                     twodrive_core::Database::new(state.join("fixture.sqlite3")),
                     &state.join("cache"),
+                    dataset,
+                    std::sync::Arc::default(),
                 )
                 .map_err(|e| e.to_string())?,
             );

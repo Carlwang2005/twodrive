@@ -46,6 +46,53 @@
 
 
 
+## TD-20261021-13: visual acceptance fixture lacked directory/image coverage
+
+- Date: 2026-10-21; status: preparation implemented and ordinary-data regressions passed; registered directory, active-root observer and all native visuals remain unverified.
+- Scope: PR #41 through c26b508 used three root-level binary files and a short native test lifetime. Related: TD-20261021-11/12; their successful API recheck does not prove image handlers, folder summaries or physical Shell refresh.
+
+### Symptom, reproduction and evidence
+
+The 9be73fe registered-root test ended in 3.70 seconds. It did not provide an
+interactive visual interval or a valid image/nested directory. Native API success
+therefore could not complete the requested Explorer acceptance. A first prepared
+long-path PNG passed independent CRC/zlib/pixel checks and Windows stream decode,
+but Windows GDI+ FromFile failed. Target capture without DPI awareness clipped a
+150%-scaled window; a target Explorer observer also rejected a process main
+window outside the expected fixture. Those captures are not accepted as glyph
+evidence. No original account data or cache was affected.
+
+### Cause and correction
+
+The dataset and automatic test lifetime were insufficient for visual coverage.
+Use the existing persistent GUI/FixtureService path with a separate VisualV1
+dataset: three exact 64 KiB files, one directory, a valid short-path PNG and a
+separate long binary. Retain old StandardV1 identities. Root-relative nested
+WinRT lookup, filesystem-ID-bound retention/recovery and all-node leases cover
+the new shape. A bounded phase log separates Provider download bytes, served
+cache ranges and native requests/transfers. Capture uses target DPI awareness,
+process/package/root binding and an optional exact Explorer window handle.
+It never restores/focuses a window or sends input.
+
+### Verification, recovery and remaining limits
+
+76 local test executions passed, with registration cases ignored. Strict Clippy,
+GUI-feature compilation, independent full PNG decode and Windows FromFile decode
+passed. Ordinary-file tests cover nested long lookup, manifest replacement/extra
+entry refusal, directory/file leases, phase budgets, timer completion and range
+counter/offline semantics. No claim is made that an old native visual test was
+reproduced or that the new directory CFAPI chain passed. Existing roots, journals,
+files and backups remain unchanged; no native recovery was required in this
+preparation phase.
+
+The user now requires an isolated virtual screen while coding. No supported
+independent native screen/input session is exposed by current tools. Foreground
+interaction has stopped; permission for another root alone cannot resolve this
+display limitation. No new registration was attempted. The
+[bounded one-session plan and remaining matrix](windows-explorer-visual-acceptance-2026-10-21.md)
+separate the future native/visual work from completed preparation. No release or
+merge accompanies this change.
+
 ## TD-20261021-12: WinRT full-path metadata lookup differs across Windows builds
 
 - Date: 2026-10-21; status: old code fails in Windows adapter CI; 9be73fe passes the same Windows 26100 regression and local Windows 26300 checks.

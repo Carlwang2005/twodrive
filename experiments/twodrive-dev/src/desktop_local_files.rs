@@ -19,9 +19,11 @@ impl NativeFixture {
         #[cfg(all(windows, feature = "native-local-fixture"))]
         {
             Ok(Self {
-                service: Some(twodrive_dev::native_local_fixture::FixtureService::start(
-                    root.to_owned(),
-                )?),
+                service: Some(
+                    twodrive_dev::native_local_fixture::FixtureService::start_visual(
+                        root.to_owned(),
+                    )?,
+                ),
             })
         }
         #[cfg(not(all(windows, feature = "native-local-fixture")))]

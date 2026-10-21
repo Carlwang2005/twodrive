@@ -21,39 +21,54 @@ use std::{
     time::{Duration, Instant},
 };
 use twodrive_core::{Database, FileState};
+use twodrive_local_files::fixtures::{Dataset, DownloadCounters};
 use twodrive_local_files::native::{self, HydrationSource, NativeObservation, Session};
 
 const SIZE: usize = 65536;
+#[cfg(test)]
 fn objects() -> Vec<MetadataEntry> {
-    [
-        "generated-中文.bin".to_owned(),
-        format!("generated-{}.bin", "long-".repeat(35)),
-        "generated-offline.bin".to_owned(),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, name)| {
-        MetadataEntry::new_file(
-            format!("generated-object-{index}"),
-            format!("/{name}"),
-            SIZE as u64,
-            1,
-            "generated-version-1",
-        )
-    })
-    .collect()
+    objects_for(Dataset::StandardV1)
 }
+fn objects_for(dataset: Dataset) -> Vec<MetadataEntry> {
+    dataset
+        .files()
+        .into_iter()
+        .map(|entry| {
+            MetadataEntry::new_file(
+                entry.id,
+                format!("/{}", entry.relative_path),
+                SIZE as u64,
+                1,
+                dataset.version(),
+            )
+        })
+        .collect()
+}
+#[cfg(test)]
 fn generated_bytes(index: usize) -> Vec<u8> {
-    (0..SIZE).map(|i| ((i + index * 17) % 251) as u8).collect()
+    Dataset::StandardV1.bytes(index)
 }
-fn object(id: &str) -> anyhow::Result<(usize, MetadataEntry)> {
-    objects()
+fn object_for(dataset: Dataset, id: &str) -> anyhow::Result<(usize, MetadataEntry)> {
+    objects_for(dataset)
         .into_iter()
         .enumerate()
         .find(|(_, m)| m.remote_id == id)
         .context("unknown generated object")
 }
-pub(crate) struct GeneratedProvider;
+fn metadata_for(dataset: Dataset) -> Vec<MetadataEntry> {
+    dataset
+        .directories()
+        .into_iter()
+        .map(|e| {
+            MetadataEntry::new_dir(e.id, format!("/{}", e.relative_path), 1, dataset.version())
+        })
+        .chain(objects_for(dataset))
+        .collect()
+}
+pub(crate) struct GeneratedProvider {
+    pub(crate) dataset: Dataset,
+    pub(crate) counters: Arc<DownloadCounters>,
+}
 impl CloudBackend for GeneratedProvider {
     fn is_conflict_error(&self, _: &anyhow::Error) -> bool {
         false
@@ -69,23 +84,27 @@ impl CloudBackend for GeneratedProvider {
         anyhow::bail!("generated provider is read-only")
     }
     fn list_all(&self) -> anyhow::Result<Vec<MetadataEntry>> {
-        Ok(objects())
+        Ok(metadata_for(self.dataset))
     }
     fn list_delta(&self, _: Option<&str>) -> anyhow::Result<DeltaResult> {
         Ok(DeltaResult {
-            entries: objects(),
+            entries: metadata_for(self.dataset),
             deleted_remote_ids: vec![],
             delta_link: None,
         })
     }
     fn get_metadata(&self, id: &str) -> anyhow::Result<Option<MetadataEntry>> {
-        Ok(Some(object(id)?.1))
+        Ok(metadata_for(self.dataset)
+            .into_iter()
+            .find(|m| m.remote_id == id))
     }
     fn get_metadata_by_path(&self, path: &str) -> anyhow::Result<Option<MetadataEntry>> {
-        Ok(objects().into_iter().find(|m| m.path == path))
+        Ok(metadata_for(self.dataset)
+            .into_iter()
+            .find(|m| m.path == path))
     }
     fn download(&self, id: &str) -> anyhow::Result<Vec<u8>> {
-        Ok(generated_bytes(object(id)?.0))
+        Ok(self.dataset.bytes(object_for(self.dataset, id)?.0))
     }
     fn download_to(
         &self,
@@ -94,9 +113,11 @@ impl CloudBackend for GeneratedProvider {
         progress: &mut dyn FnMut(u64) -> anyhow::Result<()>,
     ) -> anyhow::Result<u64> {
         let bytes = self.download(id)?;
+        let file_index = object_for(self.dataset, id)?.0;
         for (index, chunk) in bytes.chunks(4096).enumerate() {
             progress((index * 4096) as u64)?;
             writer.write_all(chunk)?;
+            self.counters.provider_written(file_index, chunk.len());
         }
         progress(SIZE as u64)?;
         Ok(SIZE as u64)
@@ -126,8 +147,11 @@ impl Provider for GeneratedProvider {
     fn capabilities(&self) -> Capabilities {
         Capabilities::default()
     }
-    fn list_directory(&self, _: &str) -> anyhow::Result<Vec<MetadataEntry>> {
-        Ok(objects())
+    fn list_directory(&self, path: &str) -> anyhow::Result<Vec<MetadataEntry>> {
+        Ok(metadata_for(self.dataset)
+            .into_iter()
+            .filter(|m| m.parent_path == path)
+            .collect())
     }
     fn upload_controlled(
         &self,
@@ -147,12 +171,17 @@ struct EngineSource {
     offline: AtomicBool,
     failed: Mutex<HashSet<String>>,
     reading: Mutex<HashSet<String>>,
+    dataset: Dataset,
+    counters: Arc<DownloadCounters>,
 }
 impl HydrationSource for EngineSource {
     fn size(&self, identity: &[u8]) -> Result<usize, String> {
-        object(std::str::from_utf8(identity).map_err(|_| "invalid identity")?)
-            .map(|(_, m)| m.size as usize)
-            .map_err(|e| e.to_string())
+        object_for(
+            self.dataset,
+            std::str::from_utf8(identity).map_err(|_| "invalid identity")?,
+        )
+        .map(|(_, m)| m.size as usize)
+        .map_err(|e| e.to_string())
     }
     fn read_range(
         &self,
@@ -162,7 +191,7 @@ impl HydrationSource for EngineSource {
         cancelled: &AtomicBool,
     ) -> Result<Vec<u8>, String> {
         let id = std::str::from_utf8(identity).map_err(|_| "invalid identity")?;
-        object(id).map_err(|e| e.to_string())?;
+        object_for(self.dataset, id).map_err(|e| e.to_string())?;
         self.reading
             .lock()
             .map_err(|_| "read state poisoned")?
@@ -196,7 +225,7 @@ impl EngineSource {
             .lock()
             .map_err(|_| anyhow::anyhow!("source gate poisoned"))?;
         let id = std::str::from_utf8(identity)?;
-        object(id)?;
+        let file_index = object_for(self.dataset, id)?.0;
         ensure!(
             length <= 65536 && offset.checked_add(length).is_some_and(|end| end <= SIZE),
             "bounded range required"
@@ -241,15 +270,84 @@ impl EngineSource {
         file.seek(SeekFrom::Start(offset as u64))?;
         let mut bytes = vec![0; length];
         file.read_exact(&mut bytes)?;
+        self.counters.cache_read(file_index, bytes.len());
         ensure!(!cancelled.load(Ordering::SeqCst), "read cancelled");
         Ok(bytes)
     }
 }
 
+struct PhaseLog {
+    file: fs::File,
+    sequence: u64,
+    bytes: u64,
+    last: Vec<u8>,
+    last_at: Instant,
+}
+impl PhaseLog {
+    fn create(path: &Path) -> anyhow::Result<Self> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .share_mode(windows_share_read())
+            .open(path)?;
+        Ok(Self {
+            file,
+            sequence: 0,
+            bytes: 0,
+            last: Vec::new(),
+            last_at: Instant::now(),
+        })
+    }
+    fn record(
+        &mut self,
+        event: &str,
+        snapshot: &Value,
+        success: bool,
+        force: bool,
+    ) -> anyhow::Result<()> {
+        ensure!(
+            !event.is_empty()
+                && event.len() <= 40
+                && event.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            "invalid observation event"
+        );
+        let fingerprint = serde_json::to_vec(snapshot)?;
+        if !force && self.last == fingerprint && self.last_at.elapsed() < Duration::from_secs(5) {
+            return Ok(());
+        }
+        ensure!(
+            self.sequence < 10240 && self.bytes < 32 * 1024 * 1024,
+            "observation log limit reached"
+        );
+        let utc_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis() as u64;
+        let mut line = serde_json::to_vec(
+            &json!({"schema_version":1,"sequence":self.sequence+1,"utc_ms":utc_ms,"event":event,"success":success,"snapshot":snapshot}),
+        )?;
+        line.push(b'\n');
+        ensure!(
+            self.bytes + line.len() as u64 <= 32 * 1024 * 1024,
+            "observation log byte limit reached"
+        );
+        self.file.write_all(&line)?;
+        self.file.sync_data()?;
+        self.sequence += 1;
+        self.bytes += line.len() as u64;
+        self.last = fingerprint;
+        self.last_at = Instant::now();
+        Ok(())
+    }
+}
+const fn windows_share_read() -> u32 {
+    1
+}
+
 /// This service owns Session on its creating thread; raw OS handles are never
 /// unsafely marked Send. A small channel is the engine/desktop boundary.
 pub struct FixtureService {
-    stopped: AtomicBool,
+    stopped: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     requests: Option<mpsc::SyncSender<Command>>,
     worker: Option<thread::JoinHandle<()>>,
@@ -259,6 +357,9 @@ trait FixtureOwner {
     fn tick(&mut self);
     fn serving(&self) -> bool {
         true
+    }
+    fn finished(&self) -> bool {
+        false
     }
 }
 struct Command {
@@ -277,12 +378,21 @@ impl FixtureService {
         );
         Self::start_owner(move || Host::start(&root))
     }
+    pub fn start_visual(root: PathBuf) -> anyhow::Result<Self> {
+        ensure!(
+            root.is_absolute() && !root.exists(),
+            "new absolute generated root required"
+        );
+        Self::start_owner(move || Host::start_dataset(&root, Dataset::VisualV1))
+    }
     fn start_owner<H: FixtureOwner + 'static>(
         create: impl FnOnce() -> anyhow::Result<H> + Send + 'static,
     ) -> anyhow::Result<Self> {
         let (requests, incoming) = mpsc::sync_channel::<Command>(4);
         let (ready, started) = mpsc::sync_channel(1);
         let running = Arc::new(AtomicBool::new(true));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let owner_stopped = stopped.clone();
         let owner_running = running.clone();
         let worker = thread::spawn(move || {
             struct Running(Arc<AtomicBool>);
@@ -313,6 +423,7 @@ impl FixtureService {
                                 owner_running.store(host.serving(), Ordering::SeqCst);
                                 let _ = command.reply.send(result);
                                 if finished {
+                                    owner_stopped.store(true, Ordering::SeqCst);
                                     break;
                                 }
                             }
@@ -323,6 +434,10 @@ impl FixtureService {
                             host.tick();
                             owner_running.store(host.serving(), Ordering::SeqCst);
                             tick_due = Instant::now() + Duration::from_millis(500);
+                            if host.finished() {
+                                owner_stopped.store(true, Ordering::SeqCst);
+                                break;
+                            }
                         }
                     }
                 }
@@ -330,7 +445,7 @@ impl FixtureService {
         });
         match started.recv().context("fixture owner exited")? {
             Ok(()) => Ok(Self {
-                stopped: AtomicBool::new(false),
+                stopped,
                 running,
                 requests: Some(requests),
                 worker: Some(worker),
@@ -399,9 +514,35 @@ struct Host {
     stopped: bool,
     intents: Vec<IntentTracker>,
     shell_error: bool,
+    dataset: Dataset,
+    phases: PhaseLog,
+    observation_error: bool,
+    deadline: Option<Instant>,
+    deadline_utc_ms: Option<u64>,
+    expired: bool,
+    next_expiry_stop: Instant,
 }
 impl Host {
     fn start(root: &Path) -> anyhow::Result<Self> {
+        Self::start_dataset(root, Dataset::StandardV1)
+    }
+    fn start_dataset(root: &Path, dataset: Dataset) -> anyhow::Result<Self> {
+        let started = Instant::now();
+        let deadline = if dataset == Dataset::VisualV1 {
+            Some(started + Duration::from_secs(45 * 60))
+        } else {
+            None
+        };
+        let deadline_utc_ms = if deadline.is_some() {
+            Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis() as u64
+                    + 45 * 60 * 1000,
+            )
+        } else {
+            None
+        };
         // Create sibling state only beneath original locked ordinary ancestors.
         let state = root.with_extension("engine-state");
         let state_guard = native::GeneratedDirectory::create(&state).map_err(anyhow::Error::msg)?;
@@ -409,9 +550,12 @@ impl Host {
         let cache_guard =
             native::GeneratedDirectory::create(&state.join("cache")).map_err(anyhow::Error::msg)?;
         let cache = cache_guard.path();
-        let bridge = LocalFileBridge::generated_fixture(
+        let counters = Arc::new(DownloadCounters::default());
+        let bridge = LocalFileBridge::generated_fixture_dataset(
             Database::new(state.join("fixture.sqlite3")),
             cache,
+            dataset,
+            counters.clone(),
         )?;
         let source = Arc::new(EngineSource {
             bridge,
@@ -419,26 +563,59 @@ impl Host {
             offline: AtomicBool::new(false),
             failed: Mutex::default(),
             reading: Mutex::default(),
+            dataset,
+            counters,
         });
-        let session =
-            Session::create_with_source(root, source.clone()).map_err(anyhow::Error::msg)?;
+        let session = Session::create_with_source_dataset(root, source.clone(), dataset)
+            .map_err(anyhow::Error::msg)?;
         let mut host = Self {
             session,
             source,
             paths: vec![],
             stopped: false,
-            intents: vec![IntentTracker::default(); objects().len()],
+            intents: vec![IntentTracker::default(); objects_for(dataset).len()],
             shell_error: false,
+            dataset,
+            phases: PhaseLog::create(&state.join("native-phases.jsonl"))?,
+            observation_error: false,
+            deadline,
+            deadline_utc_ms,
+            expired: false,
+            next_expiry_stop: started,
         };
-        host.session.attach_shell().map_err(anyhow::Error::msg)?;
-        for entry in objects() {
-            host.paths.push(
+        let initialized = (|| -> anyhow::Result<()> {
+            host.session.attach_shell().map_err(anyhow::Error::msg)?;
+            for folder in dataset.directories() {
                 host.session
-                    .placeholder_for(Path::new(&entry.name), entry.remote_id.as_bytes(), SIZE)
-                    .map_err(anyhow::Error::msg)?,
-            );
+                    .directory_for(Path::new(&folder.relative_path), folder.id.as_bytes())
+                    .map_err(anyhow::Error::msg)?;
+            }
+            for entry in objects_for(dataset) {
+                host.paths.push(
+                    host.session
+                        .placeholder_for(
+                            Path::new(entry.path.trim_start_matches('/')),
+                            entry.remote_id.as_bytes(),
+                            SIZE,
+                        )
+                        .map_err(anyhow::Error::msg)?,
+                );
+            }
+            host.session
+                .mark_directories_initially_in_sync()
+                .map_err(anyhow::Error::msg)?;
+            host.session
+                .seal_manifest(&state.join("native-retention.json"))
+                .map_err(anyhow::Error::msg)?;
+            host.command("items", "", false)?;
+            Ok(())
+        })();
+        if let Err(original) = initialized {
+            if let Err(cleanup) = host.command("stop", "", false) {
+                eprintln!("generated initialization cleanup unconfirmed: {cleanup:#}");
+            }
+            return Err(original);
         }
-        host.items()?;
         Ok(host)
     }
     fn observe(&self, index: usize, entry: &MetadataEntry) -> anyhow::Result<NativeObservation> {
@@ -473,7 +650,7 @@ impl Host {
     fn collect_items(&mut self) -> anyhow::Result<Value> {
         self.shell_error = false;
         let mut items = vec![];
-        for (index, entry) in objects().into_iter().enumerate() {
+        for (index, entry) in objects_for(self.dataset).into_iter().enumerate() {
             let os = self.observe(index, &entry)?;
             let journal = self.source.bridge.journal();
             let record = journal
@@ -526,7 +703,7 @@ impl Host {
                 );
                 self.shell_error = true;
             }
-            items.push(json!({"id":entry.remote_id,"name":entry.name,"size":entry.size,
+            items.push(json!({"id":entry.remote_id,"name":entry.name,"relative_path":entry.path.trim_start_matches('/'),"size":entry.size,
                 "residency":if os.pinned && !os.resident {"pin_pending"} else if os.resident {"locally_available"} else if os.partial {"partially_available"} else {"online_only"},
                 "pinned":os.pinned,"pin_state_known":os.pinned||os.pin_known_unpinned,"os_in_sync":os.os_in_sync,"modified_bytes":os.modified_bytes,
                 "downloaded":os.resident,"cache_resident":state.as_ref().is_some_and(|s|s.resident),
@@ -536,6 +713,36 @@ impl Host {
                 "recovery_required":state.as_ref().map(|s|s.recovery_required)}));
         }
         let summary = aggregate(&items);
+        let mut directories = Vec::new();
+        for folder in self.dataset.directories() {
+            let observed = native::inspect_directory(
+                &self.session.root().join(&folder.relative_path),
+                folder.id.as_bytes(),
+            )
+            .map_err(anyhow::Error::msg)?;
+            let children = items
+                .iter()
+                .filter(|item| {
+                    item["relative_path"]
+                        .as_str()
+                        .is_some_and(|p| p.starts_with(&(folder.relative_path.clone() + "/")))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let aggregate = aggregate(&children);
+            let folder_path = self.session.root().join(&folder.relative_path);
+            if self
+                .session
+                .publish_shell(
+                    &folder_path,
+                    shell_text(aggregate["sync"].as_str().unwrap_or("unknown")),
+                )
+                .is_err()
+            {
+                self.shell_error = true;
+            }
+            directories.push(json!({"id":folder.id,"relative_path":folder.relative_path,"population_complete":observed.resident,"pinned":observed.pinned,"summary":aggregate}));
+        }
         let root = self.session.root().to_owned();
         let root_text = format!(
             "{}; {} local intent(s) pending",
@@ -546,16 +753,27 @@ impl Host {
             self.shell_error = true;
         }
         Ok(
-            json!({"schema_version":1,"scope":"generated_fixture_only","items":items,"summary":summary,"root_path":self.session.root(),"shell_registered":true,"shell_state_error":self.shell_error,"fetch_callbacks":self.session.calls(),"fetch_failures":self.session.failures(),"offline":self.source.offline.load(Ordering::SeqCst)}),
+            json!({"schema_version":1,"scope":"generated_fixture_only","owner_pid":std::process::id(),"dataset":self.dataset,"items":items,"directories":directories,"summary":summary,"binding":self.session.binding_summary(),"download_counters":self.source.counters.snapshot(),"native_transfer_counters":self.session.transfer_counters(),"observation_log_error":self.observation_error,"session_expired":self.expired,"deadline_utc_ms":self.deadline_utc_ms,"max_session_seconds":if self.deadline.is_some(){Some(2700)}else{None},"root_path":self.session.root(),"shell_registered":true,"shell_state_error":self.shell_error,"fetch_callbacks":self.session.calls(),"fetch_failures":self.session.failures(),"offline":self.source.offline.load(Ordering::SeqCst)}),
         )
     }
     fn tick(&mut self) {
         if !self.session.serving() {
             return;
         }
+        let now = Instant::now();
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            self.expired = true;
+            if now >= self.next_expiry_stop {
+                self.next_expiry_stop = now + Duration::from_secs(5);
+                if let Err(error) = self.command("stop", "", false) {
+                    eprintln!("visual deadline cleanup retained: {error:#}");
+                }
+            }
+            return;
+        }
         // Bounded metadata-only observation of our generated leaves. React only
         // to a new Shell pin/free-space intent, never to arbitrary directory data.
-        for (index, entry) in objects().into_iter().enumerate() {
+        for (index, entry) in objects_for(self.dataset).into_iter().enumerate() {
             let Ok(os) = self.observe(index, &entry) else {
                 continue;
             };
@@ -592,8 +810,20 @@ impl Host {
             );
             self.intents[index] = intent;
         }
-        if self.items().is_err() {
-            self.shell_error = true;
+        match self.items() {
+            Ok(mut snapshot) => {
+                if let Some(value) = snapshot.as_object_mut() {
+                    value.remove("root_path");
+                }
+                if self
+                    .phases
+                    .record("observe", &snapshot, true, false)
+                    .is_err()
+                {
+                    self.observation_error = true;
+                }
+            }
+            Err(_) => self.shell_error = true,
         }
     }
     fn intent_failure(&self, id: &str, kind: IntentKind) -> IntentFailure {
@@ -612,6 +842,26 @@ impl Host {
         }
     }
     fn command(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value> {
+        let result = self.command_inner(op, id, value);
+        let mut snapshot = match &result {
+            Ok(value) => value.clone(),
+            Err(_) => self
+                .items()
+                .unwrap_or_else(|_| json!({"state":"unavailable"})),
+        };
+        if let Some(object) = snapshot.as_object_mut() {
+            object.remove("root_path");
+        }
+        if self
+            .phases
+            .record(op, &snapshot, result.is_ok(), op != "items")
+            .is_err()
+        {
+            self.observation_error = true;
+        }
+        result
+    }
+    fn command_inner(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value> {
         if op == "stop" {
             if !self.session.teardown_started() {
                 self.retain_generated_files()?;
@@ -621,6 +871,10 @@ impl Host {
             return Ok(json!({"unregistered":true,"files_retained":true}));
         }
         ensure!(!self.stopped, "fixture stopped");
+        ensure!(
+            !self.expired || op == "items",
+            "visual session expired; only status/retention stop remains available"
+        );
         if !self.session.serving() {
             ensure!(
                 op == "items",
@@ -643,7 +897,7 @@ impl Host {
                 self.items()
             }
             "pin" | "unpin" => {
-                let (index, entry) = object(id)?;
+                let (index, entry) = object_for(self.dataset, id)?;
                 let os = self.observe(index, &entry)?;
                 native::pin(&self.paths[index], op == "pin").map_err(anyhow::Error::msg)?;
                 self.intents[index].observe((op == "pin", false), os.resident);
@@ -661,18 +915,18 @@ impl Host {
                 self.items()
             }
             "read" => {
-                let (index, entry) = object(id)?;
+                let (index, entry) = object_for(self.dataset, id)?;
                 self.observe(index, &entry)?;
                 // Real normal OS read: only CldApi invokes EngineSource.
                 let bytes = fs::read(&self.paths[index])?;
                 ensure!(
-                    bytes == generated_bytes(index),
+                    bytes == self.dataset.bytes(index),
                     "generated file content differs; preserved"
                 );
                 self.items()
             }
             "dehydrate" => {
-                let (index, entry) = object(id)?;
+                let (index, entry) = object_for(self.dataset, id)?;
                 self.observe(index, &entry)?;
                 let bridge = &self.source.bridge;
                 ensure!(!bridge.journal().native_dirty(id)?, "native dirty veto");
@@ -721,7 +975,11 @@ impl Host {
         // Materialize only clean missing ranges before destructive unregister.
         let previous = self.source.offline.swap(false, Ordering::SeqCst);
         let result = (|| {
-            for (index, entry) in objects().into_iter().enumerate().take(self.paths.len()) {
+            for (index, entry) in objects_for(self.dataset)
+                .into_iter()
+                .enumerate()
+                .take(self.paths.len())
+            {
                 let os = self.observe(index, &entry)?;
                 if !os.resident {
                     ensure!(
@@ -734,7 +992,7 @@ impl Host {
                     );
                     let bytes = fs::read(&self.paths[index])?;
                     ensure!(
-                        bytes == generated_bytes(index),
+                        bytes == self.dataset.bytes(index),
                         "generated retention content differs"
                     );
                 }
@@ -753,7 +1011,10 @@ impl FixtureOwner for Host {
         Host::tick(self);
     }
     fn serving(&self) -> bool {
-        self.session.serving()
+        self.session.serving() && !self.expired
+    }
+    fn finished(&self) -> bool {
+        self.stopped
     }
 }
 
@@ -884,6 +1145,131 @@ fn aggregate(items: &[Value]) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn owner_finished_from_tick_is_a_confirmed_idempotent_stop() {
+        struct TimerOwner(bool);
+        impl super::FixtureOwner for TimerOwner {
+            fn command(&mut self, _: &str, _: &str, _: bool) -> anyhow::Result<serde_json::Value> {
+                Ok(serde_json::json!({"alive":!self.0}))
+            }
+            fn tick(&mut self) {
+                self.0 = true;
+            }
+            fn serving(&self) -> bool {
+                !self.0
+            }
+            fn finished(&self) -> bool {
+                self.0
+            }
+        }
+        let service = super::FixtureService::start_owner(|| Ok(TimerOwner(false))).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while service.active() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!service.active());
+        assert!(!service.unavailable());
+        assert_eq!(
+            service.request("stop", "", false).unwrap()["unregistered"],
+            true
+        );
+    }
+    #[test]
+    fn visual_metadata_and_thumbnail_like_ranges_keep_separate_cumulative_counters() {
+        use super::*;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let cache = root.join("cache");
+        fs::create_dir(&cache).unwrap();
+        let dataset = Dataset::VisualV1;
+        let counters = Arc::new(DownloadCounters::default());
+        let bridge = LocalFileBridge::generated_fixture_dataset(
+            Database::new(root.join("state.db")),
+            &cache,
+            dataset,
+            counters.clone(),
+        )
+        .unwrap();
+        let source = EngineSource {
+            bridge,
+            gate: Mutex::new(()),
+            offline: AtomicBool::new(false),
+            failed: Mutex::default(),
+            reading: Mutex::default(),
+            dataset,
+            counters,
+        };
+        let provider = GeneratedProvider {
+            dataset,
+            counters: source.counters.clone(),
+        };
+        assert_eq!(provider.list_all().unwrap().len(), 4);
+        assert_eq!(provider.list_directory("/").unwrap().len(), 2);
+        assert_eq!(
+            provider
+                .list_directory(&format!(
+                    "/{}",
+                    twodrive_local_files::fixtures::VISUAL_DIRECTORY
+                ))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(source.counters.snapshot()["provider_download_bytes"], 0);
+        let cancel = AtomicBool::new(false);
+        let id = b"visual-object-1";
+        assert_eq!(
+            source.read_range(id, 0, 64, &cancel).unwrap(),
+            dataset.bytes(1)[..64]
+        );
+        assert_eq!(source.counters.snapshot()["provider_download_bytes"], 65536);
+        assert_eq!(source.counters.snapshot()["cache_served_bytes"], 64);
+        source.offline.store(true, Ordering::SeqCst);
+        assert_eq!(
+            source.read_range(id, 64, 32, &cancel).unwrap(),
+            dataset.bytes(1)[64..96]
+        );
+        assert!(
+            source
+                .read_range(b"visual-object-2", 0, 64, &cancel)
+                .is_err()
+        );
+        assert_eq!(source.counters.snapshot()["provider_download_bytes"], 65536);
+        assert_eq!(source.counters.snapshot()["cache_served_bytes"], 96);
+        assert!(source.failed.lock().unwrap().contains("visual-object-2"));
+    }
+    #[test]
+    fn observation_log_has_durable_sequences_dedup_and_rejects_private_event_text() {
+        use super::*;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("phases.jsonl");
+        let mut log = PhaseLog::create(&path).unwrap();
+        let metadata = json!({"provider_download_bytes":0,"native_transferred_bytes":0});
+        log.record("metadata", &metadata, true, false).unwrap();
+        log.record("metadata", &metadata, true, false).unwrap();
+        log.record(
+            "thumbnail_read",
+            &json!({"provider_download_bytes":65536,"cache_served_bytes":64}),
+            true,
+            true,
+        )
+        .unwrap();
+        assert!(
+            log.record("C:/private/path", &metadata, true, true)
+                .is_err()
+        );
+        let lines = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["sequence"], 1);
+        assert_eq!(lines[1]["sequence"], 2);
+        assert!(lines[1]["utc_ms"].as_u64().unwrap() > 0);
+        log.bytes = 32 * 1024 * 1024;
+        assert!(log.record("observe", &metadata, true, true).is_err());
+    }
     use super::*;
     #[cfg(feature = "native-test-hooks")]
     fn wait_for_status(
@@ -949,6 +1335,8 @@ mod tests {
             offline: AtomicBool::new(true),
             failed: Mutex::default(),
             reading: Mutex::default(),
+            dataset: Dataset::StandardV1,
+            counters: Arc::default(),
         };
         let mut intent = IntentTracker::default();
         let now = Instant::now();
@@ -1410,6 +1798,8 @@ mod tests {
             offline: AtomicBool::new(false),
             failed: Mutex::default(),
             reading: Mutex::default(),
+            dataset: Dataset::StandardV1,
+            counters: Arc::default(),
         };
         let cancel = AtomicBool::new(false);
         let id = b"generated-object-0";

@@ -92,6 +92,13 @@ Shell and CFAPI cleanup. Previous task roots and approvals are never reused.
 Screenshots, when available, must identify the exact source SHA and Windows build;
 API or handle state alone is not visual acceptance.
 
+The follow-up [visual acceptance preparation](windows-explorer-visual-acceptance-2026-10-21.md)
+adds a real PNG, one directory, bounded host observations and exact-window evidence
+capture. It has no new registration or visual pass. The user now requires an
+isolated virtual screen while coding; no supported independent native display is
+currently callable, so foreground interaction is paused. The new directory
+retention path also still requires separately approved native acceptance.
+
 Three separately approved roots have each been registered once and are now all
 unregistered. All nine files are exact verified. They must not be registered
 again or removed as build cache. The third root rechecks the corrected operation

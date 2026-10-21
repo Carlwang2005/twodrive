@@ -187,9 +187,7 @@ impl ShellRoot {
                 property,
             )]);
         let item: IStorageItem = if directory {
-            StorageFolder::GetFolderFromPathAsync(&storage_path(path))?
-                .join()?
-                .cast()?
+            storage_folder(&self.root, path)?.cast()?
         } else {
             storage_file(&self.root, path)?.cast()?
         };
@@ -212,10 +210,20 @@ impl ShellRoot {
 }
 fn storage_file(root: &Path, path: &Path) -> Result<StorageFile> {
     use std::os::windows::ffi::OsStrExt;
-    if path.parent() != Some(root) {
+    let parent = path.parent().ok_or_else(|| {
+        windows::core::Error::new(
+            windows::core::HRESULT(0x80070057u32 as i32),
+            "missing generated parent",
+        )
+    })?;
+    if path.strip_prefix(root).ok().is_none_or(|p| {
+        p.components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            || p.components().count() > 2
+    }) {
         return Err(windows::core::Error::new(
             windows::core::HRESULT(0x80070057u32 as i32),
-            "metadata item must be an immediate generated-root leaf",
+            "metadata item must be a bounded generated-root leaf",
         ));
     }
     let name = path.file_name().ok_or_else(|| {
@@ -225,10 +233,35 @@ fn storage_file(root: &Path, path: &Path) -> Result<StorageFile> {
         )
     })?;
     let name = HSTRING::from_wide(&name.encode_wide().collect::<Vec<_>>());
-    StorageFolder::GetFolderFromPathAsync(&storage_path(root))?
-        .join()?
-        .GetFileAsync(&name)?
-        .join()
+    storage_folder(root, parent)?.GetFileAsync(&name)?.join()
+}
+fn storage_folder(root: &Path, path: &Path) -> Result<StorageFolder> {
+    use std::os::windows::ffi::OsStrExt;
+    let relative = path.strip_prefix(root).map_err(|_| {
+        windows::core::Error::new(
+            windows::core::HRESULT(0x80070057u32 as i32),
+            "folder outside generated root",
+        )
+    })?;
+    if relative.components().count() > 1
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(windows::core::Error::new(
+            windows::core::HRESULT(0x80070057u32 as i32),
+            "unbounded generated directory",
+        ));
+    }
+    let mut folder = StorageFolder::GetFolderFromPathAsync(&storage_path(root))?.join()?;
+    for part in relative.components() {
+        folder = folder
+            .GetFolderAsync(&HSTRING::from_wide(
+                &part.as_os_str().encode_wide().collect::<Vec<_>>(),
+            ))?
+            .join()?;
+    }
+    Ok(folder)
 }
 
 impl Drop for ShellRoot {
@@ -286,5 +319,19 @@ mod tests {
             file.Name().unwrap().to_string(),
             path.file_name().unwrap().to_str().unwrap()
         );
+        let child = root.join("generated-目录");
+        std::fs::create_dir(&child).unwrap();
+        let nested = child.join(path.file_name().unwrap());
+        std::fs::write(&nested, b"generated nested ordinary data").unwrap();
+        assert_eq!(
+            storage_file(&root, &nested)
+                .unwrap()
+                .Name()
+                .unwrap()
+                .to_string(),
+            nested.file_name().unwrap().to_str().unwrap()
+        );
+        assert!(storage_file(&root, &root.join("../outside.bin")).is_err());
+        assert!(storage_folder(&root, &child.join("unbounded")).is_err());
     }
 }
