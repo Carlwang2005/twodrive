@@ -486,7 +486,7 @@ fn mounted_git_lock_files_can_close_delete_and_recreate_while_cloud_is_offline()
         b"durable local content"
     );
     assert!(git(&["status", "--porcelain"]).is_empty());
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 

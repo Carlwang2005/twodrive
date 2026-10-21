@@ -395,7 +395,7 @@ fn mounted_large_listing_and_copy_remain_responsive_during_download() {
     assert_eq!(fs::read(destination).unwrap(), bytes);
     assert!(!reader.join().unwrap().is_empty());
     eprintln!("10,000-entry listing + 16 MiB copy during delayed download: {foreground:?}");
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -567,7 +567,7 @@ fn mounted_release_cancels_download_and_old_handles() {
     ));
     drop(older);
     assert_eq!(fs::read(&path).unwrap(), vec![0x51; 1_048_576]);
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -652,7 +652,7 @@ else:
             .arg(phase)
             .output()
             .unwrap();
-        drop(session);
+        session.join();
         assert!(
             result.status.success(),
             "{}",
@@ -718,7 +718,7 @@ os.close(fd)
         1,
         "only the explicit read should download"
     );
-    drop(session);
+    session.join();
     let _ = fs::remove_dir_all(root);
 }
 
@@ -801,7 +801,7 @@ fn gio_directory_metadata_does_not_download_unknown_large_files() {
         downloads.try_recv().is_ok(),
         "explicit copy did not download content"
     );
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -951,7 +951,7 @@ for name, data in entries.items():
         .arg(mount.join("archive"))
         .output()
         .unwrap();
-    drop(session);
+    session.join();
     assert!(
         result.status.success(),
         "{}",
@@ -1598,7 +1598,7 @@ fn mounted_rename_after_cloud_move_keeps_content_and_open_handle() {
         content
     );
     drop(open_source);
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1739,7 +1739,7 @@ for version, size in enumerate([65536, 32768, 131072]):
             .arg(&path).arg(version.to_string()).status().unwrap();
         assert!(checked.success());
     }
-    drop(session);
+    session.join();
     fs::remove_dir_all(root).unwrap();
 }
 
