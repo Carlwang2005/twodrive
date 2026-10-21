@@ -9,6 +9,72 @@ pub fn capabilities() -> Value {
         "native_mount":false,"import":false,"cloud_writes":false})
 }
 
+#[derive(Default)]
+pub struct NativeFixture {
+    #[cfg(all(windows, feature = "native-local-fixture"))]
+    service: Option<twodrive_dev::native_local_fixture::FixtureService>,
+}
+impl NativeFixture {
+    pub fn start(root: &Path) -> anyhow::Result<Self> {
+        #[cfg(all(windows, feature = "native-local-fixture"))]
+        {
+            Ok(Self {
+                service: Some(twodrive_dev::native_local_fixture::FixtureService::start(
+                    root.to_owned(),
+                )?),
+            })
+        }
+        #[cfg(not(all(windows, feature = "native-local-fixture")))]
+        {
+            let _ = root;
+            anyhow::bail!("native generated fixture is not compiled in this engine")
+        }
+    }
+    pub fn capabilities(&self) -> Value {
+        let mut caps = capabilities();
+        #[cfg(all(windows, feature = "native-local-fixture"))]
+        let active = self
+            .service
+            .as_ref()
+            .is_some_and(|service| service.active());
+        #[cfg(not(all(windows, feature = "native-local-fixture")))]
+        let active = false;
+        caps["item_status"] = json!({"schema_version":1,"supported":active,"scope":"generated_fixture_only",
+            "read":active,"native_copy_dehydrate":active,"cache_evict":false,"write":false,"rename":false,"delete":false});
+        caps
+    }
+    pub fn request(&self, op: &str, args: &Value) -> anyhow::Result<Value> {
+        ensure!(
+            args["schema_version"] == 1,
+            "unsupported native item schema"
+        );
+        let command = match op {
+            "local_items" => "items",
+            "local_read" => "read",
+            "local_dehydrate" => "dehydrate",
+            "local_stop" => "stop",
+            _ => anyhow::bail!("unsupported native operation"),
+        };
+        let id = if matches!(command, "read" | "dehydrate") {
+            args["id"].as_str().context("missing item identity")?
+        } else {
+            ""
+        };
+        #[cfg(all(windows, feature = "native-local-fixture"))]
+        {
+            self.service
+                .as_ref()
+                .context("no native generated fixture is active")?
+                .request(command, id, false)
+        }
+        #[cfg(not(all(windows, feature = "native-local-fixture")))]
+        {
+            let _ = (command, id);
+            anyhow::bail!("native fixture unavailable")
+        }
+    }
+}
+
 pub fn preflight(args: &Value) -> anyhow::Result<Value> {
     ensure!(cfg!(windows), "local metadata preflight requires Windows");
     ensure!(

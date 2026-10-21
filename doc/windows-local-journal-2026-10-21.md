@@ -116,3 +116,62 @@ ownership, stable item-status IPC/UI, Explorer state/icon/thumbnail behavior,
 native rename/delete and conflict-resolution/restart scenarios. These remain
 capability-disabled. Real accounts, installed clients, existing sync roots,
 vendor caches and peer UDP/QUIC code are untouched.
+
+## Opt-in native engine integration (after the consistency-fix checkpoint)
+
+A separate `native-local-fixture` build feature now connects the existing CFAPI
+adapter to this actual engine bridge. It requires an explicit
+`--native-local-fixture-root` and a NEW dedicated desktop `--state`; normal startup
+registers nothing. Only the internal generated read-only Provider can construct
+this host. Profile/account and ordinary cloud operations are refused in the
+fixture session. No arbitrary account-binding string becomes real identity.
+
+The OS owns placeholder reads. FETCH_DATA passes an opaque per-file identity to
+the engine, which downloads/version-checks/fsyncs/publishes into the journal,
+opens a real shared cache lease, verifies its acknowledged digest under that
+lease, and returns bounded 64 KiB chunks to CfExecute. CANCEL_FETCH_DATA and
+shutdown set cancellation flags. Foreign identities and unknown states fail
+closed. Rename/delete and external dehydration notifications are denied; this
+is not a writable native mount. Each visible generated file is 64 KiB.
+
+The explicit native-copy release holds a referenced exclusive CFAPI oplock,
+then the journal gate, IMMEDIATE transaction and exclusive private-cache file
+lock. It rechecks OS identity/modified ranges/pin/in-sync/logical length and the
+complete acknowledged cache digest before calling CfDehydratePlaceholder.
+Private cache bytes remain retained: `native_copy_dehydrate` is distinct from
+`cache_evict`, which stays false. Eligibility booleans are not detached permits.
+The protected reference is bounded to these small generated-file checks; there
+is no network transfer inside it. See Microsoft's [oplock contract](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfopenfilewithoplock)
+and [protected-handle lifetime](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfreferenceprotectedhandle).
+
+OS-observed edits, length changes or an unreadable/replaced placeholder install
+a durable native-dirty veto. It also covers an edited placeholder that was never
+hydrated. Private-cache read/upload/generic recovery and dehydration cannot
+clear it or substitute older bytes. Private journal schema 2 rejects the
+unreleased schema 1 rather than letting an old binary ignore this veto. No real
+data is migrated. Recovery of externally edited visible bytes is deliberately
+not enabled by this slice.
+
+`local_files.item_status` negotiates schema 1 with scope
+`generated_fixture_only`; `local_items`, `local_read`, `local_dehydrate` and
+`local_stop` use stable private IPC. The GUI presents residency, pin intent,
+OS downloaded state, retained cache, sync status, generation and acknowledged
+generation separately. Unsupported write/rename/delete/cache eviction remain
+false. Unknown schema/scope and late results from a replaced client are refused.
+Application controls are not evidence of Explorer shell icons.
+
+| Acceptance | Current evidence |
+| --- | --- |
+| Engine download/version/lease/digest, dirty and restart veto | Local generated Rust regressions passed |
+| GUI schema, separate residency/sync/cache and stale replies | Flutter analyze and 41 tests passed |
+| New real OS-to-engine read and native release | Pending new explicit root approval and execution |
+| Earlier hardened standalone adapter | 8 native checks passed; both old roots unregistered; does not validate this new bridge |
+| Explorer shell icons and thumbnails | Unverified |
+| Live Provider binding, writable native rename/delete/upload and external-edit recovery | Disabled/unimplemented |
+| Existing OneDrive/Google data/cache migration | Preflight only; not performed |
+
+The ignored end-to-end regression accepts only a caller-supplied explicitly
+approved NEW root, creates three generated placeholders and new sibling private
+state, exercises OS reads/offline retry/pin/open-handle/dirty veto, then checks
+unregistration and retains all files. It is never run by CI automatically.
+Existing two fixture approvals were consumed and are not reused.

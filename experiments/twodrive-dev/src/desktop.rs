@@ -49,6 +49,8 @@ struct Args {
     mount_worker: Option<String>,
     #[arg(long)]
     backup_worker: Option<String>,
+    #[arg(long, hide = true)]
+    native_local_fixture_root: Option<PathBuf>,
 }
 
 #[path = "desktop_providers.rs"]
@@ -154,6 +156,7 @@ fn drain_errors(process: &mut Process, network: Arc<Diagnostics>) {
 }
 
 struct App {
+    native_fixture: local_files::NativeFixture,
     args: Args,
     state: State,
     config: Config,
@@ -428,7 +431,7 @@ impl App {
         let sharing = self.hosting.status(&self.state).unwrap_or_else(|_| json!({"supported":true,"running":false,"error":"共享配置无法读取，请检查私有状态目录"}));
         Ok(
             json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":self.network.fallback(),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
-              "version":env!("CARGO_PKG_VERSION"),"sharing":sharing,"local_files":local_files::capabilities(),
+              "version":env!("CARGO_PKG_VERSION"),"sharing":sharing,"local_files":self.native_fixture.capabilities(),
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
             "cache":cache,"network":network,
@@ -443,7 +446,27 @@ impl App {
         out: &Output,
     ) -> anyhow::Result<Value> {
         let a = &req.args;
+        if self.args.native_local_fixture_root.is_some() {
+            ensure!(
+                matches!(
+                    req.op.as_str(),
+                    "status"
+                        | "profiles"
+                        | "subscribe"
+                        | "local_preflight"
+                        | "local_items"
+                        | "local_read"
+                        | "local_dehydrate"
+                        | "local_stop"
+                        | "quit"
+                ),
+                "generated fixture session cannot access real profiles or accounts"
+            );
+        }
         match req.op.as_str() {
+            "local_items" | "local_read" | "local_dehydrate" | "local_stop" => {
+                self.native_fixture.request(&req.op, a)
+            }
             "local_preflight" => local_files::preflight(a),
             "share_start" => self.hosting.start(&self.state, &self.args, a, &cancel),
             "share_stop" => {
@@ -783,6 +806,12 @@ impl Drop for App {
 
 pub fn run() -> anyhow::Result<()> {
     let args = Args::parse();
+    if args.native_local_fixture_root.is_some() {
+        ensure!(
+            !args.state.exists() && args.mount_worker.is_none() && args.backup_worker.is_none(),
+            "native fixture requires new dedicated desktop state and no worker"
+        );
+    }
     let state = State::new(args.state.clone())?;
     let config = if state.dir.join("profiles.json").exists() {
         state.read("profiles.json")?
@@ -800,6 +829,7 @@ pub fn run() -> anyhow::Result<()> {
         backup: None,
         network: Arc::default(),
         hosting: sharing::Hosting::default(),
+        native_fixture: local_files::NativeFixture::default(),
     };
     if let Some(id) = &app.args.backup_worker {
         let p = app.profile(id)?;
@@ -830,6 +860,9 @@ pub fn run() -> anyhow::Result<()> {
         );
     }
     let _lock = app.state.run_lock()?;
+    if let Some(root) = &app.args.native_local_fixture_root {
+        app.native_fixture = local_files::NativeFixture::start(root)?;
+    }
     let out = Arc::new(Mutex::new(std::io::stdout()));
     let cancellations: Cancellations = Arc::new(Mutex::new(HashMap::new()));
     let (send, receive) = mpsc::sync_channel::<Request>(32);
@@ -848,7 +881,7 @@ pub fn run() -> anyhow::Result<()> {
             let observable = worker_notifications.load(Ordering::Relaxed)
                 && !matches!(
                     req.op.as_str(),
-                    "status" | "profiles" | "list" | "backups" | "local_preflight"
+                    "status" | "profiles" | "list" | "backups" | "local_preflight" | "local_items"
                 );
             if observable {
                 emit(
@@ -964,6 +997,7 @@ mod tests {
                 launcher: PathBuf::new(),
                 mount_worker: None,
                 backup_worker: None,
+                native_local_fixture_root: None,
             },
             state,
             config: Config {
@@ -977,6 +1011,7 @@ mod tests {
             backup: None,
             network: Arc::default(),
             hosting: sharing::Hosting::default(),
+            native_fixture: local_files::NativeFixture::default(),
         };
         let directory = app.mount_state(&active);
         fs::create_dir_all(&directory).unwrap();
@@ -1035,6 +1070,7 @@ mod tests {
                 launcher: PathBuf::new(),
                 mount_worker: None,
                 backup_worker: None,
+                native_local_fixture_root: None,
             },
             state,
             config: Config {
@@ -1048,6 +1084,7 @@ mod tests {
             backup: None,
             network: Arc::default(),
             hosting: sharing::Hosting::default(),
+            native_fixture: local_files::NativeFixture::default(),
         };
         let session = json!({"kind":app.connected.as_ref().unwrap().kind,
             "revision":"active-revision","account_name":"Actual signed in person",
@@ -1146,6 +1183,7 @@ mod tests {
                 launcher: PathBuf::new(),
                 mount_worker: None,
                 backup_worker: None,
+                native_local_fixture_root: None,
             },
             state,
             config: Config::default(),
@@ -1156,6 +1194,7 @@ mod tests {
             backup: None,
             network: Arc::default(),
             hosting: sharing::Hosting::default(),
+            native_fixture: local_files::NativeFixture::default(),
         };
         let source = temp.path().join("source");
         fs::write(&source, b"opaque IPC bytes").unwrap();

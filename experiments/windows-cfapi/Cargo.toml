@@ -11,6 +11,7 @@ publish = false
 [features]
 default = []
 fixture-probe = ["dep:windows-sys"]
+native-local-fixture = ["fixture-probe"]
 
 [[bin]]
 name = "twodrive-cfapi-probe"

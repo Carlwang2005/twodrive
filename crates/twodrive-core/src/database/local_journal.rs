@@ -28,6 +28,9 @@ struct Owner {
 
 #[derive(Debug, Clone)]
 pub struct CacheSnapshot {
+    /// Visible native bytes differ from the private cache. No upload/recovery
+    /// may treat the private copy as authoritative while this durable veto exists.
+    pub native_dirty: bool,
     pub generation: i64,
     pub acknowledged_generation: i64,
     pub readers: i64,
@@ -46,6 +49,17 @@ pub struct CacheSnapshot {
 }
 
 impl CacheSnapshot {
+    pub fn sync_confirmed(&self) -> bool {
+        matches!(self.state, FileState::Cached | FileState::Pinned)
+            && self.generation == self.acknowledged_generation
+            && self.writers == 0
+            && self.upload_generation.is_none()
+            && !self.dirty_intent
+            && !self.recovery_required
+            && !self.uncertain_upload
+            && !self.pending_operations
+            && !self.native_dirty
+    }
     /// Engine eligibility only. A native adapter must additionally hold/recheck
     /// its CFAPI oplock, residency, modified ranges, pin and in-sync evidence.
     pub fn engine_release_ready(&self) -> bool {
@@ -60,6 +74,7 @@ impl CacheSnapshot {
             && !self.recovery_required
             && !self.uncertain_upload
             && !self.pending_operations
+            && !self.native_dirty
     }
 }
 
@@ -101,8 +116,8 @@ impl CacheJournal {
             .optional()?;
         let existing:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_cache_journal')",[],|r|r.get(0))?;
         ensure!(
-            schema.as_deref().is_none_or(|value| value == "1")
-                && (!existing || schema.as_deref() == Some("1")),
+            schema.as_deref().is_none_or(|value| value == "2")
+                && (!existing || schema.as_deref() == Some("2")),
             "unsupported private-cache journal schema"
         );
         for (key, expected) in [
@@ -132,7 +147,10 @@ impl CacheJournal {
             upload_generation INTEGER, upload_epoch INTEGER, upload_digest TEXT,
             base_etag TEXT NOT NULL, acknowledged_digest TEXT NOT NULL,
             cache_path TEXT NOT NULL, cloud_id TEXT NOT NULL, cloud_path TEXT NOT NULL);")?;
-        tx.execute("INSERT INTO app_state(key,value) VALUES('local_cache_schema','1') ON CONFLICT(key) DO NOTHING",[])?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS local_native_dirty (cloud_id TEXT PRIMARY KEY);",
+        )?;
+        tx.execute("INSERT INTO app_state(key,value) VALUES('local_cache_schema','2') ON CONFLICT(key) DO NOTHING",[])?;
         let old: Option<String> = tx
             .query_row(
                 "SELECT value FROM app_state WHERE key='local_cache_epoch'",
@@ -180,6 +198,10 @@ impl CacheJournal {
             .gate
             .lock()
             .map_err(|_| anyhow::anyhow!("cache gate poisoned"))?;
+        ensure!(
+            !self.native_dirty(&remote.remote_id)?,
+            "native bytes require explicit recovery"
+        );
         for record in [
             self.0.db.get_by_cloud_remote_id(&remote.remote_id)?,
             self.0.db.get_by_path(&remote.path)?,
@@ -325,6 +347,40 @@ impl CacheJournal {
         Ok(true)
     }
 
+    pub fn native_dirty(&self, cloud_id: &str) -> anyhow::Result<bool> {
+        Ok(journal_connection(&self.0.db)?.query_row(
+            "SELECT EXISTS(SELECT 1 FROM local_native_dirty WHERE cloud_id=?1)",
+            [cloud_id],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Persist an OS-observed edit, including a truncated placeholder that never
+    /// needed hydration. This slice deliberately provides no clearing API.
+    pub fn record_native_edit(&self, cloud_id: &str) -> anyhow::Result<()> {
+        let _guard = self
+            .0
+            .gate
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cache gate poisoned"))?;
+        let mut conn = journal_connection(&self.0.db)?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.execute(
+            "INSERT INTO local_native_dirty(cloud_id) VALUES(?1) ON CONFLICT DO NOTHING",
+            [cloud_id],
+        )? == 1
+        {
+            tx.execute("UPDATE local_cache_journal SET generation=generation+1,dirty_intent=1,recovery_required=1
+                WHERE local_id IN (SELECT remote_id FROM files WHERE cloud_remote_id=?1)", [cloud_id])?;
+            tx.execute(
+                "UPDATE files SET state='dirty' WHERE cloud_remote_id=?1",
+                [cloud_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn open_read(&self, id: &str) -> anyhow::Result<CacheReadLease> {
         let _guard = self
             .0
@@ -336,13 +392,17 @@ impl CacheJournal {
         let mut conn = journal_connection(&self.0.db)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let state = snapshot(&tx, id)?;
-        ensure!(state.writers == 0, "cache has a live writer");
+        ensure!(
+            state.writers == 0 && !state.native_dirty,
+            "cache writer or external native bytes require recovery"
+        );
         tx.execute(
             "UPDATE local_cache_journal SET readers=readers+1 WHERE local_id=?1",
             [id],
         )?;
         tx.commit()?;
         Ok(CacheReadLease {
+            acknowledged_digest: state.acknowledged_digest,
             journal: self.clone(),
             id: id.into(),
             file,
@@ -403,6 +463,7 @@ impl CacheJournal {
         let state = snapshot(&tx, id)?;
         ensure!(
             state.recovery_required
+                && !state.native_dirty
                 && state.writers == 0
                 && state.readers == 0
                 && state.upload_generation.is_none(),
@@ -567,9 +628,15 @@ impl CacheJournal {
 }
 
 pub struct CacheReadLease {
+    acknowledged_digest: String,
     journal: CacheJournal,
     id: String,
     file: File,
+}
+impl CacheReadLease {
+    pub fn acknowledged_digest(&self) -> &str {
+        &self.acknowledged_digest
+    }
 }
 impl Read for CacheReadLease {
     fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
@@ -773,7 +840,8 @@ fn snapshot(conn: &rusqlite::Connection, id: &str) -> anyhow::Result<CacheSnapsh
     let row_sql = "SELECT j.generation,j.acknowledged_generation,j.readers,j.writers,
         j.upload_generation,j.recovery_required,j.uncertain_upload,j.dirty_intent,f.state,
         f.pin_explicit=1 OR f.pin_origin_remote_id IS NOT NULL,f.cache_path IS NOT NULL,
-        j.base_etag,j.acknowledged_digest,j.upload_digest
+        j.base_etag,j.acknowledged_digest,j.upload_digest,
+        EXISTS(SELECT 1 FROM local_native_dirty n WHERE n.cloud_id=j.cloud_id)
         FROM local_cache_journal j JOIN files f ON f.remote_id=j.local_id WHERE j.local_id=?1";
     let result = conn.query_row(row_sql, [id], |row| {
         let value: String = row.get(8)?;
@@ -785,6 +853,7 @@ fn snapshot(conn: &rusqlite::Connection, id: &str) -> anyhow::Result<CacheSnapsh
             )
         })?;
         Ok(CacheSnapshot {
+            native_dirty: row.get(14)?,
             generation: row.get(0)?,
             acknowledged_generation: row.get(1)?,
             readers: row.get(2)?,

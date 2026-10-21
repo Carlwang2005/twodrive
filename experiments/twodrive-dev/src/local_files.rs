@@ -5,10 +5,11 @@ use crate::model::{CloudBackend, MetadataEntry};
 use crate::provider::{Backend, Progress};
 use anyhow::{Context, ensure};
 use sha2::{Digest, Sha256};
+#[cfg(any(test, all(windows, feature = "native-local-fixture")))]
+use std::path::Path;
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
-    path::Path,
     sync::Arc,
 };
 #[cfg(test)]
@@ -21,6 +22,23 @@ pub struct LocalFileBridge {
     backend: Backend,
 }
 impl LocalFileBridge {
+    #[cfg(all(windows, feature = "native-local-fixture"))]
+    pub(crate) fn generated_fixture(
+        db: twodrive_core::Database,
+        cache: &Path,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            journal: CacheJournal::open(
+                db,
+                cache,
+                &format!(
+                    "{:x}",
+                    Sha256::digest(b"twodrive-owned-generated-provider-v1")
+                ),
+            )?,
+            backend: Backend::new(crate::native_local_fixture::GeneratedProvider),
+        })
+    }
     // Real-provider construction is not exposed until the registered adapter's
     // verified profile/revision identity is passed as a typed session authority.
     #[cfg(test)]
@@ -61,6 +79,15 @@ impl LocalFileBridge {
 
     /// Download by opaque object identity; recheck provider version after EOF.
     pub fn hydrate(&self, remote_id: &str) -> anyhow::Result<String> {
+        self.hydrate_cancellable(remote_id, &std::sync::atomic::AtomicBool::new(false))
+    }
+    pub fn hydrate_cancellable(
+        &self,
+        remote_id: &str,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> anyhow::Result<String> {
+        use std::sync::atomic::Ordering;
+        ensure!(!cancelled.load(Ordering::SeqCst), "hydration cancelled");
         let backend = &self.backend;
         let remote = backend
             .get_metadata(remote_id)?
@@ -73,7 +100,10 @@ impl LocalFileBridge {
         let (id, generation) = self.journal.begin_download(&core_metadata(&remote))?;
         let result = (|| {
             let mut temporary = tempfile::NamedTempFile::new_in(self.journal.cache_root())?;
-            let size = backend.download_to(remote_id, temporary.as_file_mut(), &mut |_| Ok(()))?;
+            let size = backend.download_to(remote_id, temporary.as_file_mut(), &mut |_| {
+                ensure!(!cancelled.load(Ordering::SeqCst), "hydration cancelled");
+                Ok(())
+            })?;
             ensure!(size == remote.size, "incomplete provider download");
             temporary.as_file().sync_all()?;
             let after = backend
@@ -87,6 +117,7 @@ impl LocalFileBridge {
                 "provider version changed during download"
             );
             let digest = digest_file(temporary.as_file_mut())?;
+            ensure!(!cancelled.load(Ordering::SeqCst), "hydration cancelled");
             let (file, path) = temporary.keep()?;
             drop(file);
             self.journal
@@ -187,7 +218,7 @@ impl LocalFileBridge {
     }
 }
 
-fn digest_reader(reader: &mut impl Read) -> anyhow::Result<String> {
+pub(crate) fn digest_reader(reader: &mut impl Read) -> anyhow::Result<String> {
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {

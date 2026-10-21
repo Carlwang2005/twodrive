@@ -8,3 +8,8 @@ mod local_files;
 mod model;
 #[path = "../../twodrive-dev/src/provider.rs"]
 mod provider;
+#[cfg(feature = "native-local-fixture")]
+extern crate twodrive_cfapi_probe as twodrive_local_files;
+#[cfg(feature = "native-local-fixture")]
+#[path = "../../twodrive-dev/src/native_local_fixture.rs"]
+mod native_local_fixture;

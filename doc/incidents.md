@@ -88,6 +88,10 @@ Core now computes the engine digest callback inside the final file lease and SQL
 
 Strict Windows harness Clippy and all 25 engine/journal tests pass after the fixes. Old-source failures and fixed-source passes are recorded. No real-data recovery or migration occurred. CFAPI integration, physical Explorer acceptance, live accounts and power-loss recovery are not established by these tests. The existing alpha.2 tag is unchanged. See [journal contract](windows-local-journal-2026-10-21.md).
 
+### Build-boundary follow-up (same work branch)
+
+Full desktop CI on 36813fe caught an unused `Path` import in non-test builds after restricting construction to tests. The lightweight test harness had hidden that cfg mistake. The import is now gated for test/Windows fixture builds; a non-test example compiles the actual engine sources in adapter CI so this boundary is checked before full builds. Opt-in and default strict local Clippy pass. New full-head CI is required; previous failures are not reported as passes.
+
 ## TD-20261021-05：Windows 原型状态不能替代持久 journal，旧释放路径必须隔离
 
 - 日期：2026-10-21（UTC）

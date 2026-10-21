@@ -23,6 +23,7 @@ Future<void> main(List<String> args) async {
 
   final root = File(Platform.resolvedExecutable).parent.path;
   final client = StorageClient();
+  final fixtureRoot = option('--native-local-fixture-root', '');
   runApp(DavApp(client: client, desktop: true));
   await client.start(
     option('--engine', '$root/${executableName('twodrive-dav-engine')}'),
@@ -34,8 +35,9 @@ Future<void> main(List<String> args) async {
           ? Platform.resolvedExecutable
           : '$home/.local/bin/twodrive-dav',
     ),
+    nativeFixtureRoot: fixtureRoot.isEmpty ? null : fixtureRoot,
   );
-  if (client.selected != null) {
+  if (client.selected != null && fixtureRoot.isEmpty) {
     unawaited(client.connect());
   }
   if (args.contains('--background') && trayReady) {

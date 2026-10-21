@@ -119,13 +119,13 @@ jobs:
       - name: Portable desktop engine
         working-directory: experiments/twodrive-dev
         run: |
-          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --features native-local-fixture --all-targets -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-provider-old-paths.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked
+          cargo test --locked --features native-local-fixture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --locked --release --bins
+          cargo build --locked --release --features native-local-fixture --bins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows IPC, file transfer, backups and autostart isolation
         run: |

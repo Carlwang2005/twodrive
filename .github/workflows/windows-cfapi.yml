@@ -17,8 +17,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --manifest-path experiments/windows-cfapi/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path experiments/windows-cfapi/Cargo.toml --features fixture-probe --all-targets --locked -- -D warnings
-      - run: cargo test --manifest-path experiments/windows-cfapi/Cargo.toml --features fixture-probe --locked
+      - run: cargo clippy --manifest-path experiments/windows-cfapi/Cargo.toml --features native-local-fixture --all-targets --locked -- -D warnings
+      - run: cargo test --manifest-path experiments/windows-cfapi/Cargo.toml --features native-local-fixture --locked
       - run: cargo build --manifest-path experiments/windows-cfapi/Cargo.toml --features fixture-probe --release --locked
       # No automatic host registration. Native fixture execution is opt-in and
       # separately recorded; compile/unit success is not Explorer acceptance.

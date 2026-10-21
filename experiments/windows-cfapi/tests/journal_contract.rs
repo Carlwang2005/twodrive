@@ -198,12 +198,50 @@ fn out_of_band_version_or_cache_binding_change_fails_closed() {
 fn unknown_journal_schema_is_refused_without_recovery_mutation() {
     let (temp, j, path) = fixture();
     j.database()
-        .set_state_value("local_cache_schema", "2")
+        .set_state_value("local_cache_schema", "999")
         .unwrap();
     drop(j);
     let (db, root, _) = paths(temp.path());
     assert!(CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).is_err());
     assert_eq!(fs::read(path).unwrap(), ORIGINAL);
+}
+
+#[test]
+fn native_dirty_bytes_remain_a_durable_veto_across_restart() {
+    let (temp, j, path) = fixture();
+    j.record_native_edit(ID).unwrap();
+    j.record_native_edit(ID).unwrap();
+    let state = j.snapshot(ID).unwrap();
+    assert!(state.native_dirty && state.recovery_required);
+    assert_eq!(state.generation, 1);
+    assert_eq!(state.state, FileState::Dirty);
+    assert!(j.open_read(ID).is_err());
+    assert!(j.open_write(ID).is_err());
+    assert!(j.recover_write(ID).is_err());
+    assert!(j.begin_upload(ID, digest).is_err());
+    assert!(!state.engine_release_ready());
+    drop(j);
+    let (db, root, _) = paths(temp.path());
+    let reopened = CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).unwrap();
+    assert!(reopened.snapshot(ID).unwrap().native_dirty);
+    assert!(reopened.recover_write(ID).is_err());
+    assert_eq!(fs::read(path).unwrap(), ORIGINAL);
+}
+
+#[test]
+fn native_edit_before_first_hydration_blocks_metadata_claim() {
+    let temp = tempfile::tempdir().unwrap();
+    let (db, root, _) = paths(temp.path());
+    let journal = CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).unwrap();
+    journal.record_native_edit(ID).unwrap();
+    assert!(journal.begin_download(&receipt()).is_err());
+    assert!(
+        journal
+            .database()
+            .get_by_cloud_remote_id(ID)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

@@ -1,12 +1,16 @@
 //! Real CldApi adapter for generated fixtures only. Registration is explicitly opt-in.
 use crate::{LocalStatus, transfer_range};
 use std::{
+    collections::HashMap,
     ffi::c_void,
     mem::{offset_of, size_of},
     os::windows::ffi::OsStrExt,
     path::{Component, Path, PathBuf, Prefix},
     ptr,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
 };
 use twodrive_core::FileState;
 use windows_sys::Win32::{
@@ -54,11 +58,27 @@ pub fn platform() -> Result<CF_PLATFORM_INFO> {
     Ok(info)
 }
 
+/// Engine-owned opaque object source. No paths, Provider or database API crosses
+/// this boundary. Each requested buffer is at most 64 KiB.
+pub trait HydrationSource: Send + Sync {
+    fn size(&self, identity: &[u8]) -> Result<usize>;
+    fn read_range(
+        &self,
+        identity: &[u8],
+        offset: usize,
+        length: usize,
+        cancelled: &AtomicBool,
+    ) -> Result<Vec<u8>>;
+}
+
 #[derive(Default)]
 struct Source {
     calls: AtomicUsize,
     failures: AtomicUsize,
     offline: AtomicBool,
+    stopping: AtomicBool,
+    engine: Option<Arc<dyn HydrationSource>>,
+    active: Mutex<HashMap<(i64, i64), Arc<AtomicBool>>>,
 }
 
 // The OS owns callback pointers until CfDisconnectSyncRoot returns. Source is
@@ -73,30 +93,93 @@ unsafe extern "system" fn fetch(
     source.calls.fetch_add(1, Ordering::SeqCst);
     let requested = unsafe { params.Anonymous.FetchData };
     let mut status = FAILED;
-    let mut bytes = Vec::new();
     let mut offset = requested.RequiredFileOffset;
     let mut length = requested.RequiredLength;
-    // Never dereference callback paths or use identity as a path. The source is
-    // intentionally immutable, bounded and local; no production provider here.
-    let outcome = std::panic::catch_unwind(|| {
-        if info.FileIdentity.is_null() || info.FileIdentityLength as usize != ID.len() {
-            return None;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let key = (info.TransferKey, info.RequestKey);
+    let mut claimed = false;
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
+        if info.FileIdentity.is_null()
+            || info.FileIdentityLength == 0
+            || info.FileIdentityLength > 4096
+        {
+            return Err("invalid opaque identity".into());
         }
-        let identity =
-            unsafe { std::slice::from_raw_parts(info.FileIdentity.cast::<u8>(), ID.len()) };
-        if identity != ID {
-            return None;
+        let identity = unsafe {
+            std::slice::from_raw_parts(
+                info.FileIdentity.cast::<u8>(),
+                info.FileIdentityLength as usize,
+            )
+        };
+        let size = match &source.engine {
+            Some(engine) => engine.size(identity)?,
+            None if identity == ID => SIZE,
+            None => return Err("unknown identity".into()),
+        };
+        let (start, end) = transfer_range(offset, length, size).ok_or("invalid range")?;
+        {
+            let mut active = source.active.lock().map_err(|_| "request gate poisoned")?;
+            if active.len() >= 32 || active.contains_key(&key) {
+                return Err("request capacity exceeded".into());
+            }
+            active.insert(key, cancelled.clone());
+            claimed = true;
         }
-        transfer_range(offset, length, SIZE)
-    });
-    if source.offline.load(Ordering::SeqCst) {
-        status = OFFLINE;
-    } else if let Ok(Some((start, end))) = outcome {
-        bytes = payload();
         offset = start as i64;
         length = (end - start) as i64;
-        status = 0;
+        for start in (start..end).step_by(65536) {
+            if source.offline.load(Ordering::SeqCst)
+                || source.stopping.load(Ordering::SeqCst)
+                || cancelled.load(Ordering::SeqCst)
+            {
+                return Err("request unavailable or cancelled".into());
+            }
+            let count = (end - start).min(65536);
+            let bytes = match &source.engine {
+                Some(engine) => engine.read_range(identity, start, count, &cancelled)?,
+                None => payload()[start..start + count].to_vec(),
+            };
+            if bytes.len() != count
+                || cancelled.load(Ordering::SeqCst)
+                || source.stopping.load(Ordering::SeqCst)
+            {
+                return Err("short or cancelled engine read".into());
+            }
+            execute_transfer(info, 0, start as i64, count as i64, &bytes)?;
+        }
+        Ok(())
+    }));
+    if claimed && let Ok(mut active) = source.active.lock() {
+        active.remove(&key);
     }
+    if matches!(outcome, Ok(Ok(()))) {
+        return;
+    }
+    if source.offline.load(Ordering::SeqCst) {
+        status = OFFLINE;
+    }
+    let _ = execute_transfer(info, status, offset, length, &[]);
+    source.failures.fetch_add(1, Ordering::SeqCst);
+}
+
+unsafe extern "system" fn cancel(info: *const CF_CALLBACK_INFO, _: *const CF_CALLBACK_PARAMETERS) {
+    let info = unsafe { &*info };
+    let source = unsafe { &*(info.CallbackContext as *const Source) };
+    if let Ok(active) = source.active.lock() {
+        // A partial cancellation conservatively cancels this entire request.
+        if let Some(flag) = active.get(&(info.TransferKey, info.RequestKey)) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+fn execute_transfer(
+    info: &CF_CALLBACK_INFO,
+    status: i32,
+    offset: i64,
+    length: i64,
+    bytes: &[u8],
+) -> Result<()> {
     let operation = CF_OPERATION_INFO {
         StructSize: size_of::<CF_OPERATION_INFO>() as u32,
         Type: CF_OPERATION_TYPE_TRANSFER_DATA,
@@ -117,16 +200,73 @@ unsafe extern "system" fn fetch(
         Buffer: if bytes.is_empty() {
             ptr::null()
         } else {
-            unsafe { bytes.as_ptr().add(offset as usize).cast() }
+            bytes.as_ptr().cast()
         },
         Offset: offset,
         Length: length,
     };
     // CfExecute consumes this buffer synchronously; it cannot outlive bytes.
-    let completion = unsafe { CfExecute(&operation, &mut transfer) };
-    if status != 0 || completion < 0 {
-        source.failures.fetch_add(1, Ordering::SeqCst);
-    }
+    hr(
+        unsafe { CfExecute(&operation, &mut transfer) },
+        "transfer engine data",
+    )
+}
+
+unsafe extern "system" fn deny_delete(
+    info: *const CF_CALLBACK_INFO,
+    _: *const CF_CALLBACK_PARAMETERS,
+) {
+    deny_mutation(unsafe { &*info }, CF_OPERATION_TYPE_ACK_DELETE);
+}
+unsafe extern "system" fn deny_rename(
+    info: *const CF_CALLBACK_INFO,
+    _: *const CF_CALLBACK_PARAMETERS,
+) {
+    deny_mutation(unsafe { &*info }, CF_OPERATION_TYPE_ACK_RENAME);
+}
+unsafe extern "system" fn deny_dehydrate(
+    info: *const CF_CALLBACK_INFO,
+    _: *const CF_CALLBACK_PARAMETERS,
+) {
+    deny_mutation(unsafe { &*info }, CF_OPERATION_TYPE_ACK_DEHYDRATE);
+}
+fn deny_mutation(info: &CF_CALLBACK_INFO, kind: CF_OPERATION_TYPE) {
+    let operation = CF_OPERATION_INFO {
+        StructSize: size_of::<CF_OPERATION_INFO>() as u32,
+        Type: kind,
+        ConnectionKey: info.ConnectionKey,
+        TransferKey: info.TransferKey,
+        RequestKey: info.RequestKey,
+        CorrelationVector: info.CorrelationVector,
+        ..Default::default()
+    };
+    let mut parameters = CF_OPERATION_PARAMETERS::default();
+    let denied = 0xC0000022u32 as i32;
+    let size = match kind {
+        CF_OPERATION_TYPE_ACK_DELETE => {
+            parameters.Anonymous.AckDelete = CF_OPERATION_PARAMETERS_0_7 {
+                Flags: 0,
+                CompletionStatus: denied,
+            };
+            size_of::<CF_OPERATION_PARAMETERS_0_7>()
+        }
+        CF_OPERATION_TYPE_ACK_RENAME => {
+            parameters.Anonymous.AckRename = CF_OPERATION_PARAMETERS_0_6 {
+                Flags: 0,
+                CompletionStatus: denied,
+            };
+            size_of::<CF_OPERATION_PARAMETERS_0_6>()
+        }
+        _ => {
+            parameters.Anonymous.AckDehydrate = CF_OPERATION_PARAMETERS_0_5 {
+                CompletionStatus: denied,
+                ..Default::default()
+            };
+            size_of::<CF_OPERATION_PARAMETERS_0_5>()
+        }
+    };
+    parameters.ParamSize = (offset_of!(CF_OPERATION_PARAMETERS, Anonymous) + size) as u32;
+    let _ = unsafe { CfExecute(&operation, &mut parameters) };
 }
 
 pub struct Session {
@@ -142,6 +282,20 @@ pub struct Session {
 struct RootGuard {
     root: PathBuf,
     _handles: Vec<Handle>,
+}
+/// Newly created ordinary directory with its original path chain held against
+/// replacement; no registration or existing-data adoption.
+pub struct GeneratedDirectory(RootGuard);
+impl GeneratedDirectory {
+    pub fn create(path: &Path) -> Result<Self> {
+        let mut guard = RootGuard::lock_parent(path)?;
+        guard.require_unmanaged_parent()?;
+        guard.create_leaf()?;
+        Ok(Self(guard))
+    }
+    pub fn path(&self) -> &Path {
+        &self.0.root
+    }
 }
 impl RootGuard {
     fn lock_parent(root: &Path) -> Result<Self> {
@@ -274,11 +428,30 @@ fn require_unmanaged(result: i32) -> Result<()> {
         result as u32
     ))
 }
+pub fn verify_unregistered(path: &Path) -> Result<()> {
+    let mut info = CF_SYNC_ROOT_BASIC_INFO::default();
+    require_unmanaged(unsafe {
+        CfGetSyncRootInfoByPath(
+            wide(path).as_ptr(),
+            CF_SYNC_ROOT_INFO_BASIC,
+            (&mut info as *mut CF_SYNC_ROOT_BASIC_INFO).cast(),
+            size_of_val(&info) as u32,
+            ptr::null_mut(),
+        )
+    })
+}
 
 impl Session {
     /// Only a NEW empty root beneath locked non-reparse ancestors is accepted. Never
     /// updates an existing registration or adopts another client's placeholder.
     pub fn create(root: &Path) -> Result<Self> {
+        Self::create_inner(root, None)
+    }
+    /// Same new-root guard as the probe; explicit fixture host only.
+    pub fn create_with_source(root: &Path, engine: Arc<dyn HydrationSource>) -> Result<Self> {
+        Self::create_inner(root, Some(engine))
+    }
+    fn create_inner(root: &Path, engine: Option<Arc<dyn HydrationSource>>) -> Result<Self> {
         if !root.is_absolute() || root.file_name().is_none() {
             return Err("fixture root must be a new absolute directory".into());
         }
@@ -289,7 +462,10 @@ impl Session {
             root: guard.root.clone(),
             registered: false,
             connection: None,
-            source: Box::default(),
+            source: Box::new(Source {
+                engine,
+                ..Default::default()
+            }),
             _guard: guard,
         };
         let name = wide(Path::new("TwoDrive isolated CFAPI experiment"));
@@ -336,10 +512,27 @@ impl Session {
         if self.connection.is_some() {
             return Err("already connected".into());
         }
+        self.source.stopping.store(false, Ordering::SeqCst);
         let table = [
             CF_CALLBACK_REGISTRATION {
                 Type: CF_CALLBACK_TYPE_FETCH_DATA,
                 Callback: Some(fetch),
+            },
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_CANCEL_FETCH_DATA,
+                Callback: Some(cancel),
+            },
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_NOTIFY_DELETE,
+                Callback: Some(deny_delete),
+            },
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_NOTIFY_RENAME,
+                Callback: Some(deny_rename),
+            },
+            CF_CALLBACK_REGISTRATION {
+                Type: CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE,
+                Callback: Some(deny_dehydrate),
             },
             CF_CALLBACK_REGISTRATION {
                 Type: CF_CALLBACK_TYPE_NONE,
@@ -363,6 +556,12 @@ impl Session {
         Ok(())
     }
     pub fn disconnect(&mut self) -> Result<()> {
+        self.source.stopping.store(true, Ordering::SeqCst);
+        if let Ok(active) = self.source.active.lock() {
+            for flag in active.values() {
+                flag.store(true, Ordering::SeqCst);
+            }
+        }
         if let Some(key) = self.connection {
             hr(
                 unsafe { CfDisconnectSyncRoot(key) },
@@ -394,6 +593,17 @@ impl Session {
     }
 
     pub fn placeholder(&self, relative: &Path) -> Result<PathBuf> {
+        self.placeholder_for(relative, ID, SIZE)
+    }
+    pub fn placeholder_for(
+        &self,
+        relative: &Path,
+        identity: &[u8],
+        size: usize,
+    ) -> Result<PathBuf> {
+        if identity.is_empty() || identity.len() > 4096 || size > i64::MAX as usize {
+            return Err("invalid placeholder identity/size".into());
+        }
         // The harness supplies generated leaf names only, including a long leaf.
         if relative.components().count() != 1
             || relative.file_name().is_none()
@@ -404,12 +614,12 @@ impl Session {
         let name = wide(relative);
         let mut entry = CF_PLACEHOLDER_CREATE_INFO {
             RelativeFileName: name.as_ptr(),
-            FileIdentity: ID.as_ptr().cast(),
-            FileIdentityLength: ID.len() as u32,
+            FileIdentity: identity.as_ptr().cast(),
+            FileIdentityLength: identity.len() as u32,
             Flags: CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
             ..Default::default()
         };
-        entry.FsMetadata.FileSize = SIZE as i64;
+        entry.FsMetadata.FileSize = size as i64;
         entry.FsMetadata.BasicInfo.FileAttributes = FILE_ATTRIBUTE_NORMAL;
         let mut done = 0;
         hr(
@@ -477,7 +687,22 @@ fn metadata_handle(path: &Path) -> Result<Handle> {
     Ok(Handle(handle, false))
 }
 
-fn status(handle: HANDLE, engine_state: FileState) -> Result<LocalStatus> {
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NativeObservation {
+    pub logical_size: u64,
+    pub resident: bool,
+    pub partial: bool,
+    pub pinned: bool,
+    pub pin_known_unpinned: bool,
+    pub os_in_sync: bool,
+    pub modified_bytes: i64,
+}
+impl NativeObservation {
+    pub fn clean(&self) -> bool {
+        self.resident && self.pin_known_unpinned && self.os_in_sync && self.modified_bytes == 0
+    }
+}
+fn observation(handle: HANDLE, expected_identity: &[u8], size: usize) -> Result<NativeObservation> {
     // u64 buffer provides alignment for the variable-length standard-info blob.
     let mut buffer = [0u64; 1024];
     let mut returned = 0;
@@ -497,24 +722,113 @@ fn status(handle: HANDLE, engine_state: FileState) -> Result<LocalStatus> {
         return Err("short placeholder info".into());
     }
     let info = unsafe { &*buffer.as_ptr().cast::<CF_PLACEHOLDER_STANDARD_INFO>() };
-    let identity_end = offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity) + ID.len();
-    if info.FileIdentityLength as usize != ID.len() || identity_end > returned as usize {
+    let identity_end =
+        offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity) + expected_identity.len();
+    if info.FileIdentityLength as usize != expected_identity.len()
+        || identity_end > returned as usize
+    {
         return Err("foreign placeholder identity".into());
     }
-    let identity = unsafe { std::slice::from_raw_parts(info.FileIdentity.as_ptr(), ID.len()) };
-    if identity != ID {
+    let identity =
+        unsafe { std::slice::from_raw_parts(info.FileIdentity.as_ptr(), expected_identity.len()) };
+    if identity != expected_identity {
         return Err("foreign placeholder identity".into());
     }
-    Ok(LocalStatus {
-        resident: info.OnDiskDataSize >= SIZE as i64,
-        partial: info.OnDiskDataSize > 0 && info.OnDiskDataSize < SIZE as i64,
+    let mut logical_size = 0i64;
+    if unsafe { GetFileSizeEx(handle, &mut logical_size) } == 0 || logical_size < 0 {
+        return Err("cannot inspect logical size".into());
+    }
+    Ok(NativeObservation {
+        logical_size: logical_size as u64,
+        resident: info.OnDiskDataSize >= size as i64,
+        partial: info.OnDiskDataSize > 0 && info.OnDiskDataSize < size as i64,
         pinned: info.PinState == CF_PIN_STATE_PINNED,
+        pin_known_unpinned: info.PinState == CF_PIN_STATE_UNPINNED
+            || info.PinState == CF_PIN_STATE_UNSPECIFIED,
         os_in_sync: info.InSyncState == CF_IN_SYNC_STATE_IN_SYNC,
         modified_bytes: info.ModifiedDataSize,
+    })
+}
+fn status(handle: HANDLE, engine_state: FileState) -> Result<LocalStatus> {
+    let info = observation(handle, ID, SIZE)?;
+    Ok(LocalStatus {
+        resident: info.resident,
+        partial: info.partial,
+        pinned: info.pinned,
+        os_in_sync: info.os_in_sync,
+        modified_bytes: info.modified_bytes,
         engine_state,
         pending_operations: false,
         open_handles: false,
     })
+}
+
+pub fn inspect_item(path: &Path, identity: &[u8], size: usize) -> Result<NativeObservation> {
+    observation(metadata_handle(path)?.0, identity, size)
+}
+
+/// Scope-bound OS guard. It cannot be detached into a release-ready boolean.
+pub struct LockedPlaceholder<'a> {
+    handle: HANDLE,
+    identity: &'a [u8],
+    size: usize,
+}
+impl LockedPlaceholder<'_> {
+    pub fn inspect(&self) -> Result<NativeObservation> {
+        observation(
+            unsafe { CfGetWin32HandleFromProtectedHandle(self.handle) },
+            self.identity,
+            self.size,
+        )
+    }
+    pub fn dehydrate(&self) -> Result<()> {
+        let state = self.inspect()?;
+        if !state.clean() || state.logical_size != self.size as u64 {
+            return Err("native state vetoes dehydration".into());
+        }
+        hr(
+            unsafe {
+                CfDehydratePlaceholder(self.handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, ptr::null_mut())
+            },
+            "dehydrate journal-verified placeholder",
+        )
+    }
+}
+pub fn with_exclusive_placeholder<T>(
+    path: &Path,
+    identity: &[u8],
+    size: usize,
+    action: impl FnOnce(&LockedPlaceholder<'_>) -> Result<T>,
+) -> Result<T> {
+    let mut raw = ptr::null_mut();
+    hr(
+        unsafe {
+            CfOpenFileWithOplock(
+                wide(path).as_ptr(),
+                CF_OPEN_FILE_FLAG_EXCLUSIVE | CF_OPEN_FILE_FLAG_WRITE_ACCESS,
+                &mut raw,
+            )
+        },
+        "exclusive engine oplock",
+    )?;
+    let handle = Handle(raw, true);
+    if !unsafe { CfReferenceProtectedHandle(handle.0) } {
+        return Err("oplock already broken".into());
+    }
+    struct Reference(HANDLE);
+    impl Drop for Reference {
+        fn drop(&mut self) {
+            unsafe { CfReleaseProtectedHandle(self.0) };
+        }
+    }
+    let _reference = Reference(handle.0);
+    let locked = LockedPlaceholder {
+        handle: handle.0,
+        identity,
+        size,
+    };
+    locked.inspect()?;
+    action(&locked)
 }
 
 pub fn inspect(path: &Path, engine_state: FileState) -> Result<LocalStatus> {
@@ -554,27 +868,13 @@ pub fn pin(path: &Path, pinned: bool) -> Result<()> {
 /// Prototype only: engine_state is the harness's immutable fixture state. A
 /// production caller needs a durable generation/journal and item-lock adapter.
 pub fn release(path: &Path, engine_state: FileState) -> Result<()> {
-    let mut handle = ptr::null_mut();
-    hr(
-        unsafe {
-            CfOpenFileWithOplock(
-                wide(path).as_ptr(),
-                CF_OPEN_FILE_FLAG_EXCLUSIVE | CF_OPEN_FILE_FLAG_WRITE_ACCESS,
-                &mut handle,
-            )
-        },
-        "exclusive release oplock",
-    )?;
-    let handle = Handle(handle, true);
-    if !status(handle.0, engine_state)?.releasable() {
-        return Err("release refused: pin, dirty, pending or unconfirmed state".into());
-    }
-    hr(
-        unsafe { CfDehydratePlaceholder(handle.0, 0, -1, CF_DEHYDRATE_FLAG_NONE, ptr::null_mut()) },
-        "dehydrate clean fixture",
-    )
+    with_exclusive_placeholder(path, ID, SIZE, |locked| {
+        if engine_state != FileState::Cached {
+            return Err("fixture engine state veto".into());
+        }
+        locked.dehydrate()
+    })
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

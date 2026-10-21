@@ -85,6 +85,30 @@ class StorageClient extends ChangeNotifier {
     await refreshStatus();
   });
   bool get canMount => status['capabilities']?['mount'] == true;
+  Json get nativeItemCapabilities => Map<String, dynamic>.from(
+    status['local_files']?['item_status'] as Map? ?? {},
+  );
+  bool get canInspectNativeItems =>
+      nativeItemCapabilities['schema_version'] == 1 &&
+      nativeItemCapabilities['supported'] == true &&
+      nativeItemCapabilities['scope'] == 'generated_fixture_only';
+  Future<Json> nativeItems(String op, [String? id]) async {
+    if (!canInspectNativeItems ||
+        !const ['local_items', 'local_read', 'local_dehydrate'].contains(op) ||
+        (op == 'local_read' && nativeItemCapabilities['read'] != true) ||
+        (op == 'local_dehydrate' &&
+            nativeItemCapabilities['native_copy_dehydrate'] != true)) {
+      throw StateError('本机文件能力不可用');
+    }
+    final result = await request(op, {'schema_version': 1, 'id': ?id});
+    if (result['schema_version'] != 1 ||
+        result['scope'] != 'generated_fixture_only' ||
+        result['items'] is! List) {
+      throw StateError('本机文件状态版本不兼容');
+    }
+    return result;
+  }
+
   bool get canPreflightLocalFile =>
       status['local_files']?['schema_version'] == 1 &&
       status['local_files']?['metadata_preflight'] == true;
@@ -164,8 +188,9 @@ class StorageClient extends ChangeNotifier {
     String engine,
     String state,
     String peer,
-    String launcher,
-  ) async {
+    String launcher, {
+    String? nativeFixtureRoot,
+  }) async {
     try {
       final p = await Process.start(engine, [
         '--state',
@@ -174,6 +199,10 @@ class StorageClient extends ChangeNotifier {
         peer,
         '--launcher',
         launcher,
+        if (nativeFixtureRoot != null) ...[
+          '--native-local-fixture-root',
+          nativeFixtureRoot,
+        ],
       ]);
       _process = p;
       p.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((
