@@ -2481,3 +2481,53 @@ fn cloud_file_discovered_later_stays_online_only_under_a_pinned_directory() {
     assert!(!discovered.effective_pinned());
     assert!(discovered.cache_path.is_none());
 }
+
+#[test]
+fn atomic_replacement_without_old_handles_must_not_leak_superseded_cache() {
+    let mut test = TestFs::new("orphan-cache-retention-probe");
+    let old = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    let old_cache = test.fs.ensure_cached(&old).unwrap();
+    assert!(test.fs.read_handles.is_empty());
+    assert!(test.fs.write_handles.is_empty());
+    let (ino, fh, _) = test
+        .fs
+        .create_upload(
+            ROOT_INO,
+            OsStr::new(".README-cloud.txt.saved"),
+            libc::O_CREAT | libc::O_EXCL,
+        )
+        .unwrap();
+    let new_cache = test.fs.write_handles[&fh].cache_path.clone();
+    write_slice(&new_cache, 0, b"new saved content").unwrap();
+    test.fs.inodes.set_size(ino, 17);
+    test.fs
+        .rename_record(
+            ROOT_INO,
+            OsStr::new(".README-cloud.txt.saved"),
+            ROOT_INO,
+            OsStr::new("README-cloud.txt"),
+        )
+        .unwrap();
+    let current = test
+        .fs
+        .db
+        .get_by_path("/README-cloud.txt")
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.cache_path.as_deref(), Some(new_cache.as_path()));
+    assert!(new_cache.is_file());
+    test.fs.db.prune_cache(0).unwrap();
+    assert!(
+        new_cache.is_file(),
+        "the active saved generation must remain"
+    );
+    assert!(
+        !old_cache.exists(),
+        "superseded cache has no handles or database reference, but replacement and prune both leave it behind"
+    );
+}

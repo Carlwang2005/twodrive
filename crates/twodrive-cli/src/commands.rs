@@ -100,9 +100,11 @@ pub(crate) fn prune_cache(paths: &AppPaths) -> anyhow::Result<()> {
     let db = Database::new(paths.db_path.clone());
     db.init()?;
     let count = db.prune_cache(config.cache_retain_seconds()?)?;
+    let retired = db.prune_retired_cache(&paths.cache_dir)?;
     println!(
         "pruned {count} cached file(s); pinned/dirty/uploading/hydrating files were preserved"
     );
+    println!("reclaimed {retired} superseded cache file(s)");
     Ok(())
 }
 

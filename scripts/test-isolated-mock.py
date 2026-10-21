@@ -42,6 +42,8 @@ def main():
                               capture_output=True, text=True, timeout=20).stdout
 
     run("init-mock")
+    config = root / "config/twodrive/config.toml"
+    config.write_text('[cache]\nretain_for = "1s"\n')
     database = root / "data/twodrive/twodrive.sqlite3"
 
     def record(path):
@@ -76,6 +78,16 @@ def main():
             renamed.unlink()
             assert record("/renamed-smoke.txt") is None
             assert not (root / "config/twodrive/tokens.json").exists()
+            # The daemon must call retention itself, without a CLI prune. Keep
+            # the production 60-second cadence in this real isolated process.
+            sample.read_bytes()
+            deadline = time.monotonic() + 75
+            while record("/README-cloud.txt")[0] != "online_only" and time.monotonic() < deadline:
+                assert process.poll() is None, "daemon exited during automatic retention"
+                time.sleep(0.1)
+            assert record("/README-cloud.txt")[0] == "online_only", "daemon never applied configured cache retention"
+            assert b"Welcome" in sample.read_bytes()
+            print("PASS: daemon automatically releases expired cache and can download it again", flush=True)
             print("PASS: isolated daemon hydration/write/upload/move/delete/pin/release", flush=True)
         finally:
             if os.path.ismount(mount):

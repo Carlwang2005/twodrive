@@ -104,11 +104,7 @@ impl<B: CloudBackend> TwoDriveFs<B> {
                 .values()
                 .any(|handle| handle.cache_path == cache_path);
         if !still_open {
-            match fs::remove_file(cache_path) {
-                Ok(()) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(err.into()),
-            }
+            self.db.remove_unreferenced_cache(cache_path)?;
         }
         Ok(())
     }

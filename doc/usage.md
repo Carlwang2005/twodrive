@@ -58,6 +58,8 @@ twodrive cache prune
 
 Pruning uses `cache.retain_for` (default `30d`) and preserves protected/in-progress content. The tray's **Release unpinned cache** invokes this retention-based prune; it does not immediately clear every unpinned file.
 
+The daemon applies this policy on startup and in its background maintenance loop (60 seconds between passes). Superseded saves and clean invalidated remote versions are reclaimed once no durable reference or open file lock needs their bytes. Unknown pre-existing cache files and explicit recovery directories are preserved.
+
 ## Tray and Settings
 
 The homepage's [real screenshot](../README.md) shows the tray **at idle**, not during a transfer. With activity present, the implementation lists the active count and up to five uploading/downloading filenames, with byte progress when available. `Sync: idle` is an activity snapshot, not proof that all queued operations succeeded.

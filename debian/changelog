@@ -1,3 +1,12 @@
+twodrive (0.2.18-1) unstable; urgency=medium
+
+  * Reclaim superseded save caches after durable references and open users finish.
+  * Persist retired cache paths across restart; preserve untracked recovery data.
+  * Apply configured cache retention in the daemon and recheck recent access.
+  * Cover atomic replacement, upload/delete protection and automatic retention.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Wed, 21 Oct 2026 18:08:00 +0800
+
 twodrive (0.2.17-1) unstable; urgency=medium
 
   * Invalidate cached bytes and in-flight downloads on remote version changes.

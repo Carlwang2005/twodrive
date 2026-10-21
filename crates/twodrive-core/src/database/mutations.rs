@@ -264,6 +264,14 @@ impl Database {
             params![source_local_id],
         )?;
         anyhow::ensure!(removed == 1, "replacement source was not removed");
+        if target.cache_path != source.cache_path
+            && let Some(path) = &target.cache_path
+        {
+            tx.execute(
+                "INSERT OR IGNORE INTO retired_cache(cache_path) VALUES (?1)",
+                params![path.to_string_lossy()],
+            )?;
+        }
         let updated = tx.execute(
             r#"
             UPDATE files
