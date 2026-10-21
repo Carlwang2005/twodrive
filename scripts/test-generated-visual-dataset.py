@@ -20,7 +20,12 @@ if os.name=='nt':
     cf.CfGetSyncRootInfoByPath.restype=ctypes.c_int32
     basic=ctypes.c_int64()
     code=cf.CfGetSyncRootInfoByPath(str(root),0,ctypes.byref(basic),ctypes.sizeof(basic),None)
-    assert code==ctypes.c_int32(0x80070186).value, 'ordinary-data validation refuses managed/unknown root'
+    filesystem=ctypes.create_unicode_buffer(64)
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.GetVolumeInformationW.argtypes=[wintypes.LPCWSTR,wintypes.LPWSTR,wintypes.DWORD,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,wintypes.LPWSTR,wintypes.DWORD]
+    volume_ok=kernel.GetVolumeInformationW(root.anchor,None,0,None,None,None,filesystem,len(filesystem))
+    print(json.dumps({'preflight_api':'CfGetSyncRootInfoByPath/BASIC','hresult':f'0x{code&0xffffffff:08x}','filesystem':filesystem.value if volume_ok else 'unknown','root_exists':root.is_dir(),'root_reparse':bool(root.lstat().st_file_attributes&0x400)}),flush=True)
+    assert code==ctypes.c_int32(0x80070186).value, f'ordinary-data validation refuses managed/unknown root: HRESULT=0x{code&0xffffffff:08x}'
 
 manifest=json.loads(root.with_suffix('.dataset.json').read_text(encoding='utf-8'))
 assert manifest['dataset']=='visual_v1' and manifest['registered'] is False

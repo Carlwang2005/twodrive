@@ -46,9 +46,29 @@
 
 
 
+## TD-20261021-15: PNG validator omitted its rejected CFAPI result
+
+- Date: 2026-10-21; status: investigating; exact rejected HRESULT not present in the original log. No generic failure is accepted as an unmanaged root.
+- Scope: ca81956 Windows Server 26100 adapter. Related: TD-20261021-14's Rust recovery regression now passes; this failure is in the separate Python ordinary-data preflight, before PNG decoding.
+
+The [Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/39618567696/job/119285630646)
+passed strict Clippy and all 76 Rust test executions, including the corrected
+ordinary-node regression. The exporter completed, then the Python validator
+rejected CfGetSyncRootInfoByPath/BASIC because it did not return 0x80070186. The
+assertion omitted the actual HRESULT; decoding and release packaging did not run.
+The exact value and root cause are therefore unknown from the original log.
+
+The first diagnostic correction prints the actual HRESULT, filesystem type,
+root-exists and root-reparse booleans before refusal; it retains the same gate.
+[Microsoft's API contract](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfgetsyncrootinfobypath)
+states that an outside-root query fails, but does not promise one error for all
+environments. Failure alone is not proof of an ordinary, unregistered location.
+The next Server run must establish the actual value before choosing a fix. No
+new registration, foreground action, data restoration, Release or merge occurs.
+
 ## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
 
-- Date: 2026-10-21; status: reproduced in Windows Server 26100 CI at 0cd9dd9; fix awaiting the same CI regression. Local Windows 26300 passed the old implementation.
+- Date: 2026-10-21; status: old code failed at 0cd9dd9; corrected ordinary-node regression passed in Server 26100 CI at ca81956. Local Windows 26300 also passed.
 - Related: TD-20261021-12 concerned WinRT long-path lookup; that nested-path regression passed in this failed job. TD-20261021-13 added the ordinary-node recovery guard and exposed this separate compatibility issue.
 
 ### Symptom, reproduction and cause
@@ -76,8 +96,9 @@ now also checks that the same ordinary nodes are refused without a manifest.
 No allowlist of generic failure HRESULTs is introduced.
 
 The failing CI evidence is retained. The corrected source passes all 76 local
-test executions and strict all-feature/all-target Clippy; it must still pass the
-same Server regression before being considered fixed. New registered directory
+test executions and strict all-feature/all-target Clippy. The same Server
+regression passed at ca81956; its later Python preflight failure is tracked
+separately as TD-20261021-15. New registered directory
 teardown and all visual behavior remain unverified. There is no local data
 restoration, permission/policy change, new Release or merge for this CI fix.
 
