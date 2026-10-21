@@ -17,7 +17,7 @@ try {
     $flags += "--remap-path-prefix=$repo=source"
     $env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]31
     $env:CARGO_TARGET_DIR = Join-Path $repo 'experiments/windows-cfapi/target'
-    $arguments = @('build','--manifest-path',$manifest,'--release','--locked','-j','1')
+    $arguments = @('build','--manifest-path',$manifest,'--features','fixture-probe','--release','--locked','-j','1')
     if ($Offline) { $arguments += '--offline' }
     & cargo @arguments
     if ($LASTEXITCODE) { throw 'CFAPI probe build failed' }

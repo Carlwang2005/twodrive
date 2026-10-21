@@ -110,10 +110,10 @@ fn probe(root: &std::path::Path) -> Result<(), String> {
             .map_err(|e| e.to_string())?
             .read_to_end(&mut actual)
             .map_err(|e| e.to_string())?;
-        require(
-            actual.starts_with(b"UNUPLOADED-GENERATED-DATA"),
-            "dirty bytes preserved",
-        )?;
+        let mut expected = payload();
+        expected[..b"UNUPLOADED-GENERATED-DATA".len()]
+            .copy_from_slice(b"UNUPLOADED-GENERATED-DATA");
+        require(actual == expected, "entire dirty file preserved")?;
         check("dirty_release_refused_bytes_preserved");
         println!(
             "{}",

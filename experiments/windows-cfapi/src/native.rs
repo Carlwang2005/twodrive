@@ -2,11 +2,9 @@
 use crate::{LocalStatus, transfer_range};
 use std::{
     ffi::c_void,
-    fs,
     mem::{offset_of, size_of},
     os::windows::ffi::OsStrExt,
-    os::windows::fs::MetadataExt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
     ptr,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
@@ -14,6 +12,16 @@ use twodrive_core::FileState;
 use windows_sys::Win32::{
     Foundation::*,
     Storage::{CloudFilters::*, FileSystem::*},
+};
+use windows_sys::{
+    Wdk::{
+        Foundation::OBJECT_ATTRIBUTES,
+        Storage::FileSystem::{
+            FILE_CREATE, FILE_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+            FILE_SYNCHRONOUS_IO_NONALERT, NtCreateFile,
+        },
+    },
+    Win32::System::IO::IO_STATUS_BLOCK,
 };
 
 type Result<T> = std::result::Result<T, String>;
@@ -126,46 +134,153 @@ pub struct Session {
     registered: bool,
     connection: Option<CF_CONNECTION_KEY>,
     source: Box<Source>,
+    _guard: RootGuard,
 }
 
-impl Session {
-    /// Only a NEW empty root beneath a canonical parent is accepted. Never
-    /// updates an existing registration or adopts another client's placeholder.
-    pub fn create(root: &Path) -> Result<Self> {
-        if !root.is_absolute() || root.exists() || root.file_name().is_none() {
-            return Err("fixture root must be a new absolute directory".into());
+// Handles deny DELETE sharing, preventing directory substitution while path-
+// based CFAPI calls run. Check original components before canonicalization.
+struct RootGuard {
+    root: PathBuf,
+    _handles: Vec<Handle>,
+}
+impl RootGuard {
+    fn create(root: &Path) -> Result<Self> {
+        let disk = matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)));
+        if !disk
+            || !root.is_absolute()
+            || root.components().any(|c| matches!(c, Component::ParentDir))
+            || root.file_name().is_none()
+        {
+            return Err(
+                "fixture root requires an absolute local disk path without parent traversal".into(),
+            );
         }
-        let parent = root
-            .parent()
-            .ok_or("missing parent")?
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
-        for ancestor in parent.ancestors() {
-            let metadata = fs::symlink_metadata(ancestor).map_err(|e| e.to_string())?;
-            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        let parent = root.parent().ok_or("missing parent")?;
+        let mut handles = Vec::new();
+        for ancestor in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
+            let handle = unsafe {
+                CreateFileW(
+                    wide(ancestor).as_ptr(),
+                    FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    ptr::null(),
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    ptr::null_mut(),
+                )
+            };
+            if handle == INVALID_HANDLE_VALUE {
+                return Err(format!("lock original ancestor: {}", unsafe {
+                    GetLastError()
+                }));
+            }
+            let handle = Handle(handle, false);
+            let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    handle.0,
+                    FileAttributeTagInfo,
+                    (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+                    size_of_val(&tag) as u32,
+                )
+            } == 0
+            {
+                return Err("cannot inspect original ancestor".into());
+            }
+            if tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
                 return Err("fixture ancestors must not be reparse points".into());
             }
+            handles.push(handle);
         }
         let mut existing = CF_SYNC_ROOT_BASIC_INFO::default();
-        if unsafe {
+        let query = unsafe {
             CfGetSyncRootInfoByPath(
-                wide(&parent).as_ptr(),
+                wide(parent).as_ptr(),
                 CF_SYNC_ROOT_INFO_BASIC,
                 (&mut existing as *mut CF_SYNC_ROOT_BASIC_INFO).cast(),
                 size_of_val(&existing) as u32,
                 ptr::null_mut(),
             )
-        } >= 0
-        {
-            return Err("fixture parent already belongs to a sync root".into());
+        };
+        require_unmanaged(query)?;
+        // Atomically create a new leaf relative to the locked parent and keep
+        // its no-delete-sharing handle. No create/open replacement race.
+        let mut name = wide(Path::new(root.file_name().unwrap()));
+        let length = ((name.len() - 1) * 2)
+            .try_into()
+            .map_err(|_| "fixture name too long")?;
+        let unicode = UNICODE_STRING {
+            Length: length,
+            MaximumLength: length,
+            Buffer: name.as_mut_ptr(),
+        };
+        let attributes = OBJECT_ATTRIBUTES {
+            Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: handles.last().ok_or("no parent handle")?.0,
+            ObjectName: &unicode,
+            Attributes: OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE,
+            ..Default::default()
+        };
+        let mut io = IO_STATUS_BLOCK::default();
+        let mut handle = ptr::null_mut();
+        let status = unsafe {
+            NtCreateFile(
+                &mut handle,
+                FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                &attributes,
+                &mut io,
+                ptr::null(),
+                FILE_ATTRIBUTE_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_CREATE,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+                ptr::null(),
+                0,
+            )
+        };
+        if status < 0 {
+            return Err(format!(
+                "create new fixture directory: NTSTATUS 0x{:08X}",
+                status as u32
+            ));
         }
-        let root = parent.join(root.file_name().unwrap());
-        fs::create_dir(&root).map_err(|e| e.to_string())?;
-        let mut session = Self {
+        handles.push(Handle(handle, false));
+        let root = root.canonicalize().map_err(|e| e.to_string())?;
+        Ok(Self {
             root,
+            _handles: handles,
+        })
+    }
+}
+
+fn require_unmanaged(result: i32) -> Result<()> {
+    // Observed and defined ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT (390).
+    if result == (0x80070000u32 | ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT) as i32 {
+        return Ok(());
+    }
+    if result >= 0 {
+        return Err("fixture parent belongs to a sync root".into());
+    }
+    Err(format!(
+        "cannot establish unmanaged parent: HRESULT 0x{:08X}",
+        result as u32
+    ))
+}
+
+impl Session {
+    /// Only a NEW empty root beneath locked non-reparse ancestors is accepted. Never
+    /// updates an existing registration or adopts another client's placeholder.
+    pub fn create(root: &Path) -> Result<Self> {
+        if !root.is_absolute() || root.exists() || root.file_name().is_none() {
+            return Err("fixture root must be a new absolute directory".into());
+        }
+        let guard = RootGuard::create(root)?;
+        let mut session = Self {
+            root: guard.root.clone(),
             registered: false,
             connection: None,
             source: Box::default(),
+            _guard: guard,
         };
         let name = wide(Path::new("TwoDrive isolated CFAPI experiment"));
         let version = wide(Path::new(env!("CARGO_PKG_VERSION")));
@@ -448,4 +563,44 @@ pub fn release(path: &Path, engine_state: FileState) -> Result<()> {
         unsafe { CfDehydratePlaceholder(handle.0, 0, -1, CF_DEHYDRATE_FLAG_NONE, ptr::null_mut()) },
         "dehydrate clean fixture",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    #[test]
+    fn only_known_unmanaged_hresult_allows_creation() {
+        assert!(require_unmanaged(0x80070186u32 as i32).is_ok());
+        for code in [0, 1, 0x80070005u32 as i32, 0x80070057u32 as i32, -1] {
+            assert!(require_unmanaged(code).is_err());
+        }
+    }
+    #[test]
+    fn new_leaf_and_ancestors_stay_locked_against_substitution() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("new-fixture");
+        let guard = RootGuard::create(&root).unwrap();
+        assert!(RootGuard::create(&root).is_err());
+        assert!(fs::rename(&root, temp.path().join("replacement")).is_err());
+        assert!(fs::rename(temp.path(), temp.path().with_extension("replacement")).is_err());
+        drop(guard);
+        fs::rename(&root, temp.path().join("replacement")).unwrap();
+    }
+    #[test]
+    fn original_junction_is_rejected_before_normalizing_or_creating_leaf() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let link = temp.path().join("junction");
+        fs::create_dir(&real).unwrap();
+        fs::write(real.join("marker"), b"generated marker").unwrap();
+        let status = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:TD_GENERATED_LINK -Target $env:TD_GENERATED_TARGET | Out-Null"])
+            .env("TD_GENERATED_LINK", &link).env("TD_GENERATED_TARGET", &real).status().unwrap();
+        assert!(status.success());
+        assert!(RootGuard::create(&link.join("new-fixture")).is_err());
+        assert!(!real.join("new-fixture").exists());
+        fs::remove_dir(&link).unwrap();
+        assert_eq!(fs::read(real.join("marker")).unwrap(), b"generated marker");
+    }
 }

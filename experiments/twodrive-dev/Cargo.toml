@@ -15,7 +15,7 @@ mount = ["dep:twodrive-fs", "dep:fuser"]
 [dependencies]
 twodrive-core = { path = "../../crates/twodrive-core" }
 twodrive-backend = { path = "../../crates/twodrive-backend" }
-twodrive-local-files = { package = "twodrive-cfapi-probe", path = "../windows-cfapi" }
+twodrive-local-files = { package = "twodrive-cfapi-probe", path = "../windows-cfapi", default-features = false }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

@@ -2,7 +2,8 @@
 use twodrive_core::FileState;
 pub mod migration;
 
-#[cfg(windows)]
+// The production desktop dependency cannot compile registration/dehydration.
+#[cfg(all(windows, feature = "fixture-probe"))]
 pub mod native;
 
 /// Keep residency, pin intent and synchronization separate. Download != upload.

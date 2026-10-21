@@ -28,8 +28,15 @@ presented as uploaded/synchronized. Unknown provenance, private cache and virtua
 mount classifications return without even opening the supplied path. No import
 button or native Windows mount button is enabled.
 
-Local checks for this connection: 9 Rust tests (including the actual desktop
-boundary via a lightweight harness), strict Clippy, Flutter analyzer and 35
+Mutating CFAPI APIs are compile-time gated behind `fixture-probe`, with no default
+features. The desktop dependency does not enable that feature, so it cannot call
+fixture registration/dehydration. Its preflight does not substitute hard-coded
+pending/open flags or caller-provided Cached labels for a real engine journal.
+Production release stays disabled until an item-lock/generation/journal bridge
+and queued-upload/open-handle/stale-version recovery tests exist.
+
+Local checks for this connection: 12 Rust tests (including the actual desktop
+boundary via a lightweight harness), strict Clippy, Flutter analyzer and 36
 Flutter tests passed. Full desktop build/real-process IPC results are recorded
 after CI execution; the prototype release must not be cited as proof of those
 later changes. `scripts/test-local-file-preflight.py` exercises the actual engine
@@ -73,14 +80,14 @@ Build with one job on memory-constrained hosts:
 ```powershell
 cargo test --manifest-path experiments/windows-cfapi/Cargo.toml --locked -j 1
 cargo clippy --manifest-path experiments/windows-cfapi/Cargo.toml --all-targets --locked -- -D warnings
-cargo build --manifest-path experiments/windows-cfapi/Cargo.toml --release --locked -j 1
+cargo build --manifest-path experiments/windows-cfapi/Cargo.toml --features fixture-probe --release --locked -j 1
 ```
 
 Running the executable with no arguments only queries CFAPI platform information
 and prints versioned JSON capabilities. No registration or account access occurs.
 After explicit approval, `--allow-isolated-registration NEW_ABSOLUTE_FIXTURE_ROOT`
 runs the native scenario. Its root leaf must start `twodrive-cfapi-fixture-` and
-must not exist. It rejects reparse ancestors and existing managed sync roots.
+must not exist. It checks original ancestors under retained directory handles and rejects reparse points, managed sync roots and unknown query errors. A new leaf is created atomically relative to the locked parent. These hardened guards passed generated-directory tests; the revised full registration scenario still needs a new explicit authorization.
 Never supply a real cloud directory. The fixture contains three 64KiB generated
 objects; one is deliberately edited without upload. Exit disconnects/unregisters
 only its newly created root and leaves generated files available for inspection.
@@ -88,7 +95,7 @@ Cleanup failures are reported. The executable never recursively removes data.
 If the process is forcibly terminated, registration can remain: inspect that
 exact generated root and its provider identity before any manual recovery.
 
-The library's release guard requires `Cached`, no pin/pending work/open handles,
+The library's fixture-only release guard requires `Cached`, no pin/pending work/open handles,
 zero modified bytes and CFAPI in-sync confirmation, while holding an exclusive
 CFAPI oplock. The prototype knows only its immutable fixture's engine state;
 production release is disabled until the actual journal/generation lock is bound.
