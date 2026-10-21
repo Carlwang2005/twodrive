@@ -48,7 +48,7 @@
 
 ## TD-20261021-12: WinRT full-path metadata lookup differs across Windows builds
 
-- Date: 2026-10-21; status: old code fails in Windows adapter CI, relative-leaf lookup correction awaiting CI.
+- Date: 2026-10-21; status: old code fails in Windows adapter CI; 9be73fe passes the same Windows 26100 regression and local Windows 26300 checks.
 - Scope: PR #41 7072ba7, Windows Server 2025 build 26100 runner; local Windows 11 build 26300 passed the same ordinary-file test.
 - Related: TD-20261021-11 includes a suspected long-path property failure but its original error was masked; these mechanisms are not assumed identical.
 
@@ -63,13 +63,14 @@ Shell metadata now obtains the known root StorageFolder, verifies that the targe
 is an immediate generated leaf and calls GetFileAsync with its UTF-16 file name.
 It does not fall back to enumerating unrelated folders, opening file contents or
 claiming successful publication after error. The same >260-character Chinese
-ordinary-file regression is retained. CI on build 26100 must confirm the fix;
-actual placeholder property publication remains a separate uncompleted native
-acceptance item. There was no account/root/data recovery for this CI failure.
+ordinary-file regression is retained. CI on build 26100 confirmed the fix;
+the separately approved 9be73fe native recheck also passed property publication
+with zero initial hydration callbacks. Glyph/menu/thumbnail visuals remain
+unverified. There was no account/root/data recovery for this CI failure.
 
 ## TD-20261021-11: native acceptance failure retains a generated root
 
-- Date: 2026-10-21; status: real failure and safe local recovery verified; original validation cause unresolved; revised normal native exit awaits a new approved root.
+- Date: 2026-10-21; status: real failure and safe local recovery verified; original validation cause unresolved; revised generated-root operation/concurrency recheck passed at 9be73fe.
 - Scope: unmerged PR #41 source 0cc1d4d, Windows 11 build 26300. Related: TD-20261021-07 and 10; neither synthetic owner tests nor untouched-file exit established full native acceptance.
 
 The two specifically approved generated roots were each registered once. The
@@ -104,8 +105,16 @@ refused until lease release. The ignored native test now logs original and
 cleanup errors before assertions and enables its concurrent writer only after
 the main validation succeeds. Per-item Shell publication failures are logged.
 The source and full local regressions compile; this does not establish that the
-revised normal exit or full operation chain passed native acceptance. A new
-finite root scope was requested; neither existing root will be registered again.
+revised normal exit or full operation chain passed native acceptance at that point.
+After explicit approval of one additional finite root scope, the 9be73fe exact
+harness passed the full generated-provider operation and concurrency test in
+3.70 seconds. All-file leases refused the writer until conversion; complete
+concurrent bytes survived unregister. Pin, handle-close retry, offline pin
+recovery, callback reconnect and durable dirty veto passed. An independent query
+confirmed all three roots unregistered (0x80070186), and all nine 64 KiB files
+were exact verified. Each root was registered once. This does not resolve the
+masked original error or establish native glyph/menu/thumbnail visuals or GUI
+interaction with a registered root. Existing roots will not be registered again.
 
 Sanitized evidence: [native result record](windows-explorer-native-results-2026-10-21.json).
 Raw local logs, hashes, journals and generated data are retained outside Git.

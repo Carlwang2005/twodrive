@@ -58,7 +58,7 @@ therefore an ordinary-file write, not an unhydrated placeholder deletion. The
 first real-CFAPI end-to-end run failed and retained its registration. An explicit
 recovery using these leases preserved all bytes, recorded native dirty state,
 converted the three complete files and unregistered successfully. The revised
-normal-exit concurrency test still needs a separately approved new root. A dirty incomplete
+normal-exit concurrency test subsequently passed once at source 9be73fe on a separately approved new root. A dirty incomplete
 file is kept for recovery; shutdown reports incomplete cleanup instead of
 claiming that unregistration succeeded. Generated files, journal and cache remain.
 This fixture teardown policy is not a production sync-root uninstall policy.
@@ -75,13 +75,13 @@ closes the owner channel before joining. See incidents TD-20261021-08 through 11
 | Handle-close and offline recovery retries; continuous status traffic; refused stop owner | Old-loop failures reproduced; corrected non-registration regressions pass locally |
 | Error/pending/unknown folder aggregate vs separate residency/cache counts | Actual engine-source regression |
 | Flutter pin/offline/reconnect capability gates and late-client isolation | Widget/client tests; final results recorded in PR |
-| Shell registration/property metadata does not hydrate content | Retention root passed zero-fetch observation; full native test failed, property result unresolved |
-| OS Chinese/long-path reads, pin/unpin, release, offline retry and live reconnect | First full native run failed; original validation error was masked by cleanup assertion; no aggregate pass claimed |
+| Shell registration/property metadata does not hydrate content | Source 9be73fe recheck passed zero initial fetches and property publication; native visual refresh remains unverified |
+| OS Chinese/long-path reads, pin/unpin, release, offline retry and live reconnect | Source 9be73fe real generated-root recheck passed once; original 0cc1d4d failure remains recorded separately |
 | Untouched placeholders survive normal exit | Real Windows build 26300, source 0cc1d4d: passed; all three 64 KiB files exact verified after unregister |
-| Concurrent writer during all-file protection, conversion and unregister | First run failed; generated concurrent edit preserved. Revised share-none teardown needs a new-root run; ordinary-file truncation-veto regression passes |
+| Concurrent writer during all-file protection, conversion and unregister | Source 9be73fe real test passed: writer refused under all-file leases, resumed after ordinary-file conversion, exact complete bytes retained after unregister |
 | Recovery of failed generated root | Existing root only: no registration/connect/download; three complete copies backed up, modified bytes durably vetoed, converted and unregistered; all six original test files exact verified |
 | Explorer cloud/check/pin/pending/error visuals and context-menu interaction | Unverified: native desktop control entry point unavailable in this session |
-| Actual GUI → IPC → native root interaction | Unverified pending current-binary desktop acceptance |
+| Actual GUI and engine IPC | Current CI ZIP digest and downloaded-engine IPC passed; isolated empty-state GUI screenshot captured. GUI interaction with a registered root remains unverified |
 | Explorer thumbnail/indexer/AV hydration behavior | Unverified; metadata-only API checks do not establish this |
 | Persistent process/root reconnect, native write/rename/delete/conflict | Disabled/unimplemented |
 | Existing OneDrive/Google Drive directories/cache | Read-only metadata preflight only; no adoption, client stop, credentials or private-cache access |
@@ -92,8 +92,10 @@ Shell and CFAPI cleanup. Previous task roots and approvals are never reused.
 Screenshots, when available, must identify the exact source SHA and Windows build;
 API or handle state alone is not visual acceptance.
 
-The two approved roots have each been registered once and are now both
-unregistered. They must not be registered again or removed as build cache.
+Three separately approved roots have each been registered once and are now all
+unregistered. All nine files are exact verified. They must not be registered
+again or removed as build cache. The third root rechecks the corrected operation
+and concurrency chain; it does not erase the first full-run failure.
 The native failure and sanitized evidence are recorded in
 [the native result record](windows-explorer-native-results-2026-10-21.json).
 
