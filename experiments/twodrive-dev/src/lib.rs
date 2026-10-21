@@ -1,6 +1,7 @@
 pub mod capfs;
 pub mod discovery;
 pub mod google;
+pub mod local_files;
 pub mod model;
 pub mod network;
 pub mod onedrive;

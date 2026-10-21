@@ -1,7 +1,7 @@
 name: Isolated CFAPI adapter
 on:
   pull_request:
-    paths: ['experiments/windows-cfapi/**', 'scripts/build-cfapi-probe.ps1', '.github/workflows/windows-cfapi.yml']
+    paths: ['experiments/windows-cfapi/**', 'crates/twodrive-core/**', 'experiments/twodrive-dev/src/local_files*', 'experiments/twodrive-dev/src/model.rs', 'experiments/twodrive-dev/src/provider.rs', 'scripts/build-cfapi-probe.ps1', '.github/workflows/windows-cfapi.yml']
   workflow_dispatch:
 permissions:
   contents: read

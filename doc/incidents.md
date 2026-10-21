@@ -46,6 +46,43 @@
 
 
 
+## TD-20261021-05：Windows 原型状态不能替代持久 journal，旧释放路径必须隔离
+
+- 日期：2026-10-21（UTC）
+- 状态：共享持久层及正式引擎 mock 桥接已实现；当前提交的回归与 CI 结果见 PR，原生生产能力继续关闭。
+- 影响版本与环境：PR #39 后续开发；已发布 alpha.2 只读预检没有开放此写入/释放路径，没有真实数据丢失报告。
+- 相关历史资料：TD-20261021-02；Linux 缓存世代、写前记录、待处理父操作及上传确认的历史约束。
+
+### 症状与影响
+
+早期隔离探针只知道生成内容，其 pending/open 字段和 engine_state 不能证明生产文件已上传。进程退出、旧 Cached 标签、上传成功但响应丢失或父目录操作未完成时，若仅凭标签允许释放，会有丢失未确认数据的潜在风险。此风险此前通过能力关闭隔离，未在真实目录复现。
+
+### 触发条件与复现
+
+生成文件写入后注入旧 Cached；真实读句柄仍打开；上传持久 intent 已登记但未确认；子进程直接退出而不运行析构；条件上传已提交但 mock provider 丢弃回复。新回归逐字节断言本地内容保留，并检查旧世代、待删/父移动和已变化的 provider/cache 绑定拒绝释放。
+
+### 根因与证据
+
+原型没有生产 journal/owner/世代桥接。另一个相邻边界是旧 Database::release_record 只理解旧 FileState/文件锁；它没有新 journal 的所有权证据，必须拒绝 journal 管理的条目，避免未来 GUI 清缓存绕过原生守卫。并非声称已有生产 CFAPI 挂载发生此故障。
+
+### 解决办法与恢复操作
+
+在 twodrive-core 的现有 SQLite/files/FileState 上增加 opt-in CacheJournal：独占 owner、真实文件锁、读写租约计数、写前世代、条件上传快照 CAS、完整字节摘要与结果未知标记。新 owner 只能在 OS 所有权锁到手后恢复旧计数；遗留写入先保留并 fsync，未知上传下载远端完整内容且重验版本后再判断。旧释放/剪枝路径拒绝有 journal 的条目。引擎使用既有 Provider 条件写能力，不在 Flutter 或适配层复制协议。无真实用户数据恢复或迁移。
+
+### 验证结果与边界
+
+本机轻量 harness 编译实际 Windows model/provider/引擎桥接源码，生成文件完成下载→编辑/fsync→条件上传→同世代确认。真实子进程无析构退出验证写入与未知上传重开后的保留。34 项适配/IPC/journal/引擎 harness 与原有 40 项 core 回归、严格 Clippy 通过。受控地仅移除旧释放函数中的新所有权守卫后，生成文件回归在预期保护断言失败；finally 原样恢复源码后通过。exact-head CI 在 PR 记录。没有执行 Windows 重启、断电或真实账号验证；native_mount/import/cloud_writes 仍关闭。
+
+修订版独立 CFAPI 夹具已获另一次明确许可：八项检查通过，注销后查询 0x80070186，三个生成文件含整个脏文件完整保留。该结果只证明修订探针，不等于这里的持久桥接已接入 Explorer。详见 guarded evidence。
+
+### 防复发措施与回归
+
+actual_reader_and_owner_locks_block_competing_writes_and_release、legacy_release_cannot_bypass_native_journal_with_a_stale_cached_label、process_restart_preserves_unclosed_write_and_requires_recovery、process_restart_keeps_ambiguous_upload_and_rejects_blind_retry，以及正式引擎 lost-reply/offline/conflict/version-change 回归。原生 callback/oplock、稳定状态 IPC、重命名/删除/冲突恢复未完成前不开放生产能力。
+
+### 关联记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)；[持久桥接说明](windows-local-journal-2026-10-21.md)；[修订版原生证据](windows-cfapi-guarded-validation-2026-10-21.json)。已发布 alpha.2 的 tag/资产保持原样；后续源码与它的差异由 PR 新提交记录。
+
 ## TD-20261021-04：修改预检路径后仍显示旧文件结果
 
 - 日期：2026-10-21（UTC）

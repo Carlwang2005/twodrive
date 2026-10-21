@@ -87,7 +87,7 @@ Running the executable with no arguments only queries CFAPI platform information
 and prints versioned JSON capabilities. No registration or account access occurs.
 After explicit approval, `--allow-isolated-registration NEW_ABSOLUTE_FIXTURE_ROOT`
 runs the native scenario. Its root leaf must start `twodrive-cfapi-fixture-` and
-must not exist. It checks original ancestors under retained directory handles and rejects reparse points, managed sync roots and unknown query errors. A new leaf is created atomically relative to the locked parent. These hardened guards passed generated-directory tests; the revised full registration scenario still needs a new explicit authorization.
+must not exist. It checks original ancestors under retained directory handles and rejects reparse points, managed sync roots and unknown query errors. A new leaf is created atomically relative to the locked parent. These hardened guards passed generated-directory tests; the revised full registration scenario subsequently received explicit approval and passed all eight native checks; see [guarded evidence](windows-cfapi-guarded-validation-2026-10-21.json).
 Never supply a real cloud directory. The fixture contains three 64KiB generated
 objects; one is deliberately edited without upload. Exit disconnects/unregisters
 only its newly created root and leaves generated files available for inspection.
@@ -168,3 +168,12 @@ API references: [registration](https://learn.microsoft.com/en-us/windows/win32/a
 [connection](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfconnectsyncroot),
 [placeholder creation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfcreateplaceholders),
 [USN-aware in-sync state](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfsetinsyncstate).
+
+## Subsequent durable cache bridge
+
+The published alpha.2 remains the metadata-only GUI checkpoint at 7f0a77f.
+Later PR commits add the [shared persistent journal and engine mock bridge](windows-local-journal-2026-10-21.md).
+These commits do not enable production CFAPI/Explorer or writable GUI capabilities.
+The guarded probe was separately approved and passed with full-byte dirty-file
+verification, then unregistered; that does not prove the new journal is wired to
+native callbacks or that Explorer visuals passed.
