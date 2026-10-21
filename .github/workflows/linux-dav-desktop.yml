@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/dav/**'
       - 'experiments/twodrive-dev/**'
+      - 'experiments/windows-cfapi/**'
       - 'crates/**'
       - 'scripts/*dav-desktop.py'
       - 'scripts/test-desktop-windows-ui.py'

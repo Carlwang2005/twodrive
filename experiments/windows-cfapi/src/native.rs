@@ -144,7 +144,7 @@ struct RootGuard {
     _handles: Vec<Handle>,
 }
 impl RootGuard {
-    fn create(root: &Path) -> Result<Self> {
+    fn lock_parent(root: &Path) -> Result<Self> {
         let disk = matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)));
         if !disk
             || !root.is_absolute()
@@ -192,6 +192,13 @@ impl RootGuard {
             }
             handles.push(handle);
         }
+        Ok(Self {
+            root: root.to_path_buf(),
+            _handles: handles,
+        })
+    }
+    fn require_unmanaged_parent(&self) -> Result<()> {
+        let parent = self.root.parent().ok_or("missing parent")?;
         let mut existing = CF_SYNC_ROOT_BASIC_INFO::default();
         let query = unsafe {
             CfGetSyncRootInfoByPath(
@@ -202,7 +209,11 @@ impl RootGuard {
                 ptr::null_mut(),
             )
         };
-        require_unmanaged(query)?;
+        require_unmanaged(query)
+    }
+    fn create_leaf(&mut self) -> Result<()> {
+        let root = &self.root;
+        let handles = &mut self._handles;
         // Atomically create a new leaf relative to the locked parent and keep
         // its no-delete-sharing handle. No create/open replacement race.
         let mut name = wide(Path::new(root.file_name().unwrap()));
@@ -245,11 +256,8 @@ impl RootGuard {
             ));
         }
         handles.push(Handle(handle, false));
-        let root = root.canonicalize().map_err(|e| e.to_string())?;
-        Ok(Self {
-            root,
-            _handles: handles,
-        })
+        self.root = root.canonicalize().map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 
@@ -271,10 +279,12 @@ impl Session {
     /// Only a NEW empty root beneath locked non-reparse ancestors is accepted. Never
     /// updates an existing registration or adopts another client's placeholder.
     pub fn create(root: &Path) -> Result<Self> {
-        if !root.is_absolute() || root.exists() || root.file_name().is_none() {
+        if !root.is_absolute() || root.file_name().is_none() {
             return Err("fixture root must be a new absolute directory".into());
         }
-        let guard = RootGuard::create(root)?;
+        let mut guard = RootGuard::lock_parent(root)?;
+        guard.require_unmanaged_parent()?;
+        guard.create_leaf()?;
         let mut session = Self {
             root: guard.root.clone(),
             registered: false,
@@ -572,7 +582,14 @@ mod tests {
     #[test]
     fn only_known_unmanaged_hresult_allows_creation() {
         assert!(require_unmanaged(0x80070186u32 as i32).is_ok());
-        for code in [0, 1, 0x80070005u32 as i32, 0x80070057u32 as i32, -1] {
+        for code in [
+            0,
+            1,
+            0x80070005u32 as i32,
+            0x80070057u32 as i32,
+            0x80070001u32 as i32,
+            -1,
+        ] {
             assert!(require_unmanaged(code).is_err());
         }
     }
@@ -580,8 +597,12 @@ mod tests {
     fn new_leaf_and_ancestors_stay_locked_against_substitution() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("new-fixture");
-        let guard = RootGuard::create(&root).unwrap();
-        assert!(RootGuard::create(&root).is_err());
+        // File-lock behavior is independent of Cloud Filter support on a CI volume.
+        let mut guard = RootGuard::lock_parent(&root).unwrap();
+        guard.create_leaf().unwrap();
+        let mut second = RootGuard::lock_parent(&root).unwrap();
+        assert!(second.create_leaf().is_err());
+        drop(second);
         assert!(fs::rename(&root, temp.path().join("replacement")).is_err());
         assert!(fs::rename(temp.path(), temp.path().with_extension("replacement")).is_err());
         drop(guard);
@@ -598,7 +619,7 @@ mod tests {
             .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:TD_GENERATED_LINK -Target $env:TD_GENERATED_TARGET | Out-Null"])
             .env("TD_GENERATED_LINK", &link).env("TD_GENERATED_TARGET", &real).status().unwrap();
         assert!(status.success());
-        assert!(RootGuard::create(&link.join("new-fixture")).is_err());
+        assert!(RootGuard::lock_parent(&link.join("new-fixture")).is_err());
         assert!(!real.join("new-fixture").exists());
         fs::remove_dir(&link).unwrap();
         assert_eq!(fs::read(real.join("marker")).unwrap(), b"generated marker");
