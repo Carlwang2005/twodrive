@@ -50,7 +50,7 @@ fn fixture() -> (tempfile::TempDir, CacheJournal, PathBuf) {
     ))
     .unwrap();
     fs::write(&path, ORIGINAL).unwrap();
-    let journal = CacheJournal::open(db, &root).unwrap();
+    let journal = CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).unwrap();
     journal
         .publish_download(ID, 0, &path, &hash(ORIGINAL), "version-1")
         .unwrap();
@@ -110,7 +110,7 @@ fn actual_reader_and_owner_locks_block_competing_writes_and_release() {
     assert!(j.open_write(ID).is_err());
     assert!(j.with_clean_cache(ID, 0, |_, _| Ok(())).unwrap().is_none());
     let (db, root, _) = paths(temp.path());
-    assert!(CacheJournal::open(db, &root).is_err());
+    assert!(CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).is_err());
     drop(reader);
     assert_eq!(j.snapshot(ID).unwrap().readers, 0);
     assert!(
@@ -202,7 +202,7 @@ fn unknown_journal_schema_is_refused_without_recovery_mutation() {
         .unwrap();
     drop(j);
     let (db, root, _) = paths(temp.path());
-    assert!(CacheJournal::open(db, &root).is_err());
+    assert!(CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).is_err());
     assert_eq!(fs::read(path).unwrap(), ORIGINAL);
 }
 
@@ -271,7 +271,7 @@ fn crash_child() {
         return;
     };
     let (db, cache, _) = paths(Path::new(&root));
-    let j = CacheJournal::open(db, &cache).unwrap();
+    let j = CacheJournal::open(db, &cache, &hash(b"generated-provider-binding")).unwrap();
     if std::env::var("TWODRIVE_JOURNAL_CHILD_MODE").unwrap() == "write" {
         let mut writer = j.open_write(ID).unwrap();
         writer.set_len(0).unwrap();
@@ -297,7 +297,7 @@ fn process_restart_preserves_unclosed_write_and_requires_recovery() {
     drop(j);
     child(temp.path(), "write");
     let (db, root, _) = paths(temp.path());
-    let j = CacheJournal::open(db, &root).unwrap();
+    let j = CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).unwrap();
     let state = j.snapshot(ID).unwrap();
     assert_eq!(state.state, FileState::Dirty);
     assert!(state.recovery_required);
@@ -316,7 +316,7 @@ fn process_restart_keeps_ambiguous_upload_and_rejects_blind_retry() {
     drop(j);
     child(temp.path(), "upload");
     let (db, root, _) = paths(temp.path());
-    let j = CacheJournal::open(db, &root).unwrap();
+    let j = CacheJournal::open(db, &root, &hash(b"generated-provider-binding")).unwrap();
     assert!(j.snapshot(ID).unwrap().uncertain_upload);
     assert!(j.begin_upload(ID, digest).is_err());
     assert!(!j.snapshot(ID).unwrap().engine_release_ready());

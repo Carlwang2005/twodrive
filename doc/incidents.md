@@ -69,9 +69,11 @@
 
 在 twodrive-core 的现有 SQLite/files/FileState 上增加 opt-in CacheJournal：独占 owner、真实文件锁、读写租约计数、写前世代、条件上传快照 CAS、完整字节摘要与结果未知标记。新 owner 只能在 OS 所有权锁到手后恢复旧计数；遗留写入先保留并 fsync，未知上传下载远端完整内容且重验版本后再判断。旧释放/剪枝路径拒绝有 journal 的条目。引擎使用既有 Provider 条件写能力，不在 Flutter 或适配层复制协议。无真实用户数据恢复或迁移。
 
+补充身份边界：首个 journal 提交仍允许调用方逐次传入 Backend，且未持久核对 Provider 身份/私有缓存根。补上固定 Backend 所有权、现有身份 binding 的域分隔摘要和 canonical cache root；错误身份/根在 epoch 与恢复计数变化前拒绝。生成回归构造相同 opaque ID/版本但不同账户 binding，验证不能接管旧 journal，原脏数据保留。没有真实账户参与。
+
 ### 验证结果与边界
 
-本机轻量 harness 编译实际 Windows model/provider/引擎桥接源码，生成文件完成下载→编辑/fsync→条件上传→同世代确认。真实子进程无析构退出验证写入与未知上传重开后的保留。34 项适配/IPC/journal/引擎 harness 与原有 40 项 core 回归、严格 Clippy 通过。受控地仅移除旧释放函数中的新所有权守卫后，生成文件回归在预期保护断言失败；finally 原样恢复源码后通过。exact-head CI 在 PR 记录。没有执行 Windows 重启、断电或真实账号验证；native_mount/import/cloud_writes 仍关闭。
+本机轻量 harness 编译实际 Windows model/provider/引擎桥接源码，生成文件完成下载→编辑/fsync→条件上传→同世代确认。真实子进程无析构退出验证写入与未知上传重开后的保留。35 项适配/IPC/journal/引擎 harness 与原有 40 项 core 回归、严格 Clippy 通过。受控地仅移除旧释放函数中的新所有权守卫后，生成文件回归在预期保护断言失败；finally 原样恢复源码后通过。exact-head CI 在 PR 记录。没有执行 Windows 重启、断电或真实账号验证；native_mount/import/cloud_writes 仍关闭。
 
 修订版独立 CFAPI 夹具已获另一次明确许可：八项检查通过，注销后查询 0x80070186，三个生成文件含整个脏文件完整保留。该结果只证明修订探针，不等于这里的持久桥接已接入 Explorer。详见 guarded evidence。
 

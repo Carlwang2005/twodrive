@@ -1,6 +1,6 @@
 use super::*;
 use crate::model::DeltaResult;
-use crate::provider::Capabilities;
+use crate::provider::{Capabilities, Provider};
 use std::{
     fs,
     io::Write,
@@ -19,19 +19,20 @@ struct Remote {
     bytes: Vec<u8>,
     version: u64,
 }
+#[derive(Clone)]
 struct MockProvider {
-    remote: Mutex<Remote>,
-    mode: AtomicU8,
+    remote: Arc<Mutex<Remote>>,
+    mode: Arc<AtomicU8>,
     conditional: bool,
 }
 impl MockProvider {
     fn new() -> Self {
         Self {
-            remote: Mutex::new(Remote {
+            remote: Arc::new(Mutex::new(Remote {
                 bytes: INITIAL.to_vec(),
                 version: 1,
-            }),
-            mode: AtomicU8::new(0),
+            })),
+            mode: Arc::new(AtomicU8::new(0)),
             conditional: true,
         }
     }
@@ -175,13 +176,19 @@ struct Fixture {
     cache: PathBuf,
     bridge: LocalFileBridge,
 }
-fn fixture() -> Fixture {
+fn fixture(provider: &MockProvider) -> Fixture {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     let cache = root.join("cache");
     fs::create_dir(&cache).unwrap();
     let db = Database::new(root.join("fixture.sqlite3"));
-    let bridge = LocalFileBridge::open(db.clone(), &cache).unwrap();
+    let bridge = LocalFileBridge::open(
+        db.clone(),
+        &cache,
+        Backend::new(provider.clone()),
+        "generated-provider-account-1",
+    )
+    .unwrap();
     Fixture {
         _temp: temp,
         db,
@@ -204,16 +211,16 @@ fn bytes(bridge: &LocalFileBridge) -> Vec<u8> {
 
 #[test]
 fn actual_engine_download_edit_conditional_upload_and_generation_ack() {
-    let fixture = fixture();
     let provider = MockProvider::new();
+    let fixture = fixture(&provider);
     let bridge = fixture.bridge;
-    assert_eq!(bridge.hydrate(&provider, OBJECT).unwrap(), OBJECT);
+    assert_eq!(bridge.hydrate(OBJECT).unwrap(), OBJECT);
     assert_eq!(bytes(&bridge), INITIAL);
     assert!(bridge.engine_release_ready(OBJECT, 0).unwrap());
     edit(&bridge);
     assert_eq!(bridge.status(OBJECT).unwrap().state, FileState::Dirty);
     assert!(!bridge.engine_release_ready(OBJECT, 1).unwrap());
-    assert!(bridge.upload(&provider, OBJECT, no_progress()).unwrap());
+    assert!(bridge.upload(OBJECT, no_progress()).unwrap());
     assert_eq!(provider.download(OBJECT).unwrap(), EDITED);
     assert_eq!(bytes(&bridge), EDITED);
     assert_eq!(bridge.status(OBJECT).unwrap().acknowledged_generation, 1);
@@ -222,68 +229,74 @@ fn actual_engine_download_edit_conditional_upload_and_generation_ack() {
 }
 #[test]
 fn accepted_write_lost_reply_restarts_and_requires_verified_download() {
-    let f = fixture();
     let provider = MockProvider::new();
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     edit(&f.bridge);
     provider.mode.store(2, Ordering::SeqCst);
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).is_err());
+    assert!(f.bridge.upload(OBJECT, no_progress()).is_err());
     assert_eq!(provider.download(OBJECT).unwrap(), EDITED);
     assert!(f.bridge.status(OBJECT).unwrap().uncertain_upload);
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).is_err());
+    assert!(f.bridge.upload(OBJECT, no_progress()).is_err());
     drop(f.bridge);
-    let bridge = LocalFileBridge::open(f.db, &f.cache).unwrap();
+    let bridge = LocalFileBridge::open(
+        f.db,
+        &f.cache,
+        Backend::new(provider.clone()),
+        "generated-provider-account-1",
+    )
+    .unwrap();
     assert!(bridge.status(OBJECT).unwrap().uncertain_upload);
-    assert!(bridge.reconcile(&provider, OBJECT).unwrap());
+    assert!(bridge.reconcile(OBJECT).unwrap());
     assert_eq!(bridge.status(OBJECT).unwrap().state, FileState::Cached);
     assert!(bridge.engine_release_ready(OBJECT, 1).unwrap());
     assert_eq!(bytes(&bridge), EDITED);
 }
 #[test]
 fn offline_retry_waits_for_unchanged_remote_version_proof() {
-    let f = fixture();
     let provider = MockProvider::new();
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     edit(&f.bridge);
     provider.mode.store(1, Ordering::SeqCst);
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).is_err());
+    assert!(f.bridge.upload(OBJECT, no_progress()).is_err());
     assert!(f.bridge.status(OBJECT).unwrap().uncertain_upload);
     provider.mode.store(0, Ordering::SeqCst);
-    assert!(!f.bridge.reconcile(&provider, OBJECT).unwrap());
+    assert!(!f.bridge.reconcile(OBJECT).unwrap());
     assert_eq!(f.bridge.status(OBJECT).unwrap().state, FileState::Dirty);
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).unwrap());
+    assert!(f.bridge.upload(OBJECT, no_progress()).unwrap());
     assert_eq!(bytes(&f.bridge), EDITED);
 }
 #[test]
 fn remote_conflict_preserves_local_bytes_and_blocks_release() {
-    let f = fixture();
     let provider = MockProvider::new();
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     edit(&f.bridge);
     provider.change(b"different generated remote content");
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).is_err());
+    assert!(f.bridge.upload(OBJECT, no_progress()).is_err());
     assert_eq!(f.bridge.status(OBJECT).unwrap().state, FileState::Conflict);
     assert_eq!(bytes(&f.bridge), EDITED);
     assert!(!f.bridge.engine_release_ready(OBJECT, 1).unwrap());
 }
 #[test]
 fn provider_version_change_during_hydration_is_not_published() {
-    let f = fixture();
     let provider = MockProvider::new();
+    let f = fixture(&provider);
     provider.mode.store(3, Ordering::SeqCst);
-    assert!(f.bridge.hydrate(&provider, OBJECT).is_err());
+    assert!(f.bridge.hydrate(OBJECT).is_err());
     let record = f.db.get_by_cloud_remote_id(OBJECT).unwrap().unwrap();
     assert_eq!(record.state, FileState::OnlineOnly);
     assert!(record.cache_path.is_none());
     assert!(f.bridge.status(OBJECT).is_err());
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    f.bridge.hydrate(OBJECT).unwrap();
     assert_eq!(bytes(&f.bridge), INITIAL);
 }
 #[test]
 fn external_byte_change_invalidates_stale_cached_generation() {
-    let f = fixture();
     let provider = MockProvider::new();
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     let record = f.db.get_by_remote_id(OBJECT).unwrap().unwrap();
     fs::write(record.cache_path.unwrap(), EDITED).unwrap();
     assert!(!f.bridge.engine_release_ready(OBJECT, 0).unwrap());
@@ -295,30 +308,74 @@ fn external_byte_change_invalidates_stale_cached_generation() {
 }
 #[test]
 fn missing_conditional_capability_never_starts_upload() {
-    let f = fixture();
     let mut provider = MockProvider::new();
     provider.conditional = false;
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     edit(&f.bridge);
-    assert!(f.bridge.upload(&provider, OBJECT, no_progress()).is_err());
+    assert!(f.bridge.upload(OBJECT, no_progress()).is_err());
     assert!(f.bridge.status(OBJECT).unwrap().upload_generation.is_none());
     assert_eq!(provider.download(OBJECT).unwrap(), INITIAL);
 }
 
 #[test]
 fn cancellation_after_provider_commit_is_reconciled_without_losing_bytes() {
-    let f = fixture();
     let provider = MockProvider::new();
-    f.bridge.hydrate(&provider, OBJECT).unwrap();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
     edit(&f.bridge);
     let progress: Progress = Arc::new(|done, _| {
         ensure!(done == 0, "generated cancellation after commit");
         Ok(())
     });
-    assert!(f.bridge.upload(&provider, OBJECT, progress).is_err());
+    assert!(f.bridge.upload(OBJECT, progress).is_err());
     assert_eq!(provider.download(OBJECT).unwrap(), EDITED);
     assert!(f.bridge.status(OBJECT).unwrap().uncertain_upload);
     assert!(!f.bridge.engine_release_ready(OBJECT, 1).unwrap());
-    assert!(f.bridge.reconcile(&provider, OBJECT).unwrap());
+    assert!(f.bridge.reconcile(OBJECT).unwrap());
     assert_eq!(bytes(&f.bridge), EDITED);
+}
+
+#[test]
+fn different_provider_identity_or_cache_root_cannot_recover_existing_journal() {
+    let provider = MockProvider::new();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
+    edit(&f.bridge);
+    let epoch = f.db.get_state_value("local_cache_epoch").unwrap();
+    drop(f.bridge);
+    assert!(
+        LocalFileBridge::open(
+            f.db.clone(),
+            &f.cache,
+            Backend::new(MockProvider::new()),
+            "generated-other-account"
+        )
+        .is_err()
+    );
+    let other = f.cache.with_file_name("other-generated-cache");
+    fs::create_dir(&other).unwrap();
+    assert!(
+        LocalFileBridge::open(
+            f.db.clone(),
+            &other,
+            Backend::new(provider.clone()),
+            "generated-provider-account-1"
+        )
+        .is_err()
+    );
+    assert_eq!(
+        f.db.get_state_value("local_cache_epoch").unwrap(),
+        epoch,
+        "wrong binding must not reset recovery or advance ownership"
+    );
+    let bridge = LocalFileBridge::open(
+        f.db,
+        &f.cache,
+        Backend::new(provider),
+        "generated-provider-account-1",
+    )
+    .unwrap();
+    assert_eq!(bridge.status(OBJECT).unwrap().state, FileState::Dirty);
+    assert_eq!(bytes(&bridge), EDITED);
 }

@@ -66,7 +66,8 @@ impl CacheSnapshot {
 impl CacheJournal {
     /// Open only a dedicated private cache. The lifetime lock prevents a second
     /// process from resetting live handle counters. Leases retain this owner.
-    pub fn open(db: Database, cache_root: &Path) -> anyhow::Result<Self> {
+    pub fn open(db: Database, cache_root: &Path, binding_digest: &str) -> anyhow::Result<Self> {
+        valid_digest(binding_digest)?;
         ensure!(cache_root.is_absolute(), "private cache must be absolute");
         ensure!(db.path().is_absolute(), "private database must be absolute");
         let mut directories = guard_directories(cache_root)?;
@@ -104,6 +105,25 @@ impl CacheJournal {
                 && (!existing || schema.as_deref() == Some("1")),
             "unsupported private-cache journal schema"
         );
+        for (key, expected) in [
+            ("local_cache_binding", binding_digest.to_owned()),
+            ("local_cache_root", root.to_string_lossy().into_owned()),
+        ] {
+            let previous: Option<String> = tx
+                .query_row("SELECT value FROM app_state WHERE key=?1", [key], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            ensure!(
+                previous.as_deref().is_none_or(|value| value == expected)
+                    && (!existing || previous.is_some()),
+                "private cache belongs to another provider identity or root"
+            );
+            tx.execute(
+                "INSERT INTO app_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING",
+                params![key, expected],
+            )?;
+        }
         tx.execute_batch("CREATE TABLE IF NOT EXISTS local_cache_journal (
             local_id TEXT PRIMARY KEY, generation INTEGER NOT NULL,
             acknowledged_generation INTEGER NOT NULL, readers INTEGER NOT NULL DEFAULT 0,

@@ -18,6 +18,15 @@ and `FileState`; it does not introduce another synchronization state enum. Its
 table is created only when this opt-in owner is opened. Existing FUSE databases
 and metadata-preflight IPC do not open the owner or adopt foreign caches.
 
+The engine owns one fixed Backend for the session. A domain-separated digest of
+the existing provider/account binding and the canonical private cache root are
+persisted before ownership recovery. Another identity/root is rejected before
+advancing the epoch or resetting leases. The composition boundary must use the
+existing profile-revision/provider binding, never a UI label or fresh arbitrary
+namespace; changing accounts requires a different private state. Binding values
+and paths are not exposed by status. No alternate Backend can be supplied to a
+hydrate/upload/reconcile call after opening the bridge.
+
 An OS-exclusive lifetime lock admits one private-cache owner. All read/write/
 upload leases retain that owner. Directory handles on Windows deny ancestor
 replacement; original ancestors and opened cache handles reject reparse/offline/
@@ -83,7 +92,7 @@ the full desktop CI also runs its engine tests. Generated files exercise:
 - Actual subprocess exit during a write/upload, reopen, preserved complete bytes,
   and no blind recovery upload.
 
-Local Windows results: 34 adapter/IPC/journal/actual-engine harness tests, the
+Local Windows results: 35 adapter/IPC/journal/actual-engine harness tests, the
 existing 40 core regressions, format and strict Clippy passed. The journal
 includes two real subprocess exit/reopen tests. Removing only the ownership
 veto from the actual legacy release function makes the intended regression fail;

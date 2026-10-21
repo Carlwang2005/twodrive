@@ -2,7 +2,7 @@
 //! registration. Native capabilities stay disabled until the adapter owns the
 //! corresponding OS locks and recovery path.
 use crate::model::{CloudBackend, MetadataEntry};
-use crate::provider::{Progress, Provider};
+use crate::provider::{Backend, Progress};
 use anyhow::{Context, ensure};
 use sha2::{Digest, Sha256};
 use std::{
@@ -16,11 +16,32 @@ use twodrive_core::{CacheJournal, CacheSnapshot, CacheWriteLease, Database, File
 #[derive(Clone)]
 pub struct LocalFileBridge {
     journal: CacheJournal,
+    backend: Backend,
 }
 impl LocalFileBridge {
-    pub fn open(db: Database, private_cache: &Path) -> anyhow::Result<Self> {
+    pub fn open(
+        db: Database,
+        private_cache: &Path,
+        backend: Backend,
+        provider_binding: &str,
+    ) -> anyhow::Result<Self> {
+        ensure!(
+            !provider_binding.is_empty() && provider_binding.len() <= 16384,
+            "missing or invalid provider binding"
+        );
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(
+                [
+                    b"twodrive-local-cache-binding-v1\0".as_slice(),
+                    provider_binding.as_bytes()
+                ]
+                .concat()
+            )
+        );
         Ok(Self {
-            journal: CacheJournal::open(db, private_cache)?,
+            journal: CacheJournal::open(db, private_cache, &digest)?,
+            backend,
         })
     }
     pub fn journal(&self) -> &CacheJournal {
@@ -34,7 +55,8 @@ impl LocalFileBridge {
     }
 
     /// Download by opaque object identity; recheck provider version after EOF.
-    pub fn hydrate(&self, backend: &impl CloudBackend, remote_id: &str) -> anyhow::Result<String> {
+    pub fn hydrate(&self, remote_id: &str) -> anyhow::Result<String> {
+        let backend = &self.backend;
         let remote = backend
             .get_metadata(remote_id)?
             .context("provider object missing")?;
@@ -87,23 +109,22 @@ impl LocalFileBridge {
 
     /// Provider's explicit conditional-write capability is mandatory; legacy
     /// CloudBackend default methods alone do not establish safe overwrites.
-    pub fn upload(
-        &self,
-        provider: &impl Provider,
-        id: &str,
-        progress: Progress,
-    ) -> anyhow::Result<bool> {
+    pub fn upload(&self, id: &str, progress: Progress) -> anyhow::Result<bool> {
+        let provider = &self.backend;
         ensure!(
             provider.capabilities().upload && provider.capabilities().conditional_upload,
             "conditional provider upload unavailable"
         );
         let mut lease = self.journal.begin_upload(id, digest_file)?;
         let record = lease.record().clone();
-        match provider.upload_controlled(
+        match provider.upload_snapshot(
             &record.metadata.path,
             record.cache_path.as_deref().context("missing cache")?,
-            record.cloud_remote_id.as_deref(),
-            Some(&record.metadata.etag),
+            record
+                .cloud_remote_id
+                .as_deref()
+                .context("unbound cache object")?,
+            &record.metadata.etag,
             progress,
         ) {
             Ok(remote) => {
@@ -121,7 +142,8 @@ impl LocalFileBridge {
         }
     }
 
-    pub fn reconcile(&self, backend: &impl CloudBackend, id: &str) -> anyhow::Result<bool> {
+    pub fn reconcile(&self, id: &str) -> anyhow::Result<bool> {
+        let backend = &self.backend;
         let record = self
             .journal
             .database()
