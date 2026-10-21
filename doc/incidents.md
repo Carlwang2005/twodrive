@@ -48,7 +48,7 @@
 
 ## TD-20261021-15: PNG validator omitted its rejected CFAPI result
 
-- Date: 2026-10-21; status: investigating; exact rejected HRESULT not present in the original log. No generic failure is accepted as an unmanaged root.
+- Date: 2026-10-21; status: diagnostic df88399 confirmed HRESULT 0x80070001 on an existing non-reparse NTFS directory. Hosted-runner setup correction awaits CI. No generic failure is accepted as an unmanaged root.
 - Scope: ca81956 Windows Server 26100 adapter. Related: TD-20261021-14's Rust recovery regression now passes; this failure is in the separate Python ordinary-data preflight, before PNG decoding.
 
 The [Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/39618567696/job/119285630646)
@@ -60,11 +60,30 @@ The exact value and root cause are therefore unknown from the original log.
 
 The first diagnostic correction prints the actual HRESULT, filesystem type,
 root-exists and root-reparse booleans before refusal; it retains the same gate.
+The [diagnostic Server job](https://github.com/LumiaBlack51/twodrive/actions/runs/39620680094/job/119292956248)
+recorded `0x80070001`, `NTFS`, `root_exists=true`, `root_reparse=false`.
 [Microsoft's API contract](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfgetsyncrootinfobypath)
 states that an outside-root query fails, but does not promise one error for all
 environments. Failure alone is not proof of an ordinary, unregistered location.
-The next Server run must establish the actual value before choosing a fix. No
-new registration, foreground action, data restoration, Release or merge occurs.
+
+The validator still requires the specific NOT_UNDER_SYNC_ROOT result and now
+independently refuses non-directory, symlink/reparse or unreadable ancestry before
+any fixture content. Six regressions cover signed HRESULT normalization, success,
+generic/permission/NOT_A_CLOUD_FILE failures, ordinary ancestry, reparse/symlink,
+missing/file paths and permission denial. Unknown errors include their exact
+HRESULT and stop decoding; an ordinary-file error cannot prove absence of a root.
+Local regressions and full PNG decode pass.
+
+The Windows CI setup now records the existing CldFlt state before/after and starts
+it only if stopped, exclusively on a GitHub-hosted disposable VM. CldFlt implements
+the [CFAPI minifilter](https://learn.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine#cloud-files-api-architecture).
+No driver is installed, no start-mode/security policy is changed, and missing,
+disabled or uncertain startup fails the job. An ordinary generated directory on
+the runner's system volume is then used; the unchanged CFAPI result gate must
+still establish that exact directory is outside a root. Runtime driver/volume
+availability is a working explanation, not yet confirmed by a successful rerun.
+This setup never runs on the user's host or a self-hosted runner. No root is
+registered. No foreground action, data restoration, Release or merge occurs.
 
 ## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
 
