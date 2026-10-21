@@ -245,6 +245,32 @@ fn external_os_file_lock_is_a_veto_even_without_a_journal_reader_count() {
             .unwrap()
     );
 }
+
+#[test]
+fn reconciliation_must_rehash_inside_the_final_cache_lease() {
+    let (_temp, j, path) = fixture();
+    edit(&j);
+    drop(j.begin_upload(ID, digest).unwrap());
+    let mut reader = j.open_read(ID).unwrap();
+    let mut observed = Vec::new();
+    reader.read_to_end(&mut observed).unwrap();
+    let stale_digest = hash(&observed);
+    drop(reader);
+    let mut changed = EDITED.to_vec();
+    changed[0] ^= 1;
+    fs::write(&path, &changed).unwrap();
+    assert_ne!(stale_digest, hash(&changed));
+    assert!(
+        !j.reconcile_upload(ID, &receipt(), &hash(EDITED), digest)
+            .unwrap(),
+        "stale pre-lock digest must not acknowledge changed bytes"
+    );
+    assert_ne!(
+        j.snapshot(ID).unwrap().generation,
+        j.snapshot(ID).unwrap().acknowledged_generation
+    );
+    assert_eq!(fs::read(path).unwrap(), changed);
+}
 #[test]
 fn uncertain_upload_reconciles_full_content_not_metadata_alone() {
     let (_temp, j, _) = fixture();
@@ -252,7 +278,7 @@ fn uncertain_upload_reconciles_full_content_not_metadata_alone() {
     drop(j.begin_upload(ID, digest).unwrap());
     let remote = receipt();
     assert!(
-        j.reconcile_upload(ID, &remote, &hash(EDITED), &hash(EDITED))
+        j.reconcile_upload(ID, &remote, &hash(EDITED), digest)
             .unwrap()
     );
     assert!(j.snapshot(ID).unwrap().engine_release_ready());
@@ -260,7 +286,7 @@ fn uncertain_upload_reconciles_full_content_not_metadata_alone() {
     drop(j.begin_upload(ID, digest).unwrap());
     let remote = MetadataEntry::new_file(ID, "/generated.txt", 3, 3, "conflicting-version");
     assert!(
-        !j.reconcile_upload(ID, &remote, &hash(b"different remote"), &hash(EDITED))
+        !j.reconcile_upload(ID, &remote, &hash(b"different remote"), digest)
             .unwrap()
     );
     assert_eq!(j.snapshot(ID).unwrap().state, FileState::Conflict);
@@ -322,7 +348,7 @@ fn process_restart_keeps_ambiguous_upload_and_rejects_blind_retry() {
     assert!(!j.snapshot(ID).unwrap().engine_release_ready());
     assert_eq!(fs::read(path).unwrap(), EDITED);
     assert!(
-        j.reconcile_upload(ID, &receipt(), &hash(EDITED), &hash(EDITED))
+        j.reconcile_upload(ID, &receipt(), &hash(EDITED), digest)
             .unwrap()
     );
 }

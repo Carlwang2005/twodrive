@@ -11,7 +11,9 @@ use std::{
     path::Path,
     sync::Arc,
 };
-use twodrive_core::{CacheJournal, CacheSnapshot, CacheWriteLease, Database, FileState};
+#[cfg(test)]
+use twodrive_core::Database;
+use twodrive_core::{CacheJournal, CacheSnapshot, CacheWriteLease};
 
 #[derive(Clone)]
 pub struct LocalFileBridge {
@@ -19,7 +21,10 @@ pub struct LocalFileBridge {
     backend: Backend,
 }
 impl LocalFileBridge {
-    pub fn open(
+    // Real-provider construction is not exposed until the registered adapter's
+    // verified profile/revision identity is passed as a typed session authority.
+    #[cfg(test)]
+    pub(crate) fn open(
         db: Database,
         private_cache: &Path,
         backend: Backend,
@@ -65,20 +70,7 @@ impl LocalFileBridge {
             "versioned file required"
         );
         let db = self.journal.database();
-        db.upsert_metadata(&core_metadata(&remote))?;
-        let record = db
-            .get_by_cloud_remote_id(remote_id)?
-            .context("local identity missing")?;
-        ensure!(
-            record.state == FileState::OnlineOnly && record.cache_path.is_none(),
-            "existing cache must be recovered, not replaced"
-        );
-        let id = record.metadata.remote_id;
-        let generation = db.download_generation(&id)?;
-        ensure!(
-            db.begin_hydration(&id, generation)?,
-            "download claim refused"
-        );
+        let (id, generation) = self.journal.begin_download(&core_metadata(&remote))?;
         let result = (|| {
             let mut temporary = tempfile::NamedTempFile::new_in(self.journal.cache_root())?;
             let size = backend.download_to(remote_id, temporary.as_file_mut(), &mut |_| Ok(()))?;
@@ -175,11 +167,8 @@ impl LocalFileBridge {
             "provider version changed during reconciliation"
         );
         let remote_digest = digest_file(&mut download)?;
-        let mut local = self.journal.open_read(id)?;
-        let local_digest = digest_reader(&mut local)?;
-        drop(local);
         self.journal
-            .reconcile_upload(id, &core_metadata(&after), &remote_digest, &local_digest)
+            .reconcile_upload(id, &core_metadata(&after), &remote_digest, digest_file)
     }
 
     /// Diagnostic engine eligibility; this never dehydrates or removes a file.

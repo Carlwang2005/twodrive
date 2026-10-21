@@ -46,6 +46,48 @@
 
 
 
+## TD-20261021-06: stale cache digest and rejected hydration metadata mutation
+
+- Date: 2026-10-21.
+- Status: reproduced on unmerged 33dc546; fixed and locally verified with generated files.
+- Scope: opt-in private journal/engine bridge, absent from published alpha.2. No real account or installed client was changed.
+- Related history: TD-20261021-05 covers ownership/lease persistence; these are additional consistency defects, not a claim of a released-client incident.
+
+### Symptoms, reproduction and evidence
+
+`reconciliation_must_rehash_inside_the_final_cache_lease` hashes an ambiguous-upload cache under an initial read lease, releases it, makes a same-length untracked edit, then reconciles. The old implementation accepted the stale digest and incorrectly acknowledged Cached. The regression failed at that assertion before the fix.
+
+`rejected_rehydration_must_preserve_owned_cache_metadata_and_journal` hydrates v1, changes the generated Provider to v2, and attempts hydration again. The old call correctly refused replacing the cache but had already changed files.etag/size to v2. The metadata-preservation assertion failed before the fix. Private local logs retain both expected exit-101 failures; no user names or file lists are published.
+
+### Mechanism and fix
+
+The engine previously dropped its hashing lease before core reconciliation reacquired a lock. Core now accepts a hashing callback, computes the digest inside its final file lease and SQLite transaction, and retains that lease through acknowledgement. Hydration now checks identity/path cache ownership before upsert and holds the journal gate through metadata claim, serializing against publication. Existing bytes and journal generation remain unchanged on rejected rehydration.
+
+Arbitrary-string bridge construction is test-only. A future real-provider constructor must use verified profile/provider session authority; no new arbitrary string API is treated as authenticated identity.
+
+### Validation, recovery and limits
+
+Both regressions fail on old source and pass after the changes. Strict Windows harness Clippy and 25 engine/journal tests pass. No data migration or repair of real files was performed. CFAPI integration, Explorer icon acceptance, live accounts and power-loss recovery remain outside this evidence. See [journal contract](windows-local-journal-2026-10-21.md). Changes are unmerged; the existing alpha.2 tag is unchanged.
+
+## TD-20261021-06: stale digest and failed hydration metadata mutation
+
+- Date: 2026-10-21.
+- Status: reproduced on unmerged 33dc546; fixed and locally verified using generated files.
+- Scope: opt-in journal/engine bridge, absent from released alpha.2. No real account or installed client changed.
+- Related history: TD-20261021-05 covers ownership persistence; these are two additional consistency defects.
+
+### Symptoms, reproduction and evidence
+
+`reconciliation_must_rehash_inside_the_final_cache_lease` hashes an ambiguous-upload cache, releases its read lease, makes a same-length edit and reconciles. Old source accepted the stale digest and incorrectly acknowledged Cached. `rejected_rehydration_must_preserve_owned_cache_metadata_and_journal` hydrates v1, changes the generated Provider to v2 and hydrates again. Old source refused replacing the cache but had already changed files.etag/size to v2. Both deterministic regressions failed at their intended assertions before the fix (private logs preserve exit 101).
+
+### Mechanism and fix
+
+Core now computes the engine digest callback inside the final file lease and SQLite transaction, retaining that lease through acknowledgement. Hydration checks identity/path cache ownership before upsert and holds the journal gate through the metadata claim, serializing with publication. A rejected second hydration preserves existing metadata, bytes and journal generations. Arbitrary-string bridge construction is test-only; real production construction requires verified profile/provider authority and is not exposed yet.
+
+### Validation, recovery and limits
+
+Strict Windows harness Clippy and all 25 engine/journal tests pass after the fixes. Old-source failures and fixed-source passes are recorded. No real-data recovery or migration occurred. CFAPI integration, physical Explorer acceptance, live accounts and power-loss recovery are not established by these tests. The existing alpha.2 tag is unchanged. See [journal contract](windows-local-journal-2026-10-21.md).
+
 ## TD-20261021-05：Windows 原型状态不能替代持久 journal，旧释放路径必须隔离
 
 - 日期：2026-10-21（UTC）

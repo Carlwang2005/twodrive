@@ -172,6 +172,51 @@ impl CacheJournal {
         &self.0.root
     }
 
+    /// Refuse an already owned cache before provider metadata can invalidate it.
+    /// The owner gate also serializes the initial claim against publication.
+    pub fn begin_download(&self, remote: &MetadataEntry) -> anyhow::Result<(String, i64)> {
+        let _guard = self
+            .0
+            .gate
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cache gate poisoned"))?;
+        for record in [
+            self.0.db.get_by_cloud_remote_id(&remote.remote_id)?,
+            self.0.db.get_by_path(&remote.path)?,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            ensure!(
+                !has_journal_record(&journal_connection(&self.0.db)?, &record.metadata.remote_id)?
+                    && record.cache_path.is_none()
+                    && record.state == FileState::OnlineOnly,
+                "existing cache must be recovered, not replaced"
+            );
+        }
+        self.0.db.upsert_metadata(remote)?;
+        let record = self
+            .0
+            .db
+            .get_by_cloud_remote_id(&remote.remote_id)?
+            .context("local identity missing")?;
+        ensure!(
+            record.metadata.etag == remote.etag
+                && record.metadata.path == remote.path
+                && record.metadata.size == remote.size
+                && record.state == FileState::OnlineOnly
+                && record.cache_path.is_none(),
+            "download metadata or ownership changed"
+        );
+        let id = record.metadata.remote_id;
+        let generation = self.0.db.download_generation(&id)?;
+        ensure!(
+            self.0.db.begin_hydration(&id, generation)?,
+            "download claim refused"
+        );
+        Ok((id, generation))
+    }
+
     fn record(&self, id: &str) -> anyhow::Result<FileRecord> {
         self.0
             .db
@@ -461,17 +506,16 @@ impl CacheJournal {
         id: &str,
         remote: &MetadataEntry,
         remote_digest: &str,
-        local_digest: &str,
+        local_digest: impl FnOnce(&mut File) -> anyhow::Result<String>,
     ) -> anyhow::Result<bool> {
         valid_digest(remote_digest)?;
-        valid_digest(local_digest)?;
         let _guard = self
             .0
             .gate
             .lock()
             .map_err(|_| anyhow::anyhow!("cache gate poisoned"))?;
         let record = self.record(id)?;
-        let file = self.file(&record, false)?;
+        let mut file = self.file(&record, false)?;
         file.try_lock_shared()?;
         let mut conn = journal_connection(&self.0.db)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -493,6 +537,10 @@ impl CacheJournal {
                 && !remote.etag.is_empty(),
             "provider identity changed"
         );
+        // Compute after reacquiring the final cache lease and keep that same
+        // lease through the SQLite acknowledgement. Never accept a stale hash.
+        let local_digest = local_digest(&mut file)?;
+        valid_digest(&local_digest)?;
         if state.upload_digest.as_deref() == Some(remote_digest)
             && remote_digest == local_digest
             && remote.size == file.metadata()?.len()

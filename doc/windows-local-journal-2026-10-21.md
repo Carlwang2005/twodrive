@@ -18,7 +18,8 @@ and `FileState`; it does not introduce another synchronization state enum. Its
 table is created only when this opt-in owner is opened. Existing FUSE databases
 and metadata-preflight IPC do not open the owner or adopt foreign caches.
 
-The engine owns one fixed Backend for the session. A domain-separated digest of
+The engine owns one fixed Backend for the session. Arbitrary-string construction
+is test-only; no real-provider production constructor is exposed. A domain-separated digest of
 the existing provider/account binding and the canonical private cache root are
 persisted before ownership recovery. Another identity/root is rejected before
 advancing the epoch or resetting leases. The composition boundary must use the
@@ -92,7 +93,7 @@ the full desktop CI also runs its engine tests. Generated files exercise:
 - Actual subprocess exit during a write/upload, reopen, preserved complete bytes,
   and no blind recovery upload.
 
-Local Windows results: 35 adapter/IPC/journal/actual-engine harness tests, the
+Local Windows results: 37 adapter/IPC/journal/actual-engine harness tests, the
 existing 40 core regressions, format and strict Clippy passed. The journal
 includes two real subprocess exit/reopen tests. Removing only the ownership
 veto from the actual legacy release function makes the intended regression fail;
@@ -102,6 +103,13 @@ Exact-head full desktop/Linux/Windows CI is recorded in the PR after execution. 
 fixture results are separate: the explicitly approved hardened probe passed all
 eight checks; its generated root was unregistered and all three files retained.
 See [guarded evidence](windows-cfapi-guarded-validation-2026-10-21.json).
+
+Two independent-review regressions failed against the previous implementation:
+same-length editing between an earlier hash and final reconciliation could
+acknowledge stale content, and a rejected second hydration could replace owned
+cache metadata. Reconciliation now hashes under its final file lease through
+commit; hydration checks ownership before metadata mutation and serializes its
+claim with publication. Both deterministic regressions pass after these fixes.
 
 Remaining integration: real native callback cancellation/hydration and journal
 ownership, stable item-status IPC/UI, Explorer state/icon/thumbnail behavior,

@@ -10,6 +10,7 @@ use std::{
         atomic::{AtomicU8, Ordering},
     },
 };
+use twodrive_core::FileState;
 
 const OBJECT: &str = "opaque-object-not-a-path";
 const REMOTE_PATH: &str = "/generated-中文.txt";
@@ -378,4 +379,25 @@ fn different_provider_identity_or_cache_root_cannot_recover_existing_journal() {
     .unwrap();
     assert_eq!(bridge.status(OBJECT).unwrap().state, FileState::Dirty);
     assert_eq!(bytes(&bridge), EDITED);
+}
+
+#[test]
+fn rejected_rehydration_must_preserve_owned_cache_metadata_and_journal() {
+    let provider = MockProvider::new();
+    let f = fixture(&provider);
+    f.bridge.hydrate(OBJECT).unwrap();
+    let before = f.db.get_by_remote_id(OBJECT).unwrap().unwrap();
+    let generation = f.bridge.status(OBJECT).unwrap().generation;
+    provider.change(b"generated newer version with a different size");
+    assert!(f.bridge.hydrate(OBJECT).is_err());
+    let after = f.db.get_by_remote_id(OBJECT).unwrap().unwrap();
+    assert_eq!(
+        after.metadata.etag, before.metadata.etag,
+        "rejected hydration must not retag an owned cache"
+    );
+    assert_eq!(after.metadata.size, before.metadata.size);
+    assert_eq!(after.metadata.path, before.metadata.path);
+    assert_eq!(after.cache_path, before.cache_path);
+    assert_eq!(f.bridge.status(OBJECT).unwrap().generation, generation);
+    assert_eq!(bytes(&f.bridge), INITIAL);
 }
