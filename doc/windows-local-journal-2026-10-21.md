@@ -164,7 +164,7 @@ Application controls are not evidence of Explorer shell icons.
 | --- | --- |
 | Engine download/version/lease/digest, dirty and restart veto | Local generated Rust regressions passed |
 | GUI schema, separate residency/sync/cache and stale replies | Flutter analyze and 41 tests passed |
-| New real OS-to-engine read and native release | Pending new explicit root approval and execution |
+| New real OS-to-engine read and native release | Passed once on Windows build 26300, source aff4faa; root unregistered, files retained |
 | Earlier hardened standalone adapter | 8 native checks passed; both old roots unregistered; does not validate this new bridge |
 | Explorer shell icons and thumbnails | Unverified |
 | Live Provider binding, writable native rename/delete/upload and external-edit recovery | Disabled/unimplemented |
@@ -175,3 +175,16 @@ approved NEW root, creates three generated placeholders and new sibling private
 state, exercises OS reads/offline retry/pin/open-handle/dirty veto, then checks
 unregistration and retains all files. It is never run by CI automatically.
 Existing two fixture approvals were consumed and are not reused.
+The newly approved engine fixture passed the ignored native regression once.
+It produced six real FETCH_DATA callbacks (two injected offline failures),
+passed normal ReadFile through the bridge, native-copy dehydration, cached
+offline reads, offline-miss retry, pin/open-handle veto and complete dirty-byte
+preservation. After shutdown an independent read-only CFAPI query returned
+0x80070186, all three complete files matched expected bytes and SQLite reopened
+read-only with the persisted dirty generation 1 / acknowledged generation 0.
+The registration approval is consumed. See [sanitized evidence](windows-native-engine-validation-2026-10-21.json).
+This does not prove Explorer thumbnails/icons or production native root recovery.
+
+The first integration CI also caught the newly enabled optional dependency
+missing from the engine lockfile. Only the existing windows-sys 0.61.2 edge was
+added; no package versions changed. Full exact-head CI remains required.
