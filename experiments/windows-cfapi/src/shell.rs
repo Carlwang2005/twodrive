@@ -210,8 +210,25 @@ impl ShellRoot {
         Ok(())
     }
 }
-fn storage_file(_root: &Path, path: &Path) -> Result<StorageFile> {
-    StorageFile::GetFileFromPathAsync(&storage_path(path))?.join()
+fn storage_file(root: &Path, path: &Path) -> Result<StorageFile> {
+    use std::os::windows::ffi::OsStrExt;
+    if path.parent() != Some(root) {
+        return Err(windows::core::Error::new(
+            windows::core::HRESULT(0x80070057u32 as i32),
+            "metadata item must be an immediate generated-root leaf",
+        ));
+    }
+    let name = path.file_name().ok_or_else(|| {
+        windows::core::Error::new(
+            windows::core::HRESULT(0x80070057u32 as i32),
+            "missing generated leaf",
+        )
+    })?;
+    let name = HSTRING::from_wide(&name.encode_wide().collect::<Vec<_>>());
+    StorageFolder::GetFolderFromPathAsync(&storage_path(root))?
+        .join()?
+        .GetFileAsync(&name)?
+        .join()
 }
 
 impl Drop for ShellRoot {

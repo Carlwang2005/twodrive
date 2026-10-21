@@ -46,6 +46,27 @@
 
 
 
+## TD-20261021-12: WinRT full-path metadata lookup differs across Windows builds
+
+- Date: 2026-10-21; status: old code fails in Windows adapter CI, relative-leaf lookup correction awaiting CI.
+- Scope: PR #41 7072ba7, Windows Server 2025 build 26100 runner; local Windows 11 build 26300 passed the same ordinary-file test.
+- Related: TD-20261021-11 includes a suspected long-path property failure but its original error was masked; these mechanisms are not assumed identical.
+
+`metadata_lookup_accepts_chinese_file_beyond_max_path` passed locally and failed
+the Windows adapter job with HRESULT 0x800700CE from
+StorageFile.GetFileFromPathAsync. The generated ordinary file existed, and the
+same CI job passed the truncation-lease test and strict Clippy. Failure evidence:
+[Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/39596970297/job/119211569794).
+No registry or long-path policy was changed to make the test pass.
+
+Shell metadata now obtains the known root StorageFolder, verifies that the target
+is an immediate generated leaf and calls GetFileAsync with its UTF-16 file name.
+It does not fall back to enumerating unrelated folders, opening file contents or
+claiming successful publication after error. The same >260-character Chinese
+ordinary-file regression is retained. CI on build 26100 must confirm the fix;
+actual placeholder property publication remains a separate uncompleted native
+acceptance item. There was no account/root/data recovery for this CI failure.
+
 ## TD-20261021-11: native acceptance failure retains a generated root
 
 - Date: 2026-10-21; status: real failure and safe local recovery verified; original validation cause unresolved; revised normal native exit awaits a new approved root.
