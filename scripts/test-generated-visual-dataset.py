@@ -27,22 +27,48 @@ def require_plain_directory(root):
             raise RuntimeError('ordinary-data validation requires directory ancestry')
 
 
+def windows_root_preflight(root):
+    from ctypes import wintypes
+    cf=ctypes.WinDLL('cldapi')
+    cf.CfGetSyncRootInfoByPath.argtypes=[wintypes.LPCWSTR,ctypes.c_int,ctypes.c_void_p,wintypes.DWORD,ctypes.c_void_p]
+    cf.CfGetSyncRootInfoByPath.restype=ctypes.c_int32
+    basic=ctypes.c_int64()
+    code=cf.CfGetSyncRootInfoByPath(str(root),0,ctypes.byref(basic),ctypes.sizeof(basic),None)
+    filesystem=ctypes.create_unicode_buffer(64)
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.GetVolumeInformationW.argtypes=[wintypes.LPCWSTR,wintypes.LPWSTR,wintypes.DWORD,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,wintypes.LPWSTR,wintypes.DWORD]
+    volume_ok=kernel.GetVolumeInformationW(root.anchor,None,0,None,None,None,filesystem,len(filesystem))
+    queries={'path_basic':f'0x{code&0xffffffff:08x}'}
+    returned=wintypes.DWORD()
+    standard=ctypes.create_string_buffer(8192)
+    for label,kind,buffer in [('path_basic_returned',0,basic),('path_standard',1,standard)]:
+        result=cf.CfGetSyncRootInfoByPath(str(root),kind,ctypes.byref(buffer),ctypes.sizeof(buffer),ctypes.byref(returned))
+        queries[label]=f'0x{result&0xffffffff:08x}'
+    kernel.CreateFileW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
+    kernel.CreateFileW.restype=wintypes.HANDLE
+    kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+    # Attributes only, no recall, no reparse traversal, deny DELETE sharing.
+    handle=kernel.CreateFileW(str(root),0x80,3,None,3,0x02000000|0x00200000|0x00100000,None)
+    if handle==ctypes.c_void_p(-1).value:
+        queries['handle_open_error']=ctypes.get_last_error()
+    else:
+        try:
+            cf.CfGetSyncRootInfoByHandle.argtypes=[wintypes.HANDLE,ctypes.c_int,ctypes.c_void_p,wintypes.DWORD,ctypes.c_void_p]
+            cf.CfGetSyncRootInfoByHandle.restype=ctypes.c_int32
+            for label,kind,buffer in [('handle_basic',0,basic),('handle_standard',1,standard)]:
+                result=cf.CfGetSyncRootInfoByHandle(handle,kind,ctypes.byref(buffer),ctypes.sizeof(buffer),ctypes.byref(returned))
+                queries[label]=f'0x{result&0xffffffff:08x}'
+        finally:
+            kernel.CloseHandle(handle)
+    print(json.dumps({'preflight_api':'CfGetSyncRootInfoByPath/BASIC','hresult':f'0x{code&0xffffffff:08x}','queries':queries,'filesystem':filesystem.value if volume_ok else 'unknown','root_exists':root.is_dir(),'root_reparse':bool(root.lstat().st_file_attributes&0x400)}),flush=True)
+    require_unregistered(code)
+
+
 def validate(root):
     root=root.absolute()
     require_plain_directory(root)
     if os.name=='nt':
-        from ctypes import wintypes
-        cf=ctypes.WinDLL('cldapi')
-        cf.CfGetSyncRootInfoByPath.argtypes=[wintypes.LPCWSTR,ctypes.c_int,ctypes.c_void_p,wintypes.DWORD,ctypes.c_void_p]
-        cf.CfGetSyncRootInfoByPath.restype=ctypes.c_int32
-        basic=ctypes.c_int64()
-        code=cf.CfGetSyncRootInfoByPath(str(root),0,ctypes.byref(basic),ctypes.sizeof(basic),None)
-        filesystem=ctypes.create_unicode_buffer(64)
-        kernel=ctypes.WinDLL('kernel32',use_last_error=True)
-        kernel.GetVolumeInformationW.argtypes=[wintypes.LPCWSTR,wintypes.LPWSTR,wintypes.DWORD,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,wintypes.LPWSTR,wintypes.DWORD]
-        volume_ok=kernel.GetVolumeInformationW(root.anchor,None,0,None,None,None,filesystem,len(filesystem))
-        print(json.dumps({'preflight_api':'CfGetSyncRootInfoByPath/BASIC','hresult':f'0x{code&0xffffffff:08x}','filesystem':filesystem.value if volume_ok else 'unknown','root_exists':root.is_dir(),'root_reparse':bool(root.lstat().st_file_attributes&0x400)}),flush=True)
-        require_unregistered(code)
+        windows_root_preflight(root)
 
     manifest=json.loads(root.with_suffix('.dataset.json').read_text(encoding='utf-8'))
     assert manifest['dataset']=='visual_v1' and manifest['registered'] is False

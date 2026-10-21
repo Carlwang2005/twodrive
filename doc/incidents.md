@@ -74,16 +74,22 @@ missing/file paths and permission denial. Unknown errors include their exact
 HRESULT and stop decoding; an ordinary-file error cannot prove absence of a root.
 Local regressions and full PNG decode pass.
 
-The Windows CI setup now records the existing CldFlt state before/after and starts
-it only if stopped, exclusively on a GitHub-hosted disposable VM. CldFlt implements
-the [CFAPI minifilter](https://learn.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine#cloud-files-api-architecture).
-No driver is installed, no start-mode/security policy is changed, and missing,
-disabled or uncertain startup fails the job. An ordinary generated directory on
-the runner's system volume is then used; the unchanged CFAPI result gate must
-still establish that exact directory is outside a root. Runtime driver/volume
-availability is a working explanation, not yet confirmed by a successful rerun.
-This setup never runs on the user's host or a self-hosted runner. No root is
-registered. No foreground action, data restoration, Release or merge occurs.
+The [44f4577 Server job](https://github.com/LumiaBlack51/twodrive/actions/runs/39622625423/job/119299776936)
+disproved the stopped-driver explanation: CldFlt was already Running/Auto before
+setup, so no driver-start call executed. A fresh ordinary directory on the system
+volume still returned 0x80070001 on NTFS. The six Python checks, strict Clippy and
+all Rust tests passed; content decoding remained blocked. The unused startup
+branch has been removed. CldFlt implements the
+[CFAPI minifilter](https://learn.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine#cloud-files-api-architecture);
+driver state alone does not establish an attached volume instance or root absence.
+
+The next read-only diagnostic records Basic/Standard queries by path and an
+attributes-only/no-recall/no-reparse-traversal directory handle, plus filter
+instances on the disposable hosted runner. A seventh Windows test performs only
+this ordinary-directory metadata preflight before the expensive build. Local
+queries all return 0x80070186 and all seven checks pass. The Server result is
+pending; the strict gate is unchanged. No driver/service configuration, root
+registration, foreground action, data restoration, Release or merge occurs.
 
 ## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
 

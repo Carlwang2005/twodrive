@@ -18,26 +18,18 @@ jobs:
         run: |
           $fixture = Join-Path '${{ runner.temp }}' 'ordinary-visual-fixture'
           if ($IsWindows) {
-            # Only this disposable GitHub VM: never install/configure a driver,
-            # register a root, or run this setup on a local/self-hosted machine.
+            # Read-only diagnostics on the disposable GitHub VM. No registration
+            # or driver/service configuration is performed here.
             if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Hosted runner required' }
             $driver = Get-CimInstance Win32_SystemDriver -Filter "Name='CldFlt'"
             if (!$driver) { throw 'Built-in CldFlt is unavailable; do not install it' }
-            @{ driver='CldFlt'; before=$driver.State; start_mode=$driver.StartMode } | ConvertTo-Json -Compress
-            if ($driver.State -eq 'Stopped') {
-              sc.exe start CldFlt
-              if ($LASTEXITCODE -notin @(0,1056)) { throw 'Cannot start existing CI CldFlt; no configuration changes allowed' }
-            } elseif ($driver.State -ne 'Running') { throw 'Unknown CldFlt state' }
-            for ($attempt=0; $attempt -lt 20; $attempt++) {
-              $driver = Get-CimInstance Win32_SystemDriver -Filter "Name='CldFlt'"
-              if ($driver.State -eq 'Running') { break }
-              Start-Sleep -Milliseconds 250
-            }
-            if ($driver.State -ne 'Running') { throw 'CI CldFlt startup unconfirmed' }
-            @{ driver='CldFlt'; after=$driver.State } | ConvertTo-Json -Compress
+            @{ driver='CldFlt'; state=$driver.State; start_mode=$driver.StartMode } | ConvertTo-Json -Compress
+            fltmc.exe instances -f CldFlt
+            "CldFlt instance query exit code: $LASTEXITCODE"
             $fixture = Join-Path "$env:SystemRoot/Temp" "twodrive-ordinary-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           }
           "TWODRIVE_ORDINARY_FIXTURE=$fixture" >> $env:GITHUB_ENV
+          exit 0
       - run: python -m unittest discover -s scripts -p test_generated_visual_dataset.py
       - uses: dtolnay/rust-toolchain@stable
         with:

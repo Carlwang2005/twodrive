@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import stat
+import os
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -52,6 +53,15 @@ class OrdinaryRootGuardTests(unittest.TestCase):
         with patch.object(Path, 'lstat', side_effect=PermissionError('generated denial')):
             with self.assertRaises(PermissionError):
                 validator.require_plain_directory(Path.cwd())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows metadata API only')
+    def test_real_generated_directory_must_have_known_outside_root_evidence(self):
+        configured = os.environ.get('TWODRIVE_ORDINARY_FIXTURE')
+        parent = Path(configured).parent if configured else None
+        with tempfile.TemporaryDirectory(prefix='ordinary-cfapi-probe-', dir=parent) as directory:
+            root = Path(directory)
+            validator.require_plain_directory(root)
+            validator.windows_root_preflight(root)
 
 
 if __name__ == '__main__':
