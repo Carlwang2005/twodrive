@@ -20,4 +20,3 @@ debug = 0
 
 [profile.release]
 strip = true
-
