@@ -46,9 +46,33 @@
 
 
 
+## TD-20261021-16: hosted tray fixture failed one foreground transfer
+
+- Date: 2026-10-21; status: original failure retained; one unchanged-source failed-job rerun passed. Exact cause remains unconfirmed.
+- Scope: source 0c746cc, hosted Windows desktop job. Related: TD-20261015-05 failed the earlier source-foreground precondition; the present failure occurred after that precondition passed, so the mechanisms are not assumed identical.
+
+The [first Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/39626444352/job/119312819727)
+passed compilation, IPC and Flutter checks, then test-desktop-windows-ui.py failed
+at SetForegroundWindow(helper). The native trace showed the test panel visible
+and focused; the helper transfer returned false. The log does not contain the
+post-call foreground owner, so it cannot establish whether timing, session policy
+or a fixture/product interaction caused the refusal. Unsigned MSIX checks were
+skipped in this first attempt. No product UI code or this test changed since the
+earlier 9be73fe baseline, and no local foreground reproduction was attempted.
+
+Only the failed hosted job was rerun once on the **same source**, without relaxing
+or skipping any focus assertion. The [retry](https://github.com/LumiaBlack51/twodrive/actions/runs/39626444352/job/119320446479)
+passed background-hidden startup, repeated tray toggles/stable position, external
+focus dismissal, Escape dismissal and unsigned MSIX validation. All seven
+workflows at 0c746cc then succeeded. This bounds the event as non-deterministic in
+these two attempts; it is not a proved product fix or evidence of local Explorer
+interaction. A recurrence needs actual foreground/owner/session diagnostics,
+not suppression of the failure. No system focus policy, application code,
+user process, real account, root registration, Release or merge was changed.
+
 ## TD-20261021-15: PNG validator omitted its rejected CFAPI result
 
-- Date: 2026-10-21; status: diagnostic df88399 confirmed HRESULT 0x80070001 on an existing non-reparse NTFS directory. Hosted-runner setup correction awaits CI. No generic failure is accepted as an unmanaged root.
+- Date: 2026-10-21; status: safe validation split verified at 0c746cc on both CI platforms. The Server's native outside-root evidence remains unavailable/skipped; no generic failure is accepted as an unmanaged root.
 - Scope: ca81956 Windows Server 26100 adapter. Related: TD-20261021-14's Rust recovery regression now passes; this failure is in the separate Python ordinary-data preflight, before PNG decoding.
 
 The [Windows job](https://github.com/LumiaBlack51/twodrive/actions/runs/39618567696/job/119285630646)
@@ -113,8 +137,13 @@ generator's stdout. This mode creates/reads no filesystem fixture and never asks
 CFAPI to interpret an unknown root. Windows CI can verify exact size, CRCs, zlib,
 all pixels and digest while preserving the native-runtime limitation. Linux also
 retains the complete ordinary-directory/layout validation; supported local
-Windows directory validation and decoding already passed. The new CI result is
-pending. No foreground action, data restoration, Release or merge occurs.
+Windows directory validation and decoding already passed. The corrected
+[adapter workflow](https://github.com/LumiaBlack51/twodrive/actions/runs/39626444403)
+passed on Windows and Ubuntu at 0c746cc. Server Python reported six passes and
+one explicit native-evidence skip; all 76 Rust executions, strict Clippy, generated
+PNG decoding (SHA-256 de207d01b8cf2091ca00e4093aee8f4de45bd05e9974829593d41aba6385e7a6),
+release build and probe packaging passed. This is not registered-root/visual
+acceptance. No foreground action, data restoration, Release or merge occurs.
 
 ## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
 

@@ -162,7 +162,10 @@ observed no-instance condition, and is not a native acceptance pass. A proposed
 CI filter attachment was denied before commit/push and was not executed; the
 workflow performs read-only filter diagnostics. See incident TD-20261021-15.
 
-The available 9be73fe CI ZIP remains an earlier generated-only experimental
-preview. It does not contain this preparation. No new GitHub Release was
-published; alpha.3 remains the earlier PR #39 native-journal preview. Neither is
-stable/full Windows Explorer support.
+All seven workflows at 0c746cc succeeded; the hosted tray focus failure required
+one unchanged-source retry (incident TD-20261021-16). Server adapter release and
+probe packaging passed with its native metadata evidence explicitly skipped.
+The previously downloaded 9be73fe ZIP is an older generated-only preview;
+0c746cc CI artifacts contain the preparation. No new GitHub Release was published;
+alpha.3 remains the earlier PR #39 native-journal preview. These are experimental
+generated-only artifacts, not stable/full Windows Explorer support.

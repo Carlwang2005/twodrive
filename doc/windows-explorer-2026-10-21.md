@@ -80,11 +80,26 @@ closes the owner channel before joining. See incidents TD-20261021-08 through 11
 | Untouched placeholders survive normal exit | Real Windows build 26300, source 0cc1d4d: passed; all three 64 KiB files exact verified after unregister |
 | Concurrent writer during all-file protection, conversion and unregister | Source 9be73fe real test passed: writer refused under all-file leases, resumed after ordinary-file conversion, exact complete bytes retained after unregister |
 | Recovery of failed generated root | Existing root only: no registration/connect/download; three complete copies backed up, modified bytes durably vetoed, converted and unregistered; all six original test files exact verified |
-| Explorer cloud/check/pin/pending/error visuals and context-menu interaction | Unverified: native desktop control entry point unavailable in this session |
-| Actual GUI and engine IPC | Current CI ZIP digest and downloaded-engine IPC passed; isolated empty-state GUI screenshot captured. GUI interaction with a registered root remains unverified |
+| Explorer cloud/check/pin/pending/error visuals and context-menu interaction | Unverified: no supported isolated native screen/input under the user's foreground restriction |
+| Actual GUI and engine IPC | Earlier 9be73fe ZIP digest/downloaded-engine IPC and empty-state GUI capture passed. Registered-root GUI interaction remains unverified |
 | Explorer thumbnail/indexer/AV hydration behavior | Unverified; metadata-only API checks do not establish this |
 | Persistent process/root reconnect, native write/rename/delete/conflict | Disabled/unimplemented |
 | Existing OneDrive/Google Drive directories/cache | Read-only metadata preflight only; no adoption, client stop, credentials or private-cache access |
+
+Follow-up verification is pinned to code **0c746ccfde425aee897a14da863307161b85f2bf**;
+this final record changes documentation only.
+
+| Follow-up check | Actual result and limit |
+| --- | --- |
+| All seven CI workflows | Passed at 0c746cc; desktop required one unchanged-source failed-job retry |
+| Server adapter | Strict Clippy, 76 Rust executions, PNG byte decode, release build and probe packaging passed |
+| Server outside-root metadata evidence | Six Python guards passed; one real metadata check explicitly skipped for confirmed no filter instances + INVALID_FUNCTION. Unknown roots remain refused; no fixture content read |
+| Independent PNG bytes | Both CI platforms decoded generator stdout: exact64KiB, CRC/zlib/all pixels and SHA de207d01… passed; native_acceptance=false |
+| Ordinary tree/layout | Linux CI passed; supported local Windows directory/full PNG decode passed. Unsupported Server directory validation was not relabelled as successful |
+| Existing native tray smoke / unsigned MSIX | First hosted foreground transfer failed; same-source retry passed both. Neither result establishes local Explorer acceptance |
+| Driver/root/foreground operations | Proposed CI filter attach was denied before commit/push and never executed/retried. Workflow is read-only for driver state; no new registration or local foreground action |
+
+See incidents TD-20261021-15/16 for original failures, rerun evidence and limits.
 
 No ignored registration test runs automatically in CI. All actual native tests
 must use separately approved new generated roots, retain files and verify both
