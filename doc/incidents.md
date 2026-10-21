@@ -46,9 +46,54 @@
 
 
 
+## TD-20261021-11: native acceptance failure retains a generated root
+
+- Date: 2026-10-21; status: real failure and safe local recovery verified; original validation cause unresolved; revised normal native exit awaits a new approved root.
+- Scope: unmerged PR #41 source 0cc1d4d, Windows 11 build 26300. Related: TD-20261021-07 and 10; neither synthetic owner tests nor untouched-file exit established full native acceptance.
+
+The two specifically approved generated roots were each registered once. The
+untouched-file test passed. The full native test failed; its final assertion
+reported that the root remained registered after the retention gate refused
+cleanup. The test asserted cleanup before reporting its original validation
+error, so the original error is unavailable. No claim is made that pin, offline,
+reconnect or all-file teardown passed. Long-path property publication is a
+suspect only: ordinary-file WinRT lookup beyond 260 characters passes locally.
+
+The failed root remained registered and its process had exited. Read-only CFAPI
+inspection found three complete 64 KiB files; one had a full generated concurrent
+teardown edit, while the private journal still described its previous generation.
+An independent share-none read copied every actual byte with NO_RECALL, checked
+all three identities and compared complete content. No old cache was substituted.
+
+A test-feature-only recovery command verifies the unmanaged parent, original
+ancestor locks, generated CFAPI context, current user's exact Shell folder binding
+and three known leaf identities. It never registers or connects a root. Ordinary
+share-none read/WRITE_DAC leases hold all complete files through another fsynced
+backup, durable native-dirty recording and CfRevertPlaceholder. WRITE_DAC is a
+documented authorization for conversion without data-write access. The exact
+existing Shell registration was then removed; CFAPI independently returned
+0x80070186 for both roots. All six original files and both modified-file backups
+were byte-for-byte verified. The modified item is generation 1, acknowledged 0,
+with native_dirty and recovery_required set. Files, private cache and journal
+remain. No Explorer restart, real account access or other-root operation occurred.
+
+The normal teardown now uses the same ordinary leases and documented Win32
+handle conversion. A real ordinary-file regression verifies that truncation is
+refused until lease release. The ignored native test now logs original and
+cleanup errors before assertions and enables its concurrent writer only after
+the main validation succeeds. Per-item Shell publication failures are logged.
+The source and full local regressions compile; this does not establish that the
+revised normal exit or full operation chain passed native acceptance. A new
+finite root scope was requested; neither existing root will be registered again.
+
+Sanitized evidence: [native result record](windows-explorer-native-results-2026-10-21.json).
+Raw local logs, hashes, journals and generated data are retained outside Git.
+Recovery is limited to generated fixture identities; persistent production-root
+restart and real cloud writes remain disabled. No release was published here.
+
 ## TD-20261021-10: metadata-only teardown check leaves a concurrent-write window
 
-- Date: 2026-10-21; status: code-review finding addressed, real CFAPI race acceptance pending specific-root approval.
+- Date: 2026-10-21; status: first correction failed real native acceptance; see TD-20261021-11 for recovery and revised gate.
 - Scope: unmerged PR #41 source f321b48. Related: TD-20261021-07 covers untouched online-only files, not concurrency.
 
 The old teardown released each short-lived metadata handle before unregistering.
@@ -65,12 +110,13 @@ is retained in the live Session; partial teardown closes native capabilities and
 reports cleanup/registration as unconfirmed. No reference is held over a Provider
 download. Existing dirty bytes and private journal/cache remain preserved.
 
-An opt-in `native-test-hooks` observation barrier compiles in adapter CI but is
+The initial correction used an opt-in `native-test-hooks` observation barrier that compiles in adapter CI but is
 absent from ordinary GUI release builds. The ignored real-engine test starts a
 concurrent generated writer while all references are held, waits for its ordinary
 file write after conversion, then checks complete bytes after unregister. It has
-**not run**: new-root registration was rejected before execution. No claim of
-physical/concurrent CFAPI acceptance follows from compilation or synthetic tests.
+subsequently run once on an explicitly approved new root and failed, retaining the
+root. TD-20261021-11 records the preservation, successful unregister recovery and
+remaining uncertainty. No physical/concurrent CFAPI pass is claimed.
 
 ## TD-20261021-09: refused stop loses the owner while capabilities remain active
 

@@ -87,6 +87,31 @@ pub struct ShellRoot {
     _apartment: Apartment,
 }
 impl ShellRoot {
+    #[cfg(feature = "native-test-hooks")]
+    pub fn retained_generated(root: &Path, context: &[u8]) -> Result<Self> {
+        let apartment = Apartment::new()?;
+        let folder = StorageFolder::GetFolderFromPathAsync(&storage_path(root))?.join()?;
+        let info = StorageProviderSyncRootManager::GetSyncRootInformationForFolder(&folder)?;
+        let id = info.Id()?;
+        let prefix = format!("TwoDrive.Generated!{}!", user_sid()?);
+        let mut actual = windows::core::Array::<u8>::new();
+        CryptographicBuffer::CopyToByteArray(&info.Context()?, &mut actual)?;
+        if !id.to_string().starts_with(&prefix) || &actual[..] != context {
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT(0x8007000Du32 as i32),
+                "retained root is not this user's generated fixture",
+            ));
+        }
+        let result = Self {
+            id,
+            root: root.into(),
+            registered: true,
+            published: HashMap::new(),
+            _apartment: apartment,
+        };
+        result.verify()?;
+        Ok(result)
+    }
     /// Only call after Session has atomically created and guarded a NEW root.
     pub fn register_generated(root: &Path, context: &[u8]) -> Result<Self> {
         let apartment = Apartment::new()?;
@@ -166,9 +191,7 @@ impl ShellRoot {
                 .join()?
                 .cast()?
         } else {
-            StorageFile::GetFileFromPathAsync(&storage_path(path))?
-                .join()?
-                .cast()?
+            storage_file(&self.root, path)?.cast()?
         };
         StorageProviderItemProperties::SetAsync(&item, &values)?.join()?;
         self.published.insert(path.into(), state.into());
@@ -187,6 +210,10 @@ impl ShellRoot {
         Ok(())
     }
 }
+fn storage_file(_root: &Path, path: &Path) -> Result<StorageFile> {
+    StorageFile::GetFileFromPathAsync(&storage_path(path))?.join()
+}
+
 impl Drop for ShellRoot {
     fn drop(&mut self) {
         // Session owns the retention gate. A destructor must never bypass it:
@@ -221,6 +248,26 @@ pub fn notify(path: &Path, directory: bool) {
             SHCNF_PATHW,
             Some(wide.as_ptr().cast()),
             None,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn metadata_lookup_accepts_chinese_file_beyond_max_path() {
+        let _apartment = Apartment::new().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("generated-parent-".repeat(5));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join(format!("生成-{}.bin", "long-".repeat(35)));
+        std::fs::write(&path, b"generated ordinary data").unwrap();
+        assert!(path.as_os_str().len() > 260);
+        let file = storage_file(&root, &path).unwrap();
+        assert_eq!(
+            file.Name().unwrap().to_string(),
+            path.file_name().unwrap().to_str().unwrap()
         );
     }
 }

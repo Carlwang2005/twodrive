@@ -52,16 +52,19 @@ fixture. Before explicit stop or normal owner destruction, this host retains its
 deterministic generated data, without using a real account or network. The native
 Session additionally refuses either Shell or CFAPI unregistration while a known
 placeholder is incomplete or has changed logical length. It then holds exclusive
-protected references to all known generated files, rechecks the metadata, and
+ordinary share-none read/WRITE_DAC leases to all known generated files, rechecks the metadata, and
 reverts them to ordinary files before unregister. A concurrent later write is
 therefore an ordinary-file write, not an unhydrated placeholder deletion. The
-real-CFAPI concurrency regression is compiled but remains unrun. A dirty incomplete
+first real-CFAPI end-to-end run failed and retained its registration. An explicit
+recovery using these leases preserved all bytes, recorded native dirty state,
+converted the three complete files and unregistered successfully. The revised
+normal-exit concurrency test still needs a separately approved new root. A dirty incomplete
 file is kept for recovery; shutdown reports incomplete cleanup instead of
 claiming that unregistration succeeded. Generated files, journal and cache remain.
 This fixture teardown policy is not a production sync-root uninstall policy.
 A refused stop before conversion keeps the owner serving; partial teardown disables
 native capabilities and reports cleanup and registration as unconfirmed. Drop
-closes the owner channel before joining. See incidents TD-20261021-08 through 10.
+closes the owner channel before joining. See incidents TD-20261021-08 through 11.
 
 ## Acceptance matrix
 
@@ -72,10 +75,11 @@ closes the owner channel before joining. See incidents TD-20261021-08 through 10
 | Handle-close and offline recovery retries; continuous status traffic; refused stop owner | Old-loop failures reproduced; corrected non-registration regressions pass locally |
 | Error/pending/unknown folder aggregate vs separate residency/cache counts | Actual engine-source regression |
 | Flutter pin/offline/reconnect capability gates and late-client isolation | Widget/client tests; final results recorded in PR |
-| Shell registration/property metadata does not hydrate content | Explicit new-root ignored test; pending execution |
-| OS Chinese/long-path reads, pin/unpin, release, offline retry and live reconnect | Explicit new-root ignored test; pending execution |
-| Untouched placeholders survive normal exit | Separate explicit new-root ignored test; pending execution |
-| Concurrent writer during all-file protection, conversion and unregister | Opt-in test-only barriers compiled; real native test unrun pending approval |
+| Shell registration/property metadata does not hydrate content | Retention root passed zero-fetch observation; full native test failed, property result unresolved |
+| OS Chinese/long-path reads, pin/unpin, release, offline retry and live reconnect | First full native run failed; original validation error was masked by cleanup assertion; no aggregate pass claimed |
+| Untouched placeholders survive normal exit | Real Windows build 26300, source 0cc1d4d: passed; all three 64 KiB files exact verified after unregister |
+| Concurrent writer during all-file protection, conversion and unregister | First run failed; generated concurrent edit preserved. Revised share-none teardown needs a new-root run; ordinary-file truncation-veto regression passes |
+| Recovery of failed generated root | Existing root only: no registration/connect/download; three complete copies backed up, modified bytes durably vetoed, converted and unregistered; all six original test files exact verified |
 | Explorer cloud/check/pin/pending/error visuals and context-menu interaction | Unverified: native desktop control entry point unavailable in this session |
 | Actual GUI → IPC → native root interaction | Unverified pending current-binary desktop acceptance |
 | Explorer thumbnail/indexer/AV hydration behavior | Unverified; metadata-only API checks do not establish this |
@@ -87,6 +91,11 @@ must use separately approved new generated roots, retain files and verify both
 Shell and CFAPI cleanup. Previous task roots and approvals are never reused.
 Screenshots, when available, must identify the exact source SHA and Windows build;
 API or handle state alone is not visual acceptance.
+
+The two approved roots have each been registered once and are now both
+unregistered. They must not be registered again or removed as build cache.
+The native failure and sanitized evidence are recorded in
+[the native result record](windows-explorer-native-results-2026-10-21.json).
 
 Primary references:
 [Shell registration sample](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/CloudMirror/CloudMirror/CloudProviderRegistrar.cpp),

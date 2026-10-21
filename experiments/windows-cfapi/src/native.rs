@@ -614,16 +614,22 @@ impl Session {
                 // evidence is checked again under the protected reference.
                 let before = inspect_item(&leaf.path, &leaf.identity, leaf.size)?;
                 if !before.resident || before.logical_size != leaf.size as u64 {
-                    return Err(
-                        "refusing unregister: generated placeholder is not fully retained".into(),
-                    );
+                    return Err(format!(
+                        "refusing unregister before lease: {} resident={} length={}",
+                        String::from_utf8_lossy(&leaf.identity),
+                        before.resident,
+                        before.logical_size
+                    ));
                 }
-                let handle = ReferencedPlaceholder::open(&leaf.path, &leaf.identity, leaf.size)?;
+                let handle = RetainedPlaceholder::open(&leaf.path, &leaf.identity, leaf.size)?;
                 let os = handle.inspect()?;
                 if !os.resident || os.logical_size != leaf.size as u64 {
-                    return Err(
-                        "refusing unregister: generated placeholder is not fully retained".into(),
-                    );
+                    return Err(format!(
+                        "refusing unregister under lease: {} resident={} length={}",
+                        String::from_utf8_lossy(&leaf.identity),
+                        os.resident,
+                        os.logical_size
+                    ));
                 }
                 protected.push((index, handle));
             }
@@ -631,10 +637,10 @@ impl Session {
             if let Some(hook) = &mut self.teardown_hook {
                 hook(TeardownStage::AllProtected)?;
             }
-            // All references remain held through conversion. Reverting a fully
+            // All share-none leases remain held through conversion. Reverting a fully
             // retained placeholder makes it an ordinary file before unregister,
             // which cannot delete later writes to that file. No network runs
-            // while these three bounded generated-file references are held.
+            // while these three bounded generated-file leases are held.
             self.teardown_started = true;
             for (index, handle) in &protected {
                 hr(
@@ -810,28 +816,33 @@ impl Drop for Handle {
     }
 }
 
-struct ReferencedPlaceholder {
+struct RetainedPlaceholder {
     handle: Handle,
     identity: Vec<u8>,
     size: usize,
 }
-impl ReferencedPlaceholder {
+impl RetainedPlaceholder {
     fn open(path: &Path, identity: &[u8], size: usize) -> Result<Self> {
-        let mut raw = ptr::null_mut();
-        hr(
-            unsafe {
-                CfOpenFileWithOplock(
-                    wide(path).as_ptr(),
-                    CF_OPEN_FILE_FLAG_EXCLUSIVE | CF_OPEN_FILE_FLAG_WRITE_ACCESS,
-                    &mut raw,
-                )
-            },
-            "exclusive engine oplock",
-        )?;
-        let handle = Handle(raw, true);
-        if !unsafe { CfReferenceProtectedHandle(handle.0) } {
-            return Err("oplock already broken".into());
+        // WRITE_DAC authorizes CfRevertPlaceholder without requesting data
+        // writes. A normal share-none lease also gives deterministic refusal to
+        // concurrent writers; no oplock can be acknowledged behind this owner.
+        let raw = unsafe {
+            CreateFileW(
+                wide(path).as_ptr(),
+                FILE_READ_DATA | FILE_READ_ATTRIBUTES | WRITE_DAC,
+                0,
+                ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
+                ptr::null_mut(),
+            )
+        };
+        if raw == INVALID_HANDLE_VALUE {
+            return Err(format!("exclusive retained-file lease: {}", unsafe {
+                GetLastError()
+            }));
         }
+        let handle = Handle(raw, false);
         Ok(Self {
             handle,
             identity: identity.to_vec(),
@@ -839,17 +850,134 @@ impl ReferencedPlaceholder {
         })
     }
     fn inspect(&self) -> Result<NativeObservation> {
-        observation(
-            unsafe { CfGetWin32HandleFromProtectedHandle(self.handle.0) },
-            &self.identity,
-            self.size,
-        )
+        observation(self.handle.0, &self.identity, self.size)
     }
 }
-impl Drop for ReferencedPlaceholder {
-    fn drop(&mut self) {
-        unsafe { CfReleaseProtectedHandle(self.handle.0) };
+
+/// Recovery of THIS generated fixture only, without registration or connection.
+/// All bytes are retained under leases before any conversion or unregister.
+#[cfg(feature = "native-test-hooks")]
+pub fn recover_retained_generated(
+    root: &Path,
+    backup: &Path,
+    mut record_dirty: impl FnMut(&str) -> Result<()>,
+) -> Result<()> {
+    use std::{
+        fs,
+        io::{Read, Write},
+        os::windows::io::FromRawHandle,
+    };
+    let mut guard = RootGuard::lock_parent(root)?;
+    guard.require_unmanaged_parent()?;
+    let root_handle = unsafe {
+        CreateFileW(
+            wide(root).as_ptr(),
+            FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            ptr::null_mut(),
+        )
+    };
+    if root_handle == INVALID_HANDLE_VALUE {
+        return Err("cannot lock retained root".into());
     }
+    guard._handles.push(Handle(root_handle, false));
+    guard.root = root.canonicalize().map_err(|e| e.to_string())?;
+    let mut buffer = [0u64; 1024];
+    let mut length = 0;
+    hr(
+        unsafe {
+            CfGetSyncRootInfoByPath(
+                wide(&guard.root).as_ptr(),
+                CF_SYNC_ROOT_INFO_STANDARD,
+                buffer.as_mut_ptr().cast(),
+                size_of_val(&buffer) as u32,
+                &mut length,
+            )
+        },
+        "inspect retained generated root",
+    )?;
+    let info = unsafe { &*buffer.as_ptr().cast::<CF_SYNC_ROOT_STANDARD_INFO>() };
+    if length < size_of::<CF_SYNC_ROOT_STANDARD_INFO>() as u32
+        || info.SyncRootIdentityLength as usize != ID.len()
+        || offset_of!(CF_SYNC_ROOT_STANDARD_INFO, SyncRootIdentity) + ID.len() > length as usize
+        || unsafe { std::slice::from_raw_parts(info.SyncRootIdentity.as_ptr(), ID.len()) } != ID
+    {
+        return Err("retained root identity differs".into());
+    }
+    let mut shell = crate::shell::ShellRoot::retained_generated(&guard.root, ID)
+        .map_err(|e| format!("verify retained Shell: {e}"))?;
+    let names = [
+        "generated-中文.bin".to_owned(),
+        format!("generated-{}.bin", "long-".repeat(35)),
+        "generated-offline.bin".to_owned(),
+    ];
+    let actual = fs::read_dir(&guard.root)
+        .map_err(|e| e.to_string())?
+        .map(|entry| entry.map(|e| e.file_name()))
+        .collect::<std::io::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    if actual.len() != names.len()
+        || !names
+            .iter()
+            .all(|n| actual.contains(&std::ffi::OsString::from(n)))
+    {
+        return Err("unexpected retained-root contents".into());
+    }
+    let mut retained = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let id = format!("generated-object-{index}");
+        let handle = RetainedPlaceholder::open(&guard.root.join(name), id.as_bytes(), SIZE)?;
+        let os = handle.inspect()?;
+        if !os.resident || os.logical_size != SIZE as u64 {
+            return Err("retained file incomplete; no conversion performed".into());
+        }
+        retained.push((id, handle, os));
+    }
+    let backup_guard = GeneratedDirectory::create(backup)?;
+    let backup = backup_guard.path();
+    for (index, (id, handle, os)) in retained.iter().enumerate() {
+        let mut bytes = vec![0; SIZE];
+        // Borrow the live handle; ownership stays with the lease.
+        let mut file =
+            std::mem::ManuallyDrop::new(unsafe { fs::File::from_raw_handle(handle.handle.0) });
+        file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(backup.join(format!("{id}.bin")))
+            .map_err(|e| e.to_string())?;
+        output.write_all(&bytes).map_err(|e| e.to_string())?;
+        output.sync_all().map_err(|e| e.to_string())?;
+        if os.modified_bytes != 0
+            || !os.os_in_sync
+            || bytes
+                != (0..SIZE)
+                    .map(|i| ((i + index * 17) % 251) as u8)
+                    .collect::<Vec<_>>()
+        {
+            record_dirty(id)?;
+        }
+    }
+    for (_, handle, _) in &retained {
+        hr(
+            unsafe { CfRevertPlaceholder(handle.handle.0, CF_REVERT_FLAG_NONE, ptr::null_mut()) },
+            "revert retained generated file",
+        )?;
+    }
+    drop(retained);
+    shell
+        .finish()
+        .map_err(|e| format!("unregister retained Shell: {e}"))?;
+    if verify_unregistered(&guard.root).is_err() {
+        hr(
+            unsafe { CfUnregisterSyncRoot(wide(&guard.root).as_ptr()) },
+            "unregister retained generated root",
+        )?;
+    }
+    verify_unregistered(&guard.root)
 }
 
 fn metadata_handle(path: &Path) -> Result<Handle> {
@@ -869,6 +997,31 @@ fn metadata_handle(path: &Path) -> Result<Handle> {
         return Err(format!("open attributes: {}", unsafe { GetLastError() }));
     }
     Ok(Handle(handle, false))
+}
+
+#[cfg(test)]
+mod retained_lease_tests {
+    use super::*;
+    #[test]
+    fn retained_lease_refuses_truncation_until_conversion_owner_releases_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("ordinary-generated.bin");
+        std::fs::write(&path, b"complete retained data").unwrap();
+        let lease = RetainedPlaceholder::open(&path, b"unused-ordinary-identity", 22).unwrap();
+        let denied = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap_err();
+        assert_eq!(denied.raw_os_error(), Some(ERROR_SHARING_VIOLATION as i32));
+        drop(lease);
+        assert_eq!(std::fs::read(&path).unwrap(), b"complete retained data");
+        std::fs::write(&path, b"ordinary write after conversion").unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"ordinary write after conversion"
+        );
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

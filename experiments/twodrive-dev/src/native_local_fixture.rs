@@ -519,11 +519,11 @@ impl Host {
             } else {
                 shell_text(sync).to_owned()
             };
-            if self
-                .session
-                .publish_shell(&self.paths[index], &shell_state)
-                .is_err()
-            {
+            if let Err(error) = self.session.publish_shell(&self.paths[index], &shell_state) {
+                eprintln!(
+                    "generated Shell property failed for {}: {error}",
+                    entry.remote_id
+                );
                 self.shell_error = true;
             }
             items.push(json!({"id":entry.remote_id,"name":entry.name,"size":entry.size,
@@ -1160,10 +1160,12 @@ mod tests {
         #[cfg(not(feature = "native-test-hooks"))]
         let service = FixtureService::start(root.clone()).unwrap();
         #[cfg(feature = "native-test-hooks")]
-        let (service, concurrent_checked) = {
+        let (service, concurrent_checked, concurrency_enabled) = {
             use native::TeardownStage;
             let checked = Arc::new(AtomicBool::new(false));
             let done = checked.clone();
+            let enabled = Arc::new(AtomicBool::new(false));
+            let run = enabled.clone();
             let worker_root = root.clone();
             let first = root.join(&objects()[0].name);
             let (began_tx, began_rx) = mpsc::sync_channel(1);
@@ -1175,6 +1177,9 @@ mod tests {
             let service = FixtureService::start_owner(move || {
                 let mut host = Host::start(&worker_root)?;
                 host.session.set_teardown_hook(move |stage| {
+                    if !run.load(Ordering::SeqCst) {
+                        return Ok(());
+                    }
                     if stage == TeardownStage::AllProtected && phase == 0 {
                         let (began, release, finished) =
                             sender.take().ok_or("writer already started")?;
@@ -1235,7 +1240,7 @@ mod tests {
                 Ok(host)
             })
             .unwrap();
-            (service, checked)
+            (service, checked, enabled)
         };
         let result = (|| -> anyhow::Result<Value> {
             let initial = service.request("items", "", false)?;
@@ -1359,7 +1364,15 @@ mod tests {
                 json!({"metadata_no_hydration":true,"normal_os_reads_through_engine":true,"chinese_long_leaf":true,"open_handle_veto":true,"native_copy_dehydration":true,"private_cache_retained":true,"offline_cached_read":true,"offline_missing_cache_failure_and_retry":true,"pin_veto":true,"native_dirty_durable_veto":true,"whole_dirty_file_preserved":true,"final_status":final_status}),
             )
         })();
+        if let Err(error) = &result {
+            eprintln!("native validation failed before cleanup: {error:#}");
+        }
+        #[cfg(feature = "native-test-hooks")]
+        concurrency_enabled.store(result.is_ok(), Ordering::SeqCst);
         let cleanup = service.request("stop", "", false);
+        if let Err(error) = &cleanup {
+            eprintln!("native cleanup failed: {error:#}");
+        }
         drop(service);
         native::verify_unregistered(&root).expect("new fixture root cleanup unconfirmed");
         assert_eq!(cleanup.unwrap()["unregistered"], true);

@@ -1,0 +1,35 @@
+{
+  "os": "Windows 11 build 26300",
+  "native_test_source": "0cc1d4dd45ca219420200b42bb1889092a5582dd",
+  "generated_files_per_root": 3,
+  "bytes_per_file": 65536,
+  "registrations_per_approved_root": 1,
+  "retention_root": {
+    "test": "untouched_placeholders_survive_normal_exit",
+    "result": "passed",
+    "initial_fetch_callbacks": 0,
+    "final_cfapi_hresult": "0x80070186",
+    "full_content_verified": true
+  },
+  "native_root": {
+    "test": "native_engine_end_to_end_requires_explicit_registration",
+    "result": "failed",
+    "original_validation_error": "masked by cleanup assertion; not recoverable from original log",
+    "cleanup_error": "generated placeholder is not fully retained",
+    "concurrent_generated_edit_sha256": "7bd5cfcce5e3b74a52ccbc3765db216d4113766fc2b6bb6e5070f0a43e2beea6",
+    "recovery": "complete actual bytes copied twice, modified file durably vetoed, all leaves converted to ordinary files, Shell and CFAPI unregistered",
+    "recovery_created_or_connected_registration": false,
+    "final_cfapi_hresult": "0x80070186",
+    "all_original_and_backup_bytes_equal": true,
+    "modified_file_generation": 1,
+    "modified_file_acknowledged_generation": 0,
+    "native_dirty": true,
+    "recovery_required": true
+  },
+  "all_six_files_exact_verified": true,
+  "private_cache_deleted": false,
+  "explorer_or_os_restarted": false,
+  "real_accounts_or_other_sync_roots_touched": false,
+  "visual_icons_menus_thumbnails": "unverified; native desktop control unavailable",
+  "revised_normal_teardown_native_test": "pending new-root authorization"
+}
