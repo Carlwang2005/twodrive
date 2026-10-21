@@ -1,0 +1,226 @@
+//! Shell presentation for an already guarded generated root. Never enumerates
+//! other registrations, installs a COM extension, or accepts account identities.
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+use windows::{
+    Security::Cryptography::CryptographicBuffer,
+    Storage::{IStorageItem, Provider::*, StorageFile, StorageFolder},
+    Win32::{
+        Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree},
+        Security::{
+            Authorization::ConvertSidToStringSidW, GetTokenInformation, TOKEN_QUERY, TOKEN_USER,
+            TokenUser,
+        },
+        System::{
+            Threading::{GetCurrentProcess, OpenProcessToken},
+            WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
+        },
+        UI::Shell::{SHCNE_UPDATEDIR, SHCNE_UPDATEITEM, SHCNF_PATHW, SHChangeNotify},
+    },
+    core::{GUID, HSTRING, Result},
+};
+
+struct Apartment;
+impl Apartment {
+    fn new() -> Result<Self> {
+        unsafe {
+            RoInitialize(RO_INIT_MULTITHREADED)?;
+        }
+        Ok(Self)
+    }
+}
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        unsafe {
+            RoUninitialize();
+        }
+    }
+}
+
+fn user_sid() -> Result<String> {
+    let mut token = HANDLE::default();
+    unsafe {
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)?;
+    }
+    struct Token(HANDLE);
+    impl Drop for Token {
+        fn drop(&mut self) {
+            let _ = unsafe { CloseHandle(self.0) };
+        }
+    }
+    let token = Token(token);
+    let mut bytes = 0;
+    let _ = unsafe { GetTokenInformation(token.0, TokenUser, None, 0, &mut bytes) };
+    if bytes == 0 || bytes > 65536 {
+        return Err(windows::core::Error::from_thread());
+    }
+    let mut buffer = vec![0usize; (bytes as usize).div_ceil(size_of::<usize>())];
+    unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            Some(buffer.as_mut_ptr().cast()),
+            bytes,
+            &mut bytes,
+        )?;
+    }
+    let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+    let mut sid = windows::core::PWSTR::null();
+    unsafe {
+        ConvertSidToStringSidW(user.User.Sid, &mut sid)?;
+    }
+    let result = unsafe { sid.to_string() };
+    unsafe {
+        LocalFree(Some(HLOCAL(sid.0.cast())));
+    }
+    result.map_err(Into::into)
+}
+
+pub struct ShellRoot {
+    id: HSTRING,
+    root: PathBuf,
+    registered: bool,
+    published: HashMap<PathBuf, String>,
+    // Destroy WinRT objects and registration before leaving this apartment.
+    _apartment: Apartment,
+}
+impl ShellRoot {
+    /// Only call after Session has atomically created and guarded a NEW root.
+    pub fn register_generated(root: &Path, context: &[u8]) -> Result<Self> {
+        let apartment = Apartment::new()?;
+        let id = HSTRING::from(format!(
+            "TwoDrive.Generated!{}!{:?}",
+            user_sid()?,
+            GUID::new()?
+        ));
+        let info = StorageProviderSyncRootInfo::new()?;
+        info.SetId(&id)?;
+        info.SetPath(&StorageFolder::GetFolderFromPathAsync(&storage_path(root))?.join()?)?;
+        info.SetDisplayNameResource(&HSTRING::from("TwoDrive Development (generated files)"))?;
+        info.SetIconResource(&HSTRING::from("%SystemRoot%\\system32\\shell32.dll,0"))?;
+        info.SetHydrationPolicy(StorageProviderHydrationPolicy::Full)?;
+        info.SetHydrationPolicyModifier(StorageProviderHydrationPolicyModifier::None)?;
+        info.SetPopulationPolicy(StorageProviderPopulationPolicy::AlwaysFull)?;
+        info.SetInSyncPolicy(StorageProviderInSyncPolicy(0x3ff))?;
+        info.SetHardlinkPolicy(StorageProviderHardlinkPolicy::None)?;
+        info.SetShowSiblingsAsGroup(false)?;
+        info.SetVersion(&HSTRING::from(env!("CARGO_PKG_VERSION")))?;
+        info.SetContext(&CryptographicBuffer::CreateFromByteArray(context)?)?;
+        let definition = StorageProviderItemPropertyDefinition::new()?;
+        definition.SetId(1)?;
+        definition.SetDisplayNameResource(&HSTRING::from("TwoDrive synchronization"))?;
+        info.StorageProviderItemPropertyDefinitions()?
+            .Append(&definition)?;
+        StorageProviderSyncRootManager::Register(&info)?;
+        let mut result = Self {
+            id,
+            root: root.into(),
+            registered: true,
+            published: HashMap::new(),
+            _apartment: apartment,
+        };
+        // Failure after registration must still undo this exact registration.
+        if let Err(error) = result.verify() {
+            let _ = result.finish();
+            return Err(error);
+        }
+        notify(root, true);
+        Ok(result)
+    }
+    pub fn verify(&self) -> Result<()> {
+        let info = StorageProviderSyncRootManager::GetSyncRootInformationForId(&self.id)?;
+        let folder = StorageFolder::GetFolderFromPathAsync(&storage_path(&self.root))?.join()?;
+        let by_folder = StorageProviderSyncRootManager::GetSyncRootInformationForFolder(&folder)?;
+        if PathBuf::from(info.Path()?.Path()?.to_string())
+            .canonicalize()
+            .ok()
+            .as_ref()
+            != Some(&self.root)
+            || by_folder.Id()? != self.id
+        {
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT(0x8007000Du32 as i32),
+                "generated Shell binding differs",
+            ));
+        }
+        Ok(())
+    }
+    /// Writes metadata only. Availability/pin icons remain OS-derived. Unknown
+    /// sync states are never translated into success, progress or a conflict.
+    pub fn publish(&mut self, path: &Path, state: &str, directory: bool) -> Result<()> {
+        use windows::core::Interface;
+        if self.published.get(path).is_some_and(|old| old == state) {
+            return Ok(());
+        }
+        let property = StorageProviderItemProperty::new()?;
+        property.SetId(1)?;
+        property.SetValue(&HSTRING::from(state))?;
+        let values =
+            windows_collections::IIterable::<StorageProviderItemProperty>::from(vec![Some(
+                property,
+            )]);
+        let item: IStorageItem = if directory {
+            StorageFolder::GetFolderFromPathAsync(&storage_path(path))?
+                .join()?
+                .cast()?
+        } else {
+            StorageFile::GetFileFromPathAsync(&storage_path(path))?
+                .join()?
+                .cast()?
+        };
+        StorageProviderItemProperties::SetAsync(&item, &values)?.join()?;
+        self.published.insert(path.into(), state.into());
+        notify(path, false);
+        notify(&self.root, true);
+        Ok(())
+    }
+    pub fn finish(&mut self) -> Result<()> {
+        if self.registered {
+            // Never unregister a foreign replacement if our binding changed.
+            self.verify()?;
+            StorageProviderSyncRootManager::Unregister(&self.id)?;
+            self.registered = false;
+            notify(&self.root, true);
+        }
+        Ok(())
+    }
+}
+impl Drop for ShellRoot {
+    fn drop(&mut self) {
+        // Session owns the retention gate. A destructor must never bypass it:
+        // Shell unregister can itself delete unhydrated placeholders.
+        if self.registered {
+            eprintln!("generated Shell registration retained; safe teardown unconfirmed");
+        }
+    }
+}
+fn storage_path(path: &Path) -> HSTRING {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    // The guarded fixture accepts local disks only. WinRT uses a regular DOS
+    // path, while native file/CFAPI calls keep the canonical extended path.
+    let start = if wide.starts_with(&[92, 92, 63, 92]) {
+        4
+    } else {
+        0
+    };
+    HSTRING::from_wide(&wide[start..])
+}
+pub fn notify(path: &Path, directory: bool) {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        SHChangeNotify(
+            if directory {
+                SHCNE_UPDATEDIR
+            } else {
+                SHCNE_UPDATEITEM
+            },
+            SHCNF_PATHW,
+            Some(wide.as_ptr().cast()),
+            None,
+        );
+    }
+}

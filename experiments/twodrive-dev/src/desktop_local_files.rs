@@ -40,7 +40,8 @@ impl NativeFixture {
         #[cfg(not(all(windows, feature = "native-local-fixture")))]
         let active = false;
         caps["item_status"] = json!({"schema_version":1,"supported":active,"scope":"generated_fixture_only",
-            "read":active,"native_copy_dehydrate":active,"cache_evict":false,"write":false,"rename":false,"delete":false});
+            "read":active,"pin":active,"offline_test":active,"reconnect":active,"shell_registration":active,
+            "native_copy_dehydrate":active,"cache_evict":false,"write":false,"rename":false,"delete":false,"conflict_resolution":false,"persistent_root_resume":false});
         caps
     }
     pub fn request(&self, op: &str, args: &Value) -> anyhow::Result<Value> {
@@ -52,24 +53,35 @@ impl NativeFixture {
             "local_items" => "items",
             "local_read" => "read",
             "local_dehydrate" => "dehydrate",
+            "local_pin" => "pin",
+            "local_unpin" => "unpin",
+            "local_offline" => "offline",
+            "local_reconnect" => "reconnect",
             "local_stop" => "stop",
             _ => anyhow::bail!("unsupported native operation"),
         };
-        let id = if matches!(command, "read" | "dehydrate") {
+        let id = if matches!(command, "read" | "dehydrate" | "pin" | "unpin") {
             args["id"].as_str().context("missing item identity")?
         } else {
             ""
+        };
+        let value = if command == "offline" {
+            args["offline"]
+                .as_bool()
+                .context("missing offline test state")?
+        } else {
+            false
         };
         #[cfg(all(windows, feature = "native-local-fixture"))]
         {
             self.service
                 .as_ref()
                 .context("no native generated fixture is active")?
-                .request(command, id, false)
+                .request(command, id, value)
         }
         #[cfg(not(all(windows, feature = "native-local-fixture")))]
         {
-            let _ = (command, id);
+            let _ = (command, id, value);
             anyhow::bail!("native fixture unavailable")
         }
     }

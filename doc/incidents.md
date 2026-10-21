@@ -46,6 +46,41 @@
 
 
 
+## TD-20261021-07: generated-root shutdown can delete untouched placeholders
+
+- Date: 2026-10-21.
+- Status: mechanism identified and guarded; native new-root verification pending.
+- Scope: opt-in CFAPI generated fixture in unmerged PR #39 / alpha.3; no real-account production native mount is enabled.
+- Related: TD-20261021-05/06 protect cache/journal ownership; this is a distinct OS unregistration lifetime issue.
+
+### Symptoms, trigger and evidence
+
+The previous Session::finish unconditionally disconnected and unregistered a root.
+Microsoft's CfUnregisterSyncRoot contract says unhydrated placeholders are permanently
+deleted. An untouched online-only fixture can therefore disappear on normal exit.
+Earlier native tests hydrated all three files before exit, so their complete-byte
+checks did not cover this trigger. No real user-data loss is reported, and no risky
+old-code unregistration was run to manufacture a reproduction.
+
+### Mechanism, fix and recovery
+
+The generated host now materializes its deterministic internal data before normal
+shutdown. The adapter keeps its created-placeholder identities/sizes and refuses
+Shell/CFAPI unregister while any is incomplete or has changed length. An incomplete
+dirty file requires recovery; cleanup is explicitly unconfirmed and the root is kept.
+This does not authorize adoption/cleanup of an existing cloud root. No user-data
+recovery operation or installed client modification was performed.
+
+### Validation and prevention
+
+The separately ignored `untouched_placeholders_survive_normal_exit` requires its
+own newly approved root. It checks that premature unregister is refused without
+hydration, then normal stop preserves all full bytes and removes the registration.
+Final native results and any remaining desktop blockers are recorded in
+[Explorer acceptance](windows-explorer-2026-10-21.md). Physical icons, thumbnails,
+live accounts, process/OS restart recovery and writable native operations must not
+be inferred from unit or API results. PR and exact source SHA pending creation.
+
 ## TD-20261021-06: stale cache digest and rejected hydration metadata mutation
 
 - Date: 2026-10-21.

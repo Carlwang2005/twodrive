@@ -8,6 +8,7 @@ use crate::{
 use anyhow::{Context, ensure};
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -17,6 +18,7 @@ use std::{
         mpsc,
     },
     thread,
+    time::Duration,
 };
 use twodrive_core::{Database, FileState};
 use twodrive_local_files::native::{self, HydrationSource, NativeObservation, Session};
@@ -143,6 +145,8 @@ struct EngineSource {
     bridge: LocalFileBridge,
     gate: Mutex<()>,
     offline: AtomicBool,
+    failed: Mutex<HashSet<String>>,
+    reading: Mutex<HashSet<String>>,
 }
 impl HydrationSource for EngineSource {
     fn size(&self, identity: &[u8]) -> Result<usize, String> {
@@ -157,8 +161,26 @@ impl HydrationSource for EngineSource {
         length: usize,
         cancelled: &AtomicBool,
     ) -> Result<Vec<u8>, String> {
-        self.read(identity, offset, length, cancelled)
-            .map_err(|e| e.to_string())
+        let id = std::str::from_utf8(identity).map_err(|_| "invalid identity")?;
+        object(id).map_err(|e| e.to_string())?;
+        self.reading
+            .lock()
+            .map_err(|_| "read state poisoned")?
+            .insert(id.into());
+        let result = self
+            .read(identity, offset, length, cancelled)
+            .map_err(|e| e.to_string());
+        self.reading
+            .lock()
+            .map_err(|_| "read state poisoned")?
+            .remove(id);
+        let mut failed = self.failed.lock().map_err(|_| "error state poisoned")?;
+        if result.is_err() {
+            failed.insert(id.into());
+        } else {
+            failed.remove(id);
+        }
+        result
     }
 }
 impl EngineSource {
@@ -257,12 +279,18 @@ impl FixtureService {
                     if ready.send(Ok(())).is_err() {
                         return;
                     }
-                    for command in incoming {
-                        let stop = command.op == "stop";
-                        let result = host.command(&command.op, &command.id, command.value);
-                        let _ = command.reply.send(result);
-                        if stop {
-                            break;
+                    loop {
+                        match incoming.recv_timeout(Duration::from_millis(500)) {
+                            Ok(command) => {
+                                let stop = command.op == "stop";
+                                let result = host.command(&command.op, &command.id, command.value);
+                                let _ = command.reply.send(result);
+                                if stop {
+                                    break;
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => host.tick(),
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         }
                     }
                 }
@@ -323,6 +351,8 @@ struct Host {
     source: Arc<EngineSource>,
     paths: Vec<PathBuf>,
     stopped: bool,
+    observed_pin: Vec<(bool, bool)>,
+    shell_error: bool,
 }
 impl Host {
     fn start(root: &Path) -> anyhow::Result<Self> {
@@ -341,6 +371,8 @@ impl Host {
             bridge,
             gate: Mutex::new(()),
             offline: AtomicBool::new(false),
+            failed: Mutex::default(),
+            reading: Mutex::default(),
         });
         let session =
             Session::create_with_source(root, source.clone()).map_err(anyhow::Error::msg)?;
@@ -349,7 +381,10 @@ impl Host {
             source,
             paths: vec![],
             stopped: false,
+            observed_pin: vec![(false, false); objects().len()],
+            shell_error: false,
         };
+        host.session.attach_shell().map_err(anyhow::Error::msg)?;
         for entry in objects() {
             host.paths.push(
                 host.session
@@ -357,6 +392,7 @@ impl Host {
                     .map_err(anyhow::Error::msg)?,
             );
         }
+        host.items()?;
         Ok(host)
     }
     fn observe(&self, index: usize, entry: &MetadataEntry) -> anyhow::Result<NativeObservation> {
@@ -379,7 +415,17 @@ impl Host {
             }
         }
     }
-    fn items(&self) -> anyhow::Result<Value> {
+    fn items(&mut self) -> anyhow::Result<Value> {
+        let result = self.collect_items();
+        if result.is_err() {
+            self.shell_error = true;
+            let root = self.session.root().to_owned();
+            let _ = self.session.publish_shell(&root, shell_text("unknown"));
+        }
+        result
+    }
+    fn collect_items(&mut self) -> anyhow::Result<Value> {
+        self.shell_error = false;
         let mut items = vec![];
         for (index, entry) in objects().into_iter().enumerate() {
             let os = self.observe(index, &entry)?;
@@ -393,21 +439,85 @@ impl Host {
                 .map(|r| journal.snapshot(&r.metadata.remote_id))
                 .transpose()?;
             let dirty = journal.native_dirty(&entry.remote_id)?;
+            let failed = self
+                .source
+                .failed
+                .lock()
+                .map_err(|_| anyhow::anyhow!("error state poisoned"))?
+                .contains(&entry.remote_id);
+            let reading = self
+                .source
+                .reading
+                .lock()
+                .map_err(|_| anyhow::anyhow!("read state poisoned"))?
+                .contains(&entry.remote_id);
+            let sync = if dirty {
+                "pending_sync"
+            } else if failed {
+                "error"
+            } else if reading {
+                "hydrating"
+            } else if state.as_ref().is_some_and(|s| s.sync_confirmed()) {
+                "in_sync"
+            } else {
+                "remote_version_known"
+            };
+            if self
+                .session
+                .publish_shell(&self.paths[index], shell_text(sync))
+                .is_err()
+            {
+                self.shell_error = true;
+            }
             items.push(json!({"id":entry.remote_id,"name":entry.name,"size":entry.size,
-                "residency":if os.resident {"locally_available"} else if os.partial {"partially_available"} else {"online_only"},
+                "residency":if os.pinned && !os.resident {"pin_pending"} else if os.resident {"locally_available"} else if os.partial {"partially_available"} else {"online_only"},
                 "pinned":os.pinned,"os_in_sync":os.os_in_sync,"modified_bytes":os.modified_bytes,
                 "downloaded":os.resident,"cache_resident":state.as_ref().is_some_and(|s|s.resident),
-                "sync":if dirty {"pending_sync"} else if state.as_ref().is_some_and(|s|s.sync_confirmed()) {"in_sync"} else {"remote_version_known"},
+                "sync":sync,
                 "native_dirty":dirty,"generation":state.as_ref().map(|s|s.generation),"acknowledged_generation":state.as_ref().map(|s|s.acknowledged_generation),
                 "pending_operations":state.as_ref().map(|s|s.pending_operations),"readers":state.as_ref().map(|s|s.readers),"writers":state.as_ref().map(|s|s.writers),
                 "recovery_required":state.as_ref().map(|s|s.recovery_required)}));
         }
+        let summary = aggregate(&items);
+        let root = self.session.root().to_owned();
+        if self
+            .session
+            .publish_shell(
+                &root,
+                shell_text(summary["sync"].as_str().unwrap_or("unknown")),
+            )
+            .is_err()
+        {
+            self.shell_error = true;
+        }
         Ok(
-            json!({"schema_version":1,"scope":"generated_fixture_only","items":items,"fetch_callbacks":self.session.calls(),"fetch_failures":self.session.failures(),"offline":self.source.offline.load(Ordering::SeqCst)}),
+            json!({"schema_version":1,"scope":"generated_fixture_only","items":items,"summary":summary,"root_path":self.session.root(),"shell_registered":true,"shell_state_error":self.shell_error,"fetch_callbacks":self.session.calls(),"fetch_failures":self.session.failures(),"offline":self.source.offline.load(Ordering::SeqCst)}),
         )
+    }
+    fn tick(&mut self) {
+        // Bounded metadata-only observation of our generated leaves. React only
+        // to a new Shell pin/free-space intent, never to arbitrary directory data.
+        for (index, entry) in objects().into_iter().enumerate() {
+            let Ok(os) = self.observe(index, &entry) else {
+                continue;
+            };
+            let pin = (os.pinned, os.release_requested);
+            let previous = std::mem::replace(&mut self.observed_pin[index], pin);
+            if previous != pin {
+                if os.pinned && !os.resident {
+                    let _ = self.command("read", &entry.remote_id, false);
+                } else if os.release_requested && os.resident {
+                    let _ = self.command("dehydrate", &entry.remote_id, false);
+                }
+            }
+        }
+        if self.items().is_err() {
+            self.shell_error = true;
+        }
     }
     fn command(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value> {
         if op == "stop" {
+            self.retain_generated_files()?;
             self.session.finish().map_err(anyhow::Error::msg)?;
             self.stopped = true;
             return Ok(json!({"unregistered":true,"files_retained":true}));
@@ -417,7 +527,23 @@ impl Host {
             "items" => self.items(),
             "offline" => {
                 self.source.offline.store(value, Ordering::SeqCst);
-                Ok(json!({"offline":value}))
+                self.items()
+            }
+            "reconnect" => {
+                self.session.disconnect().map_err(anyhow::Error::msg)?;
+                self.session.verify_shell().map_err(anyhow::Error::msg)?;
+                self.session.connect().map_err(anyhow::Error::msg)?;
+                self.items()
+            }
+            "pin" | "unpin" => {
+                let (index, entry) = object(id)?;
+                self.observe(index, &entry)?;
+                native::pin(&self.paths[index], op == "pin").map_err(anyhow::Error::msg)?;
+                self.observed_pin[index] = (op == "pin", false);
+                if op == "pin" {
+                    return self.command("read", id, false);
+                }
+                self.items()
             }
             "read" => {
                 let (index, entry) = object(id)?;
@@ -475,11 +601,130 @@ impl Host {
             _ => anyhow::bail!("unsupported native fixture operation"),
         }
     }
+    fn retain_generated_files(&self) -> anyhow::Result<()> {
+        // This Provider is internal deterministic data, never a real account.
+        // Materialize only clean missing ranges before destructive unregister.
+        self.source.offline.store(false, Ordering::SeqCst);
+        for (index, entry) in objects().into_iter().enumerate().take(self.paths.len()) {
+            let os = self.observe(index, &entry)?;
+            if !os.resident {
+                ensure!(
+                    !self
+                        .source
+                        .bridge
+                        .journal()
+                        .native_dirty(&entry.remote_id)?,
+                    "unretained dirty file requires recovery; root retained"
+                );
+                let bytes = fs::read(&self.paths[index])?;
+                ensure!(
+                    bytes == generated_bytes(index),
+                    "generated retention content differs"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+impl Drop for Host {
+    fn drop(&mut self) {
+        if !self.stopped {
+            let result = self
+                .retain_generated_files()
+                .and_then(|()| self.session.finish().map_err(anyhow::Error::msg));
+            if let Err(error) = result {
+                eprintln!("generated root retained; cleanup unconfirmed: {error}");
+            }
+        }
+    }
+}
+
+fn shell_text(sync: &str) -> &'static str {
+    match sync {
+        "in_sync" => "Acknowledged generation (generated provider)",
+        "pending_sync" => "Pending recovery - local edits preserved",
+        "hydrating" => "Reading generated provider",
+        "error" => "Read failed - retry required",
+        "conflict" => "Conflict - local bytes preserved",
+        "remote_version_known" => "Remote version known - no local acknowledgement",
+        _ => "Unknown - synchronization unverified",
+    }
+}
+fn aggregate(items: &[Value]) -> Value {
+    let sync = [
+        "conflict",
+        "error",
+        "pending_sync",
+        "hydrating",
+        "remote_version_known",
+    ]
+    .into_iter()
+    .find(|label| items.iter().any(|i| i["sync"] == *label))
+    .unwrap_or(
+        if !items.is_empty() && items.iter().all(|i| i["sync"] == "in_sync") {
+            "in_sync"
+        } else {
+            "unknown"
+        },
+    );
+    json!({"sync":sync,"files":items.len(),"native_resident":items.iter().filter(|i| i["downloaded"] == true).count(),"private_cache_resident":items.iter().filter(|i|i["cache_resident"] == true).count(),"pinned":items.iter().filter(|i| i["pinned"] == true).count()})
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires its own explicitly approved NEW generated Shell root"]
+    fn untouched_placeholders_survive_normal_exit() {
+        let root = PathBuf::from(
+            std::env::var_os("TWODRIVE_APPROVED_RETENTION_FIXTURE_ROOT")
+                .expect("explicit approved retention root required"),
+        );
+        let mut host = Host::start(&root).unwrap();
+        assert_eq!(host.session.calls(), 0);
+        assert!(
+            host.session
+                .finish()
+                .unwrap_err()
+                .contains("not fully retained")
+        );
+        host.session.verify_shell().unwrap();
+        assert_eq!(host.session.calls(), 0);
+        host.command("stop", "", false).unwrap();
+        drop(host);
+        native::verify_unregistered(&root).unwrap();
+        for (index, entry) in objects().into_iter().enumerate() {
+            assert_eq!(
+                fs::read(root.join(entry.name)).unwrap(),
+                generated_bytes(index)
+            );
+        }
+        println!("generated untouched placeholders fully retained; Shell/CFAPI unregistered");
+    }
+    #[test]
+    fn folder_summary_keeps_errors_pending_and_cache_separate() {
+        let clean =
+            json!({"sync":"in_sync","downloaded":false,"cache_resident":true,"pinned":false});
+        let pending =
+            json!({"sync":"pending_sync","downloaded":true,"cache_resident":true,"pinned":true});
+        assert_eq!(aggregate(&[])["sync"], "unknown");
+        assert_eq!(aggregate(std::slice::from_ref(&clean))["sync"], "in_sync");
+        let summary = aggregate(&[clean.clone(), pending.clone()]);
+        assert_eq!(summary["sync"], "pending_sync");
+        assert_eq!(summary["native_resident"], 1);
+        assert_eq!(summary["private_cache_resident"], 2);
+        for (state, expected) in [
+            ("error", "error"),
+            ("conflict", "conflict"),
+            ("remote_version_known", "remote_version_known"),
+        ] {
+            assert_eq!(
+                aggregate(&[clean.clone(), json!({"sync":state})])["sync"],
+                expected
+            );
+        }
+        assert!(shell_text("unknown").contains("unverified"));
+    }
     #[test]
     #[ignore = "requires an explicitly approved NEW CFAPI fixture root; never run automatically"]
     fn native_engine_end_to_end_requires_explicit_registration() {
@@ -490,6 +735,10 @@ mod tests {
         let service = FixtureService::start(root.clone()).unwrap();
         let result = (|| -> anyhow::Result<Value> {
             let initial = service.request("items", "", false)?;
+            ensure!(
+                initial["shell_registered"] == true && initial["shell_state_error"] == false,
+                "Shell registration/property publication failed"
+            );
             ensure!(
                 initial["fetch_callbacks"] == 0,
                 "metadata unexpectedly hydrated"
@@ -531,15 +780,28 @@ mod tests {
             );
             service.request("offline", "", false)?;
             service.request("read", "generated-object-2", false)?;
+            let reconnected = service.request("reconnect", "", false)?;
+            ensure!(
+                reconnected["items"][2]["downloaded"] == true,
+                "reconnect changed residency"
+            );
             let second = root.join(&objects()[1].name);
-            native::pin(&second, true).map_err(anyhow::Error::msg)?;
+            let pinned = service.request("pin", "generated-object-1", false)?;
+            ensure!(
+                pinned["items"][1]["pinned"] == true && pinned["items"][1]["downloaded"] == true,
+                "pin not backed by native residency"
+            );
             ensure!(
                 service
                     .request("dehydrate", "generated-object-1", false)
                     .is_err(),
                 "pin did not veto"
             );
-            native::pin(&second, false).map_err(anyhow::Error::msg)?;
+            service.request("unpin", "generated-object-1", false)?;
+            ensure!(
+                fs::read(second)? == generated_bytes(1),
+                "unpin discarded bytes"
+            );
             let mut dirty = generated_bytes(0);
             let prefix = b"generated unuploaded edit";
             dirty[..prefix.len()].copy_from_slice(prefix);
@@ -550,7 +812,8 @@ mod tests {
             file.write_all(&dirty)?;
             file.sync_all()?;
             drop(file);
-            let final_status = service.request("items", "", false)?;
+            let mut final_status = service.request("items", "", false)?;
+            final_status.as_object_mut().unwrap().remove("root_path");
             ensure!(
                 final_status["items"][0]["native_dirty"] == true
                     && final_status["items"][0]["sync"] == "pending_sync",
@@ -591,6 +854,8 @@ mod tests {
             .unwrap(),
             gate: Mutex::new(()),
             offline: AtomicBool::new(false),
+            failed: Mutex::default(),
+            reading: Mutex::default(),
         };
         let cancel = AtomicBool::new(false);
         let id = b"generated-object-0";
@@ -608,6 +873,16 @@ mod tests {
                 .read_range(b"generated-object-1", 0, 4096, &cancel)
                 .is_err()
         );
+        assert!(source.failed.lock().unwrap().contains("generated-object-1"));
+        assert!(source.reading.lock().unwrap().is_empty());
+        source.offline.store(false, Ordering::SeqCst);
+        assert_eq!(
+            source
+                .read_range(b"generated-object-1", 0, 4096, &cancel)
+                .unwrap(),
+            generated_bytes(1)[..4096]
+        );
+        assert!(!source.failed.lock().unwrap().contains("generated-object-1"));
         cancel.store(true, Ordering::SeqCst);
         assert!(source.read_range(id, 0, 4096, &cancel).is_err());
         assert!(

@@ -275,6 +275,9 @@ pub struct Session {
     connection: Option<CF_CONNECTION_KEY>,
     source: Box<Source>,
     _guard: RootGuard,
+    placeholders: Mutex<Vec<(PathBuf, Vec<u8>, usize)>>,
+    #[cfg(feature = "native-local-fixture")]
+    shell: Option<crate::shell::ShellRoot>,
 }
 
 // Handles deny DELETE sharing, preventing directory substitution while path-
@@ -467,6 +470,9 @@ impl Session {
                 ..Default::default()
             }),
             _guard: guard,
+            placeholders: Mutex::new(Vec::new()),
+            #[cfg(feature = "native-local-fixture")]
+            shell: None,
         };
         let name = wide(Path::new("TwoDrive isolated CFAPI experiment"));
         let version = wide(Path::new(env!("CARGO_PKG_VERSION")));
@@ -572,15 +578,72 @@ impl Session {
         Ok(())
     }
     pub fn finish(&mut self) -> Result<()> {
-        self.disconnect()?;
+        // CfUnregisterSyncRoot PERMANENTLY DELETES non-hydrated placeholders.
+        // Never use unregistration as cache cleanup. The owner must first retain
+        // every generated file, including failures and dirty bytes.
         if self.registered {
-            hr(
-                unsafe { CfUnregisterSyncRoot(wide(&self.root).as_ptr()) },
-                "unregister generated root",
-            )?;
+            for (path, identity, size) in self
+                .placeholders
+                .lock()
+                .map_err(|_| "placeholder registry poisoned")?
+                .iter()
+            {
+                let os = inspect_item(path, identity, *size)?;
+                if !os.resident || os.logical_size != *size as u64 {
+                    return Err(
+                        "refusing unregister: generated placeholder is not fully retained".into(),
+                    );
+                }
+            }
+        }
+        self.disconnect()?;
+        #[cfg(feature = "native-local-fixture")]
+        if let Some(shell) = &mut self.shell {
+            shell
+                .finish()
+                .map_err(|e| format!("unregister generated Shell root: {e}"))?;
+        }
+        if self.registered {
+            // Shell unregistration can also remove the Cloud Filter root.
+            if verify_unregistered(&self.root).is_err() {
+                hr(
+                    unsafe { CfUnregisterSyncRoot(wide(&self.root).as_ptr()) },
+                    "unregister generated root",
+                )?;
+            }
             self.registered = false;
         }
         Ok(())
+    }
+    #[cfg(feature = "native-local-fixture")]
+    pub fn attach_shell(&mut self) -> Result<()> {
+        if self.shell.is_some() {
+            return Err("Shell already attached".into());
+        }
+        self.shell = Some(
+            crate::shell::ShellRoot::register_generated(&self.root, ID)
+                .map_err(|e| format!("register generated Shell root: {e}"))?,
+        );
+        Ok(())
+    }
+    #[cfg(feature = "native-local-fixture")]
+    pub fn publish_shell(&mut self, path: &Path, state: &str) -> Result<()> {
+        self.shell
+            .as_mut()
+            .ok_or("Shell unavailable")?
+            .publish(path, state, path == self.root)
+            .map_err(|e| format!("publish generated Shell state: {e}"))
+    }
+    #[cfg(feature = "native-local-fixture")]
+    pub fn verify_shell(&self) -> Result<()> {
+        self.shell
+            .as_ref()
+            .ok_or("Shell unavailable")?
+            .verify()
+            .map_err(|e| format!("verify generated Shell root: {e}"))
+    }
+    pub fn root(&self) -> &Path {
+        &self.root
     }
     pub fn calls(&self) -> usize {
         self.source.calls.load(Ordering::SeqCst)
@@ -638,7 +701,12 @@ impl Session {
         if done != 1 {
             return Err("placeholder was not created".into());
         }
-        Ok(self.root.join(relative))
+        let path = self.root.join(relative);
+        self.placeholders
+            .lock()
+            .map_err(|_| "placeholder registry poisoned")?
+            .push((path.clone(), identity.to_vec(), size));
+        Ok(path)
     }
 }
 
@@ -694,6 +762,7 @@ pub struct NativeObservation {
     pub partial: bool,
     pub pinned: bool,
     pub pin_known_unpinned: bool,
+    pub release_requested: bool,
     pub os_in_sync: bool,
     pub modified_bytes: i64,
 }
@@ -745,6 +814,7 @@ fn observation(handle: HANDLE, expected_identity: &[u8], size: usize) -> Result<
         pinned: info.PinState == CF_PIN_STATE_PINNED,
         pin_known_unpinned: info.PinState == CF_PIN_STATE_UNPINNED
             || info.PinState == CF_PIN_STATE_UNSPECIFIED,
+        release_requested: info.PinState == CF_PIN_STATE_UNPINNED,
         os_in_sync: info.InSyncState == CF_IN_SYNC_STATE_IN_SYNC,
         modified_bytes: info.ModifiedDataSize,
     })
