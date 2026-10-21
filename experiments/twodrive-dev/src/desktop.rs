@@ -846,7 +846,10 @@ pub fn run() -> anyhow::Result<()> {
                 .cloned()
                 .unwrap_or_default();
             let observable = worker_notifications.load(Ordering::Relaxed)
-                && !matches!(req.op.as_str(), "status" | "profiles" | "list" | "backups");
+                && !matches!(
+                    req.op.as_str(),
+                    "status" | "profiles" | "list" | "backups" | "local_preflight"
+                );
             if observable {
                 emit(
                     &worker_out,

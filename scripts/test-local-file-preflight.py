@@ -20,6 +20,7 @@ def main():
         source.write_bytes(b'generated metadata-only IPC fixture')
         engine = fixture.Engine(str(Path(args.engine).resolve()), str(Path(args.engine).resolve()), root)
         try:
+            engine.call('subscribe', {'operations': True})
             status = engine.call('status')
             assert status['local_files']['schema_version'] == 1
             assert status['local_files']['metadata_preflight']
@@ -35,6 +36,7 @@ def main():
                 result = engine.call('local_preflight', {'schema_version': 1, 'source_path': str(root / 'not-present'), 'source_kind': kind})
                 assert result['decision'] == expected
             assert source.read_bytes() == b'generated metadata-only IPC fixture'
+            assert engine.operation_events == 0, 'metadata preflight must not advertise sync work'
             print(json.dumps({'actual_desktop_ipc_preflight': 'passed', 'cloud_or_registration': False, 'source_bytes_preserved': True}))
         finally:
             engine.close()
