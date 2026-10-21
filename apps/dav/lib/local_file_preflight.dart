@@ -14,6 +14,12 @@ class _LocalFilePreflightCardState extends State<LocalFilePreflightCard> {
   String sourceKind = 'unknown';
   bool checking = false;
   String? result;
+  int generation = 0;
+  void invalidate() => setState(() {
+    generation++;
+    result = null;
+    checking = false;
+  });
   @override
   void dispose() {
     path.dispose();
@@ -21,15 +27,22 @@ class _LocalFilePreflightCardState extends State<LocalFilePreflightCard> {
   }
 
   Future<void> inspect() async {
+    final requestGeneration = ++generation;
+    final sourcePath = path.text;
+    final kind = sourceKind;
+    final client = widget.client;
+    bool current() =>
+        mounted &&
+        requestGeneration == generation &&
+        path.text == sourcePath &&
+        sourceKind == kind &&
+        identical(widget.client, client);
     setState(() {
       checking = true;
       result = null;
     });
     try {
-      final report = await widget.client.preflightLocalFile(
-        path.text,
-        sourceKind,
-      );
+      final report = await client.preflightLocalFile(sourcePath, kind);
       const messages = {
         'full_file_needs_approved_plan':
             '文件属性符合完整文件候选。尚未确认云端上传完成，迁移前仍需确认范围、冲突保护、回滚和空间方案。',
@@ -41,15 +54,15 @@ class _LocalFilePreflightCardState extends State<LocalFilePreflightCard> {
         'skip_directory': '请选择一个文件；目录迁移需要另外制定范围与空间方案。',
         'skip_reparse_or_offline': '存在链接、离线或特殊文件属性，无法确认完整副本。',
       };
-      if (mounted) {
+      if (current()) {
         setState(
           () => result = messages[report['decision']] ?? '引擎返回未知结果，暂不迁移。',
         );
       }
     } catch (_) {
-      if (mounted) setState(() => result = '无法完成预检。请检查绝对路径、访问权限和引擎版本。');
+      if (current()) setState(() => result = '无法完成预检。请检查绝对路径、访问权限和引擎版本。');
     } finally {
-      if (mounted) setState(() => checking = false);
+      if (current()) setState(() => checking = false);
     }
   }
 
@@ -70,7 +83,7 @@ class _LocalFilePreflightCardState extends State<LocalFilePreflightCard> {
           const SizedBox(height: 12),
           TextField(
             controller: path,
-            enabled: !checking,
+            onChanged: (_) => invalidate(),
             decoration: const InputDecoration(labelText: '文件绝对路径'),
           ),
           const SizedBox(height: 12),
@@ -90,12 +103,12 @@ class _LocalFilePreflightCardState extends State<LocalFilePreflightCard> {
               DropdownMenuItem(value: 'virtual_mount', child: Text('虚拟挂载')),
               DropdownMenuItem(value: 'private_cache', child: Text('客户端私有缓存')),
             ],
-            onChanged: checking
-                ? null
-                : (value) => setState(() {
-                    sourceKind = value ?? 'unknown';
-                    result = null;
-                  }),
+            onChanged: (value) => setState(() {
+              sourceKind = value ?? 'unknown';
+              generation++;
+              result = null;
+              checking = false;
+            }),
           ),
           const SizedBox(height: 12),
           OutlinedButton(

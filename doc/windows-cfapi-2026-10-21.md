@@ -36,7 +36,7 @@ Production release stays disabled until an item-lock/generation/journal bridge
 and queued-upload/open-handle/stale-version recovery tests exist.
 
 Local checks for this connection: 12 Rust tests (including the actual desktop
-boundary via a lightweight harness), strict Clippy, Flutter analyzer and 36
+boundary via a lightweight harness), strict Clippy, Flutter analyzer and 38
 Flutter tests passed. Full desktop build/real-process IPC results are recorded
 after CI execution; the prototype release must not be cited as proof of those
 later changes. `scripts/test-local-file-preflight.py` exercises the actual engine
