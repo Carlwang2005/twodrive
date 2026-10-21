@@ -126,6 +126,13 @@ The earlier deterministic concurrent teardown regression remains recorded at
 9be73fe. New folder teardown and its visual behavior need this fresh acceptance;
 synthetic leases are not a substitute.
 
+An ordinary-node recovery regression initially passed locally but failed on
+Server 26100 because ordinary CfGetPlaceholderInfo errors differ. Recovery now
+requires the bound filesystem identity and independently ordinary attributes/tag
+state, rather than treating a particular failure HRESULT as proof. See
+[TD-20261021-14](incidents.md#td-20261021-14-ordinary-retained-node-cfapi-errors-vary-by-windows-build)
+for the failed CI job and corrected-source verification status.
+
 Pending/error custom text is implemented. Native pending/error glyphs are still
 unverified. Real cloud conflict UI, real Provider native writes/rename/delete,
 persistent root restart and private-cache eviction remain disabled/unimplemented.

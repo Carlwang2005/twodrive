@@ -1341,26 +1341,34 @@ fn authorize_retained_node(
     match observed {
         Ok(os) => Ok((os, true)),
         Err(error) => {
-            // Conversion removes the Cloud identity. Only an independently bound
-            // filesystem ID permits retaining that already-ordinary node.
-            let mut bytes = [0u64; 1024];
-            let code = unsafe {
-                CfGetPlaceholderInfo(
-                    handle,
-                    CF_PLACEHOLDER_INFO_STANDARD,
-                    bytes.as_mut_ptr().cast(),
-                    size_of_val(&bytes) as u32,
-                    ptr::null_mut(),
-                )
-            };
-            if code != 0x80070178u32 as i32 || manifest.is_none() {
+            // Ordinary-file CfGetPlaceholderInfo errors differ across builds
+            // (NOT_A_CLOUD_FILE locally, INVALID_FUNCTION on Server 26100).
+            // An error code is not positive proof of conversion. Require the
+            // bound filesystem ID above plus independent, ordinary tag state.
+            if manifest.is_none() {
                 return Err(error);
             }
-            let mut info = BY_HANDLE_FILE_INFORMATION::default();
-            if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0
-                || info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileAttributeTagInfo,
+                    (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+                    size_of_val(&tag) as u32,
+                )
+            } == 0
+                || tag.FileAttributes
+                    & (FILE_ATTRIBUTE_REPARSE_POINT
+                        | FILE_ATTRIBUTE_OFFLINE
+                        | FILE_ATTRIBUTE_RECALL_ON_OPEN
+                        | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
+                    != 0
+                || tag.ReparseTag != 0
+                || unsafe {
+                    CfGetPlaceholderStateFromAttributeTag(tag.FileAttributes, tag.ReparseTag)
+                } != CF_PLACEHOLDER_STATE_NO_STATES
             {
-                return Err("ordinary retained node has reparse/unknown state".into());
+                return Err(error);
             }
             let mut length = 0;
             if !directory && unsafe { GetFileSizeEx(handle, &mut length) } == 0 {
@@ -1465,6 +1473,7 @@ mod retained_lease_tests {
             .unwrap();
             let (observed, placeholder) =
                 authorize_retained_node(lease.handle.0, node, &root, Some(&manifest)).unwrap();
+            assert!(authorize_retained_node(lease.handle.0, node, &root, None).is_err());
             assert!(observed.resident);
             assert!(!placeholder);
             leases.push(lease);

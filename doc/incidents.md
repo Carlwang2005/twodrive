@@ -46,6 +46,41 @@
 
 
 
+## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
+
+- Date: 2026-10-21; status: reproduced in Windows Server 26100 CI at 0cd9dd9; fix awaiting the same CI regression. Local Windows 26300 passed the old implementation.
+- Related: TD-20261021-12 concerned WinRT long-path lookup; that nested-path regression passed in this failed job. TD-20261021-13 added the ordinary-node recovery guard and exposed this separate compatibility issue.
+
+### Symptom, reproduction and cause
+
+The [Windows adapter job](https://github.com/LumiaBlack51/twodrive/actions/runs/39616576509/job/119279156349)
+passed strict Clippy and 13 library tests, but
+`ordinary_converted_directory_and_files_require_manifest_ids_and_retain_bytes`
+failed with `inspect placeholder: HRESULT 0x80070001`. Linux adapter checks
+passed. The recovery guard expected ordinary CfGetPlaceholderInfo failure to be
+0x80070178, as observed locally. The Server runner instead returned
+INVALID_FUNCTION for the same ordinary fixture. No registration or data recovery
+was performed by this test, and the existing native roots were not touched.
+
+### Correction and verification boundary
+
+An arbitrary CFAPI error no longer proves conversion. Under the existing
+share-none lease, the code first checks the original persisted volume/file ID
+and kind, then requires FileAttributeTagInfo to report no reparse tag, no
+reparse/offline/recall attributes, and exactly CF_PLACEHOLDER_STATE_NO_STATES.
+The [documented state](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfgetplaceholderstatefromattributetag)
+identifies an ordinary node independently of the failing placeholder-info API.
+Missing manifests, foreign IDs, Cloud/unknown state and incomplete content still
+refuse recovery. The actual ordinary-file/directory regression is retained and
+now also checks that the same ordinary nodes are refused without a manifest.
+No allowlist of generic failure HRESULTs is introduced.
+
+The failing CI evidence is retained. The corrected source passes all 76 local
+test executions and strict all-feature/all-target Clippy; it must still pass the
+same Server regression before being considered fixed. New registered directory
+teardown and all visual behavior remain unverified. There is no local data
+restoration, permission/policy change, new Release or merge for this CI fix.
+
 ## TD-20261021-13: visual acceptance fixture lacked directory/image coverage
 
 - Date: 2026-10-21; status: preparation implemented and ordinary-data regressions passed; registered directory, active-root observer and all native visuals remain unverified.
