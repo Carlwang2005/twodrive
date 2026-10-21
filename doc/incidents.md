@@ -82,12 +82,12 @@ fuser 0.15.1 的 BackgroundSession 持有 JoinHandle；直接丢弃句柄不会 
 
 ### 交付记录
 
-测试清理修复随 [PR #40](https://github.com/LumiaBlack51/twodrive/pull/40) 后续提交交付；提交哈希、最终 CI/Release 待补充。
+测试修复 `e50b90763d90db95db053661d818ebcdac6f792d` 已随 [PR #40](https://github.com/LumiaBlack51/twodrive/pull/40) 整合，包含于 [0.2.18-1](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.18-1)。最终九项显式挂载测试通过，Linux/Windows、Debian 及桌面预览兼容性八项 CI 全部成功。
 
 ## TD-20261021-01：本机约 39 GiB 缓存积累、维护备份重复与自动回收缺口
 
 - 日期：2026-10-21（Asia/Shanghai）
-- 状态：本机第一轮清理已验证；TwoDrive 逻辑修复已通过隔离回归与后台进程验证，PR/发布待完成；插件修复另在 twodrive-office 仓库进行。
+- 状态：已修复、发布并完成本机升级/清理；隔离回归、原生 CI、Debian 包及安装验证通过，真实 Office/OneDrive 协作往返仍未验证。
 - 影响版本与环境：本机 Linux，运行 TwoDrive 0.2.17；缓存主要由 2026-10-18 的 ONLYOFFICE 9.4.0.129 保存产生，当前办公软件已升级为 10.0.0。历史维护备份包含更早版本。
 - 关联历史故障：TD-20261019-02（升级重复复制缓存）、TD-20261019-01（缓存版本失效与恢复材料）。本次确认新的生命周期缺口，不能把旧缓存版本修复或备份清理等同于已实现回收。
 
@@ -127,7 +127,18 @@ fuser 0.15.1 的 BackgroundSession 持有 JoinHandle；直接丢弃句柄不会 
 
 ### 交付记录
 
-修复源提交 `ab31687faf272eb12cc6dae60cd6a57d340e8931` 已提交 [PR #40](https://github.com/LumiaBlack51/twodrive/pull/40)。该源码的 Linux/Windows 原生检查已通过（[运行记录](https://github.com/LumiaBlack51/twodrive/actions/runs/39582857041)）；完整 Debian/桌面 CI、Release、本机最终直接删除与构建产物清理待实际完成后补充。
+修复源提交 `ab31687faf272eb12cc6dae60cd6a57d340e8931` 与测试修复 `e50b90763d90db95db053661d818ebcdac6f792d` 已随 [PR #40](https://github.com/LumiaBlack51/twodrive/pull/40) 合入 main，合并提交 `e4dc4ca8a97b3d99504a8faa262fe18f6180a458`。注解标签 v0.2.18-1 指向已整合的 e50b907，合并树一致。最终 Linux/Windows、Debian 与桌面兼容性八项 CI 全部成功；[标准 Debian 构建](https://github.com/LumiaBlack51/twodrive/actions/runs/39584942640) 编译离线，安装/升级/移除/purge 生命周期通过。Lintian 无错误，有两条 changelog 行宽及一条检查器 Standards-Version 警告，未将其写成零警告。
+
+[0.2.18-1 稳定 Release](https://github.com/LumiaBlack51/twodrive/releases/tag/v0.2.18-1) 已公开并设为 Latest；发布前后验证全部 11 项附件的完整集合、state/size/远端 SHA-256 及注解标签目标。13 项 dsc/buildinfo/changes 引用的大小/哈希通过；原始源码包的 303 个文件与标签 Git 内容逐字节摘要一致。项目包未签名，不宣称已进入 Debian 发行版。交付的 deb 程序另通过本机隔离 daemon/FUSE 与真实 60 秒自动保留测试；私有数据库副本升级前后原表逻辑摘要不变、完整性 ok。
+
+本机升级在复查无可写挂载句柄、无 Writing 后进行；仅备份配置/SQLite/队列、引用涉及的待同步内容和旧程序，没有递归复制缓存、backups 或 recovery。现运行 CLI/daemon 为 0.2.18，字节与标准 deb 一致，原自定义 unit 不变；原 3 项元数据待办和 1 项删除待办、固定策略及固定样本读取保留。升级瞬间配置/凭据字节不变；其后后台按既有流程刷新到期令牌、expiry 前移且权限仍 0600，没有重新登录或手工替换凭据，因此不承诺令牌文件长期逐字节不变。原 recovery 文件摘要保持一致。
+
+用户要求最终直接删除后，已删除临时旧缓存恢复包及其清单/说明（约 999.18 MB），没有保留本次新压缩包。再经现有 CLI、仅临时配置 0 秒保留释放剩余 226 份普通干净缓存，原用户配置仍为 30d，固定/处理中内容保护不变。随后清理 67 份过时稳定程序、615,507,000 逻辑字节，保留新部署快照中的一套最近已验证 0.2.17 回退程序；独有或尚不能排除恢复价值的历史数据继续保留。
+
+最终这六个审计数据目录的分配占用由 51,279,433,728 降至 3,750,518,784 字节，净减少 47,528,914,944 字节；主数据目录为 306,458,624 字节，其中 cache 仅 27,222,016 字节。另直接移除本机 Cargo target、过时发行构建目录、本轮解包/数据库兼容性副本和插件构建/测试资料，合计 10,089,099,264 分配字节（含本轮生成的输出）；已发布完整源码/二进制/调试与清单保留在 GitHub。两组统计不能冒称任务开始前全磁盘净空闲变化。当前普通 cached=0、固定记录保留、无新增缺失缓存引用，SQLite integrity_check=ok，服务 active、挂载正常。
+
+插件修复另随 [twodrive-office PR #1](https://github.com/LumiaBlack51/twodrive-office/pull/1) 和 [0.2.1 Preview](https://github.com/LumiaBlack51/twodrive-office/releases/tag/v0.2.1) 交付；模型/媒体与转换包两层去重及 Desktop 10 路径适配已验证并更新本机，连接配置不变，没有启动用户编辑器。详见其验证记录与[本条脱敏汇总](cache-reclamation-validation-2026-10-21.json)。真实 OneDrive/网页 Office 与本地编辑器协作往返、当天全部 1,959 次保存的调用链及复杂真实文档集合仍未验证。
+
 
 ## TD-20261019-04：IPC 冒烟测试仍假定缓存路径等于文件身份
 
