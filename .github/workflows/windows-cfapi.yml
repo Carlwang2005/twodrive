@@ -24,8 +24,13 @@ jobs:
             $driver = Get-CimInstance Win32_SystemDriver -Filter "Name='CldFlt'"
             if (!$driver) { throw 'Built-in CldFlt is unavailable; do not install it' }
             @{ driver='CldFlt'; state=$driver.State; start_mode=$driver.StartMode } | ConvertTo-Json -Compress
-            fltmc.exe instances -f CldFlt
-            "CldFlt instance query exit code: $LASTEXITCODE"
+            $instances = @(fltmc.exe instances -f CldFlt)
+            $queryExit = $LASTEXITCODE
+            $instances | Write-Output
+            "CldFlt instance query exit code: $queryExit"
+            if ($queryExit -eq 0 -and $instances -match '^\s*No instances for this filter\s*$') {
+              'TWODRIVE_CFAPI_INSTANCES=absent' >> $env:GITHUB_ENV
+            }
             $fixture = Join-Path "$env:SystemRoot/Temp" "twodrive-ordinary-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           }
           "TWODRIVE_ORDINARY_FIXTURE=$fixture" >> $env:GITHUB_ENV
@@ -37,9 +42,18 @@ jobs:
       - run: cargo fmt --manifest-path experiments/windows-cfapi/Cargo.toml -- --check
       - run: cargo clippy --manifest-path experiments/windows-cfapi/Cargo.toml --all-features --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path experiments/windows-cfapi/Cargo.toml --all-features --locked
-      - shell: pwsh
+      - run: cargo build --manifest-path experiments/windows-cfapi/Cargo.toml --example export_visual_fixture --locked
+      - name: Decode generated PNG bytes without filesystem fixture reads
+        shell: pwsh
+        run: |
+          $exporter = 'experiments/windows-cfapi/target/debug/examples/export_visual_fixture'
+          if ($IsWindows) { $exporter += '.exe' }
+          python scripts/test-generated-visual-dataset.py --png-from-exporter $exporter
+      - if: runner.os != 'Windows'
+        shell: pwsh
         run: cargo run --manifest-path experiments/windows-cfapi/Cargo.toml --example export_visual_fixture --locked -- "$env:TWODRIVE_ORDINARY_FIXTURE"
-      - shell: pwsh
+      - if: runner.os != 'Windows'
+        shell: pwsh
         run: python scripts/test-generated-visual-dataset.py "$env:TWODRIVE_ORDINARY_FIXTURE"
       - if: runner.os == 'Windows'
         shell: pwsh

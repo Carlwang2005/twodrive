@@ -149,8 +149,18 @@ the non-test GUI feature compile passed. Ordinary-file regressions cover nested
 Chinese/long WinRT lookup, exact-tree and filesystem-ID guards, directory/file
 leases, durable phase sequences/budgets, owner expiry completion and separate
 Provider/cache range counters with offline recovery. Independent Python and
-Windows PNG decoding passed. CI now exports/decodes ordinary data on Windows and
-Linux; it does not register a root or operate Explorer.
+Windows PNG decoding passed. CI verifies generated PNG bytes on both platforms;
+Linux additionally validates the ordinary file tree. It does not register a root
+or operate Explorer.
+
+Server CI subsequently showed a Running CldFlt with no volume instances; every
+root-info query returned INVALID_FUNCTION. The filesystem guard still refuses
+this unknown state. CI checks generated PNG bytes directly from the internal
+exporter's stdout; Linux additionally validates the complete ordinary tree.
+The Windows metadata check is explicitly skipped only for the independently
+observed no-instance condition, and is not a native acceptance pass. A proposed
+CI filter attachment was denied before commit/push and was not executed; the
+workflow performs read-only filter diagnostics. See incident TD-20261021-15.
 
 The available 9be73fe CI ZIP remains an earlier generated-only experimental
 preview. It does not contain this preparation. No new GitHub Release was

@@ -61,7 +61,14 @@ class OrdinaryRootGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='ordinary-cfapi-probe-', dir=parent) as directory:
             root = Path(directory)
             validator.require_plain_directory(root)
-            validator.windows_root_preflight(root)
+            with patch.object(Path, 'read_bytes', side_effect=AssertionError('fixture content read')) as read:
+                try:
+                    validator.windows_root_preflight(root)
+                except validator.RootEvidenceUnavailable as error:
+                    read.assert_not_called()
+                    if error.hresult==0x80070001 and os.environ.get('TWODRIVE_CFAPI_INSTANCES')=='absent':
+                        self.skipTest('CFAPI instance absent: outside-root evidence unavailable; no fixture content read')
+                    raise
 
 
 if __name__ == '__main__':

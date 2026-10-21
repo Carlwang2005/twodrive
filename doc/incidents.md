@@ -88,8 +88,33 @@ attributes-only/no-recall/no-reparse-traversal directory handle, plus filter
 instances on the disposable hosted runner. A seventh Windows test performs only
 this ordinary-directory metadata preflight before the expensive build. Local
 queries all return 0x80070186 and all seven checks pass. The Server result is
-pending; the strict gate is unchanged. No driver/service configuration, root
-registration, foreground action, data restoration, Release or merge occurs.
+confirmed in [990a4ae's job](https://github.com/LumiaBlack51/twodrive/actions/runs/39624152224/job/119305046234):
+all five query variants returned 0x80070001, and `fltmc instances -f CldFlt`
+succeeded with **No instances for this filter**. The seventh check correctly
+refused before any PNG/content read. Running driver state alone was insufficient.
+
+A proposed hosted-only filter attachment was rejected by automatic approval
+review before its commit/push command executed: a driver-level operation was not
+explicitly authorized, including on a hosted runner. It was not retried or routed
+through another tool. The proposal remains private review evidence and is absent
+from the executable workflow. No attachment, root registration or driver/service
+configuration occurred.
+
+The safe correction keeps filesystem validation strict: a generic failure still
+throws before any fixture content. Only the real Windows metadata *test* may be
+marked skipped when both a successful read-only filter enumeration explicitly
+reports no instances and the probe returns INVALID_FUNCTION. Other unexpected
+results still fail. Skipped means outside-root evidence is unavailable; it never
+means the directory is unregistered. The normal directory validator has no
+fallback/skip flag and still requires 0x80070186 plus ordinary ancestry.
+
+PNG format validation now independently consumes the owned deterministic Rust
+generator's stdout. This mode creates/reads no filesystem fixture and never asks
+CFAPI to interpret an unknown root. Windows CI can verify exact size, CRCs, zlib,
+all pixels and digest while preserving the native-runtime limitation. Linux also
+retains the complete ordinary-directory/layout validation; supported local
+Windows directory validation and decoding already passed. The new CI result is
+pending. No foreground action, data restoration, Release or merge occurs.
 
 ## TD-20261021-14: ordinary retained-node CFAPI errors vary by Windows build
 

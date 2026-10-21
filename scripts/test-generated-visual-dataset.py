@@ -8,12 +8,19 @@ import os
 from pathlib import Path, PurePosixPath
 import struct
 import stat
+import subprocess
 import zlib
+
+class RootEvidenceUnavailable(RuntimeError):
+    def __init__(self, code):
+        self.hresult=code&0xffffffff
+        super().__init__(f'ordinary-data validation refuses managed/unknown root: HRESULT=0x{self.hresult:08x}')
+
 
 def require_unregistered(code):
     # Generic CFAPI failures never prove that a root is unmanaged.
     if code & 0xffffffff != 0x80070186:
-        raise RuntimeError(f'ordinary-data validation refuses managed/unknown root: HRESULT=0x{code&0xffffffff:08x}')
+        raise RootEvidenceUnavailable(code)
 
 
 def require_plain_directory(root):
@@ -61,7 +68,33 @@ def windows_root_preflight(root):
         finally:
             kernel.CloseHandle(handle)
     print(json.dumps({'preflight_api':'CfGetSyncRootInfoByPath/BASIC','hresult':f'0x{code&0xffffffff:08x}','queries':queries,'filesystem':filesystem.value if volume_ok else 'unknown','root_exists':root.is_dir(),'root_reparse':bool(root.lstat().st_file_attributes&0x400)}),flush=True)
+    if 'handle_open_error' in queries:
+        raise OSError(queries['handle_open_error'],'ordinary directory metadata handle unavailable')
+    if any(int(value,16)<0x80000000 for value in queries.values()):
+        raise RootEvidenceUnavailable(0)  # A query found a root; never read it.
     require_unregistered(code)
+
+
+def validate_png(data):
+    assert len(data)==65536
+    assert data[:8]==b'\x89PNG\r\n\x1a\n'
+    offset=8;chunks=[];payload=b''
+    while offset<len(data):
+        length=struct.unpack('>I',data[offset:offset+4])[0]
+        kind=data[offset+4:offset+8];body=data[offset+8:offset+8+length]
+        assert len(body)==length
+        crc=struct.unpack('>I',data[offset+8+length:offset+12+length])[0]
+        assert zlib.crc32(kind+body)&0xffffffff==crc
+        chunks.append(kind.decode('ascii'))
+        if kind==b'IHDR':assert struct.unpack('>IIBBBBB',body)==(64,64,8,2,0,0,0)
+        if kind==b'IDAT':payload+=body
+        offset+=12+length
+        if kind==b'IEND':break
+    assert offset==len(data) and chunks==['IHDR','IDAT','tEXt','IEND']
+    pixels=zlib.decompress(payload)
+    expected_pixels=bytes(value for y in range(64) for value in ([0]+[v for x in range(64) for v in (x*4,y*4,(x^y)*4)]))
+    assert pixels==expected_pixels
+    return {'format':'PNG','width':64,'height':64,'crc_and_zlib_and_pixels':'passed','sha256':hashlib.sha256(data).hexdigest()}
 
 
 def validate(root):
@@ -90,29 +123,23 @@ def validate(root):
         assert len(data)==entry['size']==65536
         rows.append({'id':entry['id'],'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
         if entry['relative_path'].endswith('.png'):
-            assert data[:8]==b'\x89PNG\r\n\x1a\n'
-            offset=8;chunks=[];payload=b''
-            while offset<len(data):
-                length=struct.unpack('>I',data[offset:offset+4])[0]
-                kind=data[offset+4:offset+8];body=data[offset+8:offset+8+length]
-                assert len(body)==length
-                crc=struct.unpack('>I',data[offset+8+length:offset+12+length])[0]
-                assert zlib.crc32(kind+body)&0xffffffff==crc
-                chunks.append(kind.decode('ascii'))
-                if kind==b'IHDR':assert struct.unpack('>IIBBBBB',body)==(64,64,8,2,0,0,0)
-                if kind==b'IDAT':payload+=body
-                offset+=12+length
-                if kind==b'IEND':break
-            assert offset==len(data) and chunks==['IHDR','IDAT','tEXt','IEND']
-            pixels=zlib.decompress(payload)
-            expected_pixels=bytes(value for y in range(64) for value in ([0]+[v for x in range(64) for v in (x*4,y*4,(x^y)*4)]))
-            assert pixels==expected_pixels
-            rows[-1].update(format='PNG',width=64,height=64,crc_and_zlib_and_pixels='passed')
+            rows[-1].update(validate_png(data))
     assert sum(r.get('format')=='PNG' for r in rows)==1
     print(json.dumps({'registered':False,'files':rows,'directory_count':1,'total_file_bytes':196608},ensure_ascii=True))
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    parser.add_argument('directory',type=Path)
-    validate(parser.parse_args().directory)
+    parser.add_argument('directory',type=Path,nargs='?')
+    parser.add_argument('--png-from-exporter',type=Path)
+    args=parser.parse_args()
+    if (args.directory is None)==(args.png_from_exporter is None):
+        parser.error('choose one ordinary directory OR a generated-byte exporter')
+    if args.png_from_exporter is not None:
+        flags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
+        result=subprocess.run([str(args.png_from_exporter.resolve(strict=True)),'--png-stdout'],check=True,stdout=subprocess.PIPE,timeout=15,creationflags=flags)
+        report=validate_png(result.stdout)
+        report.update(source='owned_generator_stdout',filesystem_fixture_read=False,native_acceptance=False)
+        print(json.dumps(report))
+    else:
+        validate(args.directory)
