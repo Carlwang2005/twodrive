@@ -152,9 +152,15 @@ void main() {
     c.reply['items'][0]['pinned'] = true;
     c.reply['items'][0]['residency'] = 'pin_pending';
     c.reply['items'][0]['sync'] = 'error';
+    c.reply['items'][0]['local_intent'] = {
+      'pending': true,
+      'kind': 'pin',
+      'failure': 'offline',
+    };
     await tester.tap(find.text('读取原生文件状态'));
     await tester.pumpAndSettle();
     expect(find.textContaining('固定待下载'), findsOneWidget);
+    expect(find.textContaining('待完成的本机操作'), findsOneWidget);
     expect(
       tester
           .widget<TextButton>(find.widgetWithText(TextButton, '释放原生副本（保留引擎缓存）'))

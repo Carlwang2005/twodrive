@@ -12,6 +12,7 @@ publish = false
 default = []
 fixture-probe = ["dep:windows-sys"]
 native-local-fixture = ["fixture-probe", "dep:windows", "dep:windows-collections"]
+native-test-hooks = ["native-local-fixture"]
 
 [[bin]]
 name = "twodrive-cfapi-probe"

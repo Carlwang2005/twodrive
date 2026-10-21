@@ -34,6 +34,21 @@ const SIZE: usize = 65536;
 const OFFLINE: i32 = 0xC000CF11u32 as i32;
 const FAILED: i32 = 0xC000CF12u32 as i32;
 
+struct RegisteredPlaceholder {
+    path: PathBuf,
+    identity: Vec<u8>,
+    size: usize,
+    reverted: bool,
+}
+#[cfg(feature = "native-test-hooks")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TeardownStage {
+    AllProtected,
+    AllReverted,
+}
+#[cfg(feature = "native-test-hooks")]
+type TeardownHook = Box<dyn FnMut(TeardownStage) -> Result<()> + Send>;
+
 fn hr(value: i32, action: &str) -> Result<()> {
     if value < 0 {
         Err(format!("{action}: HRESULT 0x{:08X}", value as u32))
@@ -275,7 +290,10 @@ pub struct Session {
     connection: Option<CF_CONNECTION_KEY>,
     source: Box<Source>,
     _guard: RootGuard,
-    placeholders: Mutex<Vec<(PathBuf, Vec<u8>, usize)>>,
+    placeholders: Mutex<Vec<RegisteredPlaceholder>>,
+    teardown_started: bool,
+    #[cfg(feature = "native-test-hooks")]
+    teardown_hook: Option<TeardownHook>,
     #[cfg(feature = "native-local-fixture")]
     shell: Option<crate::shell::ShellRoot>,
 }
@@ -471,6 +489,9 @@ impl Session {
             }),
             _guard: guard,
             placeholders: Mutex::new(Vec::new()),
+            teardown_started: false,
+            #[cfg(feature = "native-test-hooks")]
+            teardown_hook: None,
             #[cfg(feature = "native-local-fixture")]
             shell: None,
         };
@@ -582,18 +603,53 @@ impl Session {
         // Never use unregistration as cache cleanup. The owner must first retain
         // every generated file, including failures and dirty bytes.
         if self.registered {
-            for (path, identity, size) in self
+            let mut leaves = self
                 .placeholders
                 .lock()
-                .map_err(|_| "placeholder registry poisoned")?
-                .iter()
-            {
-                let os = inspect_item(path, identity, *size)?;
-                if !os.resident || os.logical_size != *size as u64 {
+                .map_err(|_| "placeholder registry poisoned")?;
+            let mut protected = Vec::new();
+            for (index, leaf) in leaves.iter().enumerate().filter(|(_, leaf)| !leaf.reverted) {
+                // Attribute-only rejection avoids opening an incomplete file
+                // with write access. This is not the authorization: the same
+                // evidence is checked again under the protected reference.
+                let before = inspect_item(&leaf.path, &leaf.identity, leaf.size)?;
+                if !before.resident || before.logical_size != leaf.size as u64 {
                     return Err(
                         "refusing unregister: generated placeholder is not fully retained".into(),
                     );
                 }
+                let handle = ReferencedPlaceholder::open(&leaf.path, &leaf.identity, leaf.size)?;
+                let os = handle.inspect()?;
+                if !os.resident || os.logical_size != leaf.size as u64 {
+                    return Err(
+                        "refusing unregister: generated placeholder is not fully retained".into(),
+                    );
+                }
+                protected.push((index, handle));
+            }
+            #[cfg(feature = "native-test-hooks")]
+            if let Some(hook) = &mut self.teardown_hook {
+                hook(TeardownStage::AllProtected)?;
+            }
+            // All references remain held through conversion. Reverting a fully
+            // retained placeholder makes it an ordinary file before unregister,
+            // which cannot delete later writes to that file. No network runs
+            // while these three bounded generated-file references are held.
+            self.teardown_started = true;
+            for (index, handle) in &protected {
+                hr(
+                    unsafe {
+                        CfRevertPlaceholder(handle.handle.0, CF_REVERT_FLAG_NONE, ptr::null_mut())
+                    },
+                    "revert retained generated placeholder",
+                )?;
+                leaves[*index].reverted = true;
+            }
+            drop(protected);
+            drop(leaves);
+            #[cfg(feature = "native-test-hooks")]
+            if let Some(hook) = &mut self.teardown_hook {
+                hook(TeardownStage::AllReverted)?;
             }
         }
         self.disconnect()?;
@@ -614,6 +670,19 @@ impl Session {
             self.registered = false;
         }
         Ok(())
+    }
+    pub fn serving(&self) -> bool {
+        self.connection.is_some() && !self.teardown_started
+    }
+    pub fn teardown_started(&self) -> bool {
+        self.teardown_started
+    }
+    #[cfg(feature = "native-test-hooks")]
+    pub fn set_teardown_hook(
+        &mut self,
+        hook: impl FnMut(TeardownStage) -> Result<()> + Send + 'static,
+    ) {
+        self.teardown_hook = Some(Box::new(hook));
     }
     #[cfg(feature = "native-local-fixture")]
     pub fn attach_shell(&mut self) -> Result<()> {
@@ -705,7 +774,12 @@ impl Session {
         self.placeholders
             .lock()
             .map_err(|_| "placeholder registry poisoned")?
-            .push((path.clone(), identity.to_vec(), size));
+            .push(RegisteredPlaceholder {
+                path: path.clone(),
+                identity: identity.to_vec(),
+                size,
+                reverted: false,
+            });
         Ok(path)
     }
 }
@@ -733,6 +807,48 @@ impl Drop for Handle {
                 CloseHandle(self.0);
             }
         }
+    }
+}
+
+struct ReferencedPlaceholder {
+    handle: Handle,
+    identity: Vec<u8>,
+    size: usize,
+}
+impl ReferencedPlaceholder {
+    fn open(path: &Path, identity: &[u8], size: usize) -> Result<Self> {
+        let mut raw = ptr::null_mut();
+        hr(
+            unsafe {
+                CfOpenFileWithOplock(
+                    wide(path).as_ptr(),
+                    CF_OPEN_FILE_FLAG_EXCLUSIVE | CF_OPEN_FILE_FLAG_WRITE_ACCESS,
+                    &mut raw,
+                )
+            },
+            "exclusive engine oplock",
+        )?;
+        let handle = Handle(raw, true);
+        if !unsafe { CfReferenceProtectedHandle(handle.0) } {
+            return Err("oplock already broken".into());
+        }
+        Ok(Self {
+            handle,
+            identity: identity.to_vec(),
+            size,
+        })
+    }
+    fn inspect(&self) -> Result<NativeObservation> {
+        observation(
+            unsafe { CfGetWin32HandleFromProtectedHandle(self.handle.0) },
+            &self.identity,
+            self.size,
+        )
+    }
+}
+impl Drop for ReferencedPlaceholder {
+    fn drop(&mut self) {
+        unsafe { CfReleaseProtectedHandle(self.handle.0) };
     }
 }
 
@@ -906,6 +1022,20 @@ pub fn inspect(path: &Path, engine_state: FileState) -> Result<LocalStatus> {
 }
 
 pub fn pin(path: &Path, pinned: bool) -> Result<()> {
+    set_pin_state(
+        path,
+        if pinned {
+            CF_PIN_STATE_PINNED
+        } else {
+            CF_PIN_STATE_UNSPECIFIED
+        },
+    )
+}
+#[cfg(feature = "native-test-hooks")]
+pub fn test_release_intent(path: &Path) -> Result<()> {
+    set_pin_state(path, CF_PIN_STATE_UNPINNED)
+}
+fn set_pin_state(path: &Path, state: CF_PIN_STATE) -> Result<()> {
     let mut handle = ptr::null_mut();
     hr(
         unsafe {
@@ -919,18 +1049,7 @@ pub fn pin(path: &Path, pinned: bool) -> Result<()> {
     )?;
     let handle = Handle(handle, true);
     hr(
-        unsafe {
-            CfSetPinState(
-                handle.0,
-                if pinned {
-                    CF_PIN_STATE_PINNED
-                } else {
-                    CF_PIN_STATE_UNSPECIFIED
-                },
-                CF_SET_PIN_FLAG_NONE,
-                ptr::null_mut(),
-            )
-        },
+        unsafe { CfSetPinState(handle.0, state, CF_SET_PIN_FLAG_NONE, ptr::null_mut()) },
         "set pin intent",
     )
 }

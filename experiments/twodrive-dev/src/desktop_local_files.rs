@@ -39,9 +39,16 @@ impl NativeFixture {
             .is_some_and(|service| service.active());
         #[cfg(not(all(windows, feature = "native-local-fixture")))]
         let active = false;
+        #[cfg(all(windows, feature = "native-local-fixture"))]
+        let unavailable = self
+            .service
+            .as_ref()
+            .is_some_and(|service| service.unavailable());
+        #[cfg(not(all(windows, feature = "native-local-fixture")))]
+        let unavailable = false;
         caps["item_status"] = json!({"schema_version":1,"supported":active,"scope":"generated_fixture_only",
             "read":active,"pin":active,"offline_test":active,"reconnect":active,"shell_registration":active,
-            "native_copy_dehydrate":active,"cache_evict":false,"write":false,"rename":false,"delete":false,"conflict_resolution":false,"persistent_root_resume":false});
+            "native_copy_dehydrate":active,"owner_unavailable":unavailable,"cache_evict":false,"write":false,"rename":false,"delete":false,"conflict_resolution":false,"persistent_root_resume":false});
         caps
     }
     pub fn request(&self, op: &str, args: &Value) -> anyhow::Result<Value> {

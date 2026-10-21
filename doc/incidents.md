@@ -46,6 +46,76 @@
 
 
 
+## TD-20261021-10: metadata-only teardown check leaves a concurrent-write window
+
+- Date: 2026-10-21; status: code-review finding addressed, real CFAPI race acceptance pending specific-root approval.
+- Scope: unmerged PR #41 source f321b48. Related: TD-20261021-07 covers untouched online-only files, not concurrency.
+
+The old teardown released each short-lived metadata handle before unregistering.
+A concurrent writer could change the file after validation. The untouched-file
+test cannot establish safety across that window; no destructive old-root test was
+run to create a data-loss demonstration.
+
+Teardown now rejects incomplete files with attributes-only checks, acquires and
+retains exclusive protected CFAPI references to every known generated file,
+rechecks identity/residency/length under those references, and reverts all complete
+placeholders to ordinary files before unregister. Later ordinary-file writes are
+outside CfUnregisterSyncRoot's placeholder deletion behavior. Conversion progress
+is retained in the live Session; partial teardown closes native capabilities and
+reports cleanup/registration as unconfirmed. No reference is held over a Provider
+download. Existing dirty bytes and private journal/cache remain preserved.
+
+An opt-in `native-test-hooks` observation barrier compiles in adapter CI but is
+absent from ordinary GUI release builds. The ignored real-engine test starts a
+concurrent generated writer while all references are held, waits for its ordinary
+file write after conversion, then checks complete bytes after unregister. It has
+**not run**: new-root registration was rejected before execution. No claim of
+physical/concurrent CFAPI acceptance follows from compilation or synthetic tests.
+
+## TD-20261021-09: refused stop loses the owner while capabilities remain active
+
+- Date: 2026-10-21; status: old loop reproduced failing; corrected owner-loop regression passes locally.
+- Scope: unmerged PR #41 f321b48; related: TD-20261021-07 retention refusal.
+
+The worker exited on every stop command, even when retention refused cleanup;
+the public stopped flag changed only on success. After extracting that unchanged
+loop for a generated-file owner harness, `rejected_stop_keeps_owner_for_status_read_and_reconnect`
+failed with `fixture owner disconnected`. The same regression passes after the
+worker exits only on successful stop. Status, real generated-file reading and
+reconnect requests remain possible after refusal.
+
+Worker liveness is explicit; a terminal incomplete teardown disables capabilities
+and marks owner unavailable. Drop closes its channel before joining, avoiding a
+hang when stop remains refused. These are owner/control regressions, not a real
+CFAPI stop-refusal run. No local client or user data recovery was performed.
+
+## TD-20261021-08: failed Shell intentions are lost and polling starves retry
+
+- Date: 2026-10-21; status: three focused old-behavior failures reproduced, corrected regressions pass locally.
+- Scope: unmerged PR #41 f321b48; related: no released native Shell intent implementation.
+
+The old tuple was recorded before trying pin/free-space work, then errors were
+discarded. The same tuple after an open-handle veto or offline read therefore
+never retried. `free_space_intent_retries_after_real_handle_closes` failed using
+an actual Windows sharing handle; `pin_intent_retries_actual_engine_after_offline_recovery`
+failed against the actual generated Provider/cache bridge. The old receive-timeout
+loop also failed `status_traffic_does_not_starve_pending_intent_tick`: frequent
+read-only status requests prevented its timeout from firing.
+
+The owner now keeps an explicit pending intent, classifies offline/guarded/dirty
+recovery failures, and uses 1/2/4/8/16/30-second capped backoff (dirty recovery at
+30 seconds). Only completion of the requested state or a changed/cancelled OS
+intent clears it. The OS pin state persists; this in-process retry ledger does
+not add persistent root restart support. Timer deadlines survive message traffic.
+Each retry still enters the existing native oplock, dirty/pin/open-handle,
+journal/generation and digest gates; no failed guard is bypassed.
+
+All three focused regressions fail under their previous loop semantics and pass
+after correction. IPC and GUI show local pending intent separately from cloud
+acknowledgement. Shell pending/error output remains custom **text properties**,
+not accepted native synchronization/error glyphs. Real Shell clicks, native
+intent recovery and screenshots remain unverified; registration is still blocked.
+
 ## TD-20261021-07: generated-root shutdown can delete untouched placeholders
 
 - Date: 2026-10-21.
@@ -79,7 +149,10 @@ hydration, then normal stop preserves all full bytes and removes the registratio
 Final native results and any remaining desktop blockers are recorded in
 [Explorer acceptance](windows-explorer-2026-10-21.md). Physical icons, thumbnails,
 live accounts, process/OS restart recovery and writable native operations must not
-be inferred from unit or API results. PR and exact source SHA pending creation.
+be inferred from unit or API results. Follow-up implementation is in
+[draft PR #41](https://github.com/LumiaBlack51/twodrive/pull/41); f321b48 is its
+initial source checkpoint. The concurrency gap in that checkpoint is separately
+recorded in TD-20261021-10 above; it is not covered by the untouched-file test.
 
 ## TD-20261021-06: stale cache digest and rejected hydration metadata mutation
 

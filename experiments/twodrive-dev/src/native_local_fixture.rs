@@ -18,7 +18,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use twodrive_core::{Database, FileState};
 use twodrive_local_files::native::{self, HydrationSource, NativeObservation, Session};
@@ -250,8 +250,16 @@ impl EngineSource {
 /// unsafely marked Send. A small channel is the engine/desktop boundary.
 pub struct FixtureService {
     stopped: AtomicBool,
-    requests: mpsc::SyncSender<Command>,
+    running: Arc<AtomicBool>,
+    requests: Option<mpsc::SyncSender<Command>>,
     worker: Option<thread::JoinHandle<()>>,
+}
+trait FixtureOwner {
+    fn command(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value>;
+    fn tick(&mut self);
+    fn serving(&self) -> bool {
+        true
+    }
 }
 struct Command {
     op: String,
@@ -267,10 +275,24 @@ impl FixtureService {
             root.is_absolute() && !root.exists(),
             "new absolute generated root required"
         );
+        Self::start_owner(move || Host::start(&root))
+    }
+    fn start_owner<H: FixtureOwner + 'static>(
+        create: impl FnOnce() -> anyhow::Result<H> + Send + 'static,
+    ) -> anyhow::Result<Self> {
         let (requests, incoming) = mpsc::sync_channel::<Command>(4);
         let (ready, started) = mpsc::sync_channel(1);
+        let running = Arc::new(AtomicBool::new(true));
+        let owner_running = running.clone();
         let worker = thread::spawn(move || {
-            let host = Host::start(&root);
+            struct Running(Arc<AtomicBool>);
+            impl Drop for Running {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::SeqCst);
+                }
+            }
+            let _running = Running(owner_running.clone());
+            let host = create();
             match host {
                 Err(error) => {
                     let _ = ready.send(Err(error));
@@ -279,18 +301,28 @@ impl FixtureService {
                     if ready.send(Ok(())).is_err() {
                         return;
                     }
+                    let mut tick_due = Instant::now() + Duration::from_millis(500);
                     loop {
-                        match incoming.recv_timeout(Duration::from_millis(500)) {
+                        match incoming
+                            .recv_timeout(tick_due.saturating_duration_since(Instant::now()))
+                        {
                             Ok(command) => {
                                 let stop = command.op == "stop";
                                 let result = host.command(&command.op, &command.id, command.value);
+                                let finished = stop && result.is_ok();
+                                owner_running.store(host.serving(), Ordering::SeqCst);
                                 let _ = command.reply.send(result);
-                                if stop {
+                                if finished {
                                     break;
                                 }
                             }
-                            Err(mpsc::RecvTimeoutError::Timeout) => host.tick(),
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
                             Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                        if Instant::now() >= tick_due {
+                            host.tick();
+                            owner_running.store(host.serving(), Ordering::SeqCst);
+                            tick_due = Instant::now() + Duration::from_millis(500);
                         }
                     }
                 }
@@ -299,7 +331,8 @@ impl FixtureService {
         match started.recv().context("fixture owner exited")? {
             Ok(()) => Ok(Self {
                 stopped: AtomicBool::new(false),
-                requests,
+                running,
+                requests: Some(requests),
                 worker: Some(worker),
             }),
             Err(error) => {
@@ -315,6 +348,8 @@ impl FixtureService {
         }
         let (reply, result) = mpsc::sync_channel(1);
         self.requests
+            .as_ref()
+            .context("fixture owner unavailable")?
             .send(Command {
                 op: op.into(),
                 id: id.into(),
@@ -330,6 +365,14 @@ impl FixtureService {
     }
     pub fn active(&self) -> bool {
         !self.stopped.load(Ordering::SeqCst)
+            && self.running.load(Ordering::SeqCst)
+            && self
+                .worker
+                .as_ref()
+                .is_some_and(|worker| !worker.is_finished())
+    }
+    pub fn unavailable(&self) -> bool {
+        !self.stopped.load(Ordering::SeqCst) && !self.active()
     }
 }
 impl Drop for FixtureService {
@@ -340,6 +383,9 @@ impl Drop for FixtureService {
             if let Err(error) = self.request("stop", "", false) {
                 eprintln!("native fixture cleanup unconfirmed: {error}");
             }
+            // A refused stop keeps the owner alive for recovery. Drop closes
+            // the channel before joining, so that recovery refusal cannot hang.
+            self.requests.take();
             if let Some(worker) = self.worker.take() {
                 let _ = worker.join();
             }
@@ -351,7 +397,7 @@ struct Host {
     source: Arc<EngineSource>,
     paths: Vec<PathBuf>,
     stopped: bool,
-    observed_pin: Vec<(bool, bool)>,
+    intents: Vec<IntentTracker>,
     shell_error: bool,
 }
 impl Host {
@@ -381,7 +427,7 @@ impl Host {
             source,
             paths: vec![],
             stopped: false,
-            observed_pin: vec![(false, false); objects().len()],
+            intents: vec![IntentTracker::default(); objects().len()],
             shell_error: false,
         };
         host.session.attach_shell().map_err(anyhow::Error::msg)?;
@@ -462,32 +508,41 @@ impl Host {
             } else {
                 "remote_version_known"
             };
+            let local_intent = self.intents[index].status();
+            let shell_state = if local_intent["pending"] == true {
+                format!(
+                    "{}; local {} intent pending ({})",
+                    shell_text(sync),
+                    local_intent["kind"].as_str().unwrap_or("unknown"),
+                    local_intent["failure"].as_str().unwrap_or("queued")
+                )
+            } else {
+                shell_text(sync).to_owned()
+            };
             if self
                 .session
-                .publish_shell(&self.paths[index], shell_text(sync))
+                .publish_shell(&self.paths[index], &shell_state)
                 .is_err()
             {
                 self.shell_error = true;
             }
             items.push(json!({"id":entry.remote_id,"name":entry.name,"size":entry.size,
                 "residency":if os.pinned && !os.resident {"pin_pending"} else if os.resident {"locally_available"} else if os.partial {"partially_available"} else {"online_only"},
-                "pinned":os.pinned,"os_in_sync":os.os_in_sync,"modified_bytes":os.modified_bytes,
+                "pinned":os.pinned,"pin_state_known":os.pinned||os.pin_known_unpinned,"os_in_sync":os.os_in_sync,"modified_bytes":os.modified_bytes,
                 "downloaded":os.resident,"cache_resident":state.as_ref().is_some_and(|s|s.resident),
-                "sync":sync,
+                "sync":sync,"local_intent":local_intent,
                 "native_dirty":dirty,"generation":state.as_ref().map(|s|s.generation),"acknowledged_generation":state.as_ref().map(|s|s.acknowledged_generation),
                 "pending_operations":state.as_ref().map(|s|s.pending_operations),"readers":state.as_ref().map(|s|s.readers),"writers":state.as_ref().map(|s|s.writers),
                 "recovery_required":state.as_ref().map(|s|s.recovery_required)}));
         }
         let summary = aggregate(&items);
         let root = self.session.root().to_owned();
-        if self
-            .session
-            .publish_shell(
-                &root,
-                shell_text(summary["sync"].as_str().unwrap_or("unknown")),
-            )
-            .is_err()
-        {
+        let root_text = format!(
+            "{}; {} local intent(s) pending",
+            shell_text(summary["sync"].as_str().unwrap_or("unknown")),
+            summary["local_intents_pending"]
+        );
+        if self.session.publish_shell(&root, &root_text).is_err() {
             self.shell_error = true;
         }
         Ok(
@@ -495,34 +550,86 @@ impl Host {
         )
     }
     fn tick(&mut self) {
+        if !self.session.serving() {
+            return;
+        }
         // Bounded metadata-only observation of our generated leaves. React only
         // to a new Shell pin/free-space intent, never to arbitrary directory data.
         for (index, entry) in objects().into_iter().enumerate() {
             let Ok(os) = self.observe(index, &entry) else {
                 continue;
             };
-            let pin = (os.pinned, os.release_requested);
-            let previous = std::mem::replace(&mut self.observed_pin[index], pin);
-            if previous != pin {
-                if os.pinned && !os.resident {
-                    let _ = self.command("read", &entry.remote_id, false);
-                } else if os.release_requested && os.resident {
-                    let _ = self.command("dehydrate", &entry.remote_id, false);
+            if !os.pinned && !os.pin_known_unpinned {
+                // An unknown/inherited pin state is not a confirmed cancel.
+                if self.intents[index].pending.is_some()
+                    && self.intents[index]
+                        .retry_at
+                        .is_none_or(|at| Instant::now() >= at)
+                {
+                    self.intents[index].failed(Instant::now(), IntentFailure::GuardedOperation);
                 }
+                continue;
             }
+            self.intents[index].observe((os.pinned, os.release_requested), os.resident);
+            let mut intent = self.intents[index].clone();
+            intent.drive(
+                (os.pinned, os.release_requested),
+                os.resident,
+                Instant::now(),
+                |kind| {
+                    self.command(
+                        if kind == IntentKind::Pin {
+                            "read"
+                        } else {
+                            "dehydrate"
+                        },
+                        &entry.remote_id,
+                        false,
+                    )
+                    .map(|_| ())
+                    .map_err(|_| self.intent_failure(&entry.remote_id, kind))
+                },
+            );
+            self.intents[index] = intent;
         }
         if self.items().is_err() {
             self.shell_error = true;
         }
     }
+    fn intent_failure(&self, id: &str, kind: IntentKind) -> IntentFailure {
+        if self
+            .source
+            .bridge
+            .journal()
+            .native_dirty(id)
+            .unwrap_or(true)
+        {
+            IntentFailure::DirtyRecovery
+        } else if kind == IntentKind::Pin && self.source.offline.load(Ordering::SeqCst) {
+            IntentFailure::Offline
+        } else {
+            IntentFailure::GuardedOperation
+        }
+    }
     fn command(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value> {
         if op == "stop" {
-            self.retain_generated_files()?;
+            if !self.session.teardown_started() {
+                self.retain_generated_files()?;
+            }
             self.session.finish().map_err(anyhow::Error::msg)?;
             self.stopped = true;
             return Ok(json!({"unregistered":true,"files_retained":true}));
         }
         ensure!(!self.stopped, "fixture stopped");
+        if !self.session.serving() {
+            ensure!(
+                op == "items",
+                "root retained after incomplete teardown; native operations disabled"
+            );
+            return Ok(
+                json!({"schema_version":1,"scope":"generated_fixture_only","items":[],"owner_unavailable":true,"native_operations_disabled":true,"cleanup_confirmed":false,"registration":"unconfirmed"}),
+            );
+        }
         match op {
             "items" => self.items(),
             "offline" => {
@@ -537,11 +644,19 @@ impl Host {
             }
             "pin" | "unpin" => {
                 let (index, entry) = object(id)?;
-                self.observe(index, &entry)?;
+                let os = self.observe(index, &entry)?;
                 native::pin(&self.paths[index], op == "pin").map_err(anyhow::Error::msg)?;
-                self.observed_pin[index] = (op == "pin", false);
+                self.intents[index].observe((op == "pin", false), os.resident);
                 if op == "pin" {
-                    return self.command("read", id, false);
+                    let result = self.command("read", id, false);
+                    if result.is_ok() {
+                        self.intents[index].complete();
+                        return self.items();
+                    } else {
+                        let failure = self.intent_failure(id, IntentKind::Pin);
+                        self.intents[index].failed(Instant::now(), failure);
+                    }
+                    return result;
                 }
                 self.items()
             }
@@ -604,34 +719,131 @@ impl Host {
     fn retain_generated_files(&self) -> anyhow::Result<()> {
         // This Provider is internal deterministic data, never a real account.
         // Materialize only clean missing ranges before destructive unregister.
-        self.source.offline.store(false, Ordering::SeqCst);
-        for (index, entry) in objects().into_iter().enumerate().take(self.paths.len()) {
-            let os = self.observe(index, &entry)?;
-            if !os.resident {
-                ensure!(
-                    !self
-                        .source
-                        .bridge
-                        .journal()
-                        .native_dirty(&entry.remote_id)?,
-                    "unretained dirty file requires recovery; root retained"
-                );
-                let bytes = fs::read(&self.paths[index])?;
-                ensure!(
-                    bytes == generated_bytes(index),
-                    "generated retention content differs"
-                );
+        let previous = self.source.offline.swap(false, Ordering::SeqCst);
+        let result = (|| {
+            for (index, entry) in objects().into_iter().enumerate().take(self.paths.len()) {
+                let os = self.observe(index, &entry)?;
+                if !os.resident {
+                    ensure!(
+                        !self
+                            .source
+                            .bridge
+                            .journal()
+                            .native_dirty(&entry.remote_id)?,
+                        "unretained dirty file requires recovery; root retained"
+                    );
+                    let bytes = fs::read(&self.paths[index])?;
+                    ensure!(
+                        bytes == generated_bytes(index),
+                        "generated retention content differs"
+                    );
+                }
             }
+            Ok(())
+        })();
+        self.source.offline.store(previous, Ordering::SeqCst);
+        result
+    }
+}
+impl FixtureOwner for Host {
+    fn command(&mut self, op: &str, id: &str, value: bool) -> anyhow::Result<Value> {
+        Host::command(self, op, id, value)
+    }
+    fn tick(&mut self) {
+        Host::tick(self);
+    }
+    fn serving(&self) -> bool {
+        self.session.serving()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IntentKind {
+    Pin,
+    Release,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IntentFailure {
+    Offline,
+    GuardedOperation,
+    DirtyRecovery,
+}
+#[derive(Clone, Default)]
+struct IntentTracker {
+    observed: (bool, bool),
+    pending: Option<IntentKind>,
+    attempts: u32,
+    retry_at: Option<Instant>,
+    failure: Option<IntentFailure>,
+}
+impl IntentTracker {
+    fn observe(&mut self, pin: (bool, bool), resident: bool) {
+        if self.observed != pin {
+            self.observed = pin;
+            self.pending = if pin.0 && !resident {
+                Some(IntentKind::Pin)
+            } else if pin.1 && resident {
+                Some(IntentKind::Release)
+            } else {
+                None
+            };
+            self.attempts = 0;
+            self.retry_at = None;
+            self.failure = None;
         }
-        Ok(())
+    }
+    fn complete(&mut self) {
+        self.pending = None;
+        self.retry_at = None;
+        self.failure = None;
+        self.attempts = 0;
+    }
+    fn failed(&mut self, now: Instant, failure: IntentFailure) {
+        self.failure = Some(failure);
+        self.attempts = self.attempts.saturating_add(1);
+        let seconds = if failure == IntentFailure::DirtyRecovery {
+            30
+        } else {
+            (1u64 << self.attempts.saturating_sub(1).min(5)).min(30)
+        };
+        self.retry_at = Some(now + Duration::from_secs(seconds));
+    }
+    fn status(&self) -> Value {
+        json!({"pending":self.pending.is_some(),"kind":self.pending.map(|k|if k==IntentKind::Pin {"pin"} else {"release"}),"attempts":self.attempts,"failure":self.failure.map(|f|match f {IntentFailure::Offline=>"offline",IntentFailure::GuardedOperation=>"guarded_operation",IntentFailure::DirtyRecovery=>"dirty_recovery_required"})})
+    }
+    fn drive(
+        &mut self,
+        pin: (bool, bool),
+        resident: bool,
+        now: Instant,
+        action: impl FnOnce(IntentKind) -> Result<(), IntentFailure>,
+    ) {
+        self.observe(pin, resident);
+        let Some(kind) = self.pending else {
+            return;
+        };
+        if (kind == IntentKind::Pin && resident) || (kind == IntentKind::Release && !resident) {
+            self.complete();
+            return;
+        }
+        if self.retry_at.is_some_and(|at| now < at) {
+            return;
+        }
+        match action(kind) {
+            Ok(()) => self.complete(),
+            Err(failure) => self.failed(now, failure),
+        }
     }
 }
 impl Drop for Host {
     fn drop(&mut self) {
         if !self.stopped {
-            let result = self
-                .retain_generated_files()
-                .and_then(|()| self.session.finish().map_err(anyhow::Error::msg));
+            let retained = if self.session.teardown_started() {
+                Ok(())
+            } else {
+                self.retain_generated_files()
+            };
+            let result = retained.and_then(|()| self.session.finish().map_err(anyhow::Error::msg));
             if let Err(error) = result {
                 eprintln!("generated root retained; cleanup unconfirmed: {error}");
             }
@@ -667,12 +879,202 @@ fn aggregate(items: &[Value]) -> Value {
             "unknown"
         },
     );
-    json!({"sync":sync,"files":items.len(),"native_resident":items.iter().filter(|i| i["downloaded"] == true).count(),"private_cache_resident":items.iter().filter(|i|i["cache_resident"] == true).count(),"pinned":items.iter().filter(|i| i["pinned"] == true).count()})
+    json!({"sync":sync,"files":items.len(),"native_resident":items.iter().filter(|i| i["downloaded"] == true).count(),"private_cache_resident":items.iter().filter(|i|i["cache_resident"] == true).count(),"pinned":items.iter().filter(|i| i["pinned"] == true).count(),"local_intents_pending":items.iter().filter(|i|i["local_intent"]["pending"]==true).count()})
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "native-test-hooks")]
+    fn wait_for_status(
+        service: &FixtureService,
+        ready: impl Fn(&Value) -> bool,
+    ) -> anyhow::Result<Value> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let value = service.request("items", "", false)?;
+            if ready(&value) {
+                return Ok(value);
+            }
+            ensure!(Instant::now() < deadline, "native intent deadline exceeded");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    #[test]
+    fn free_space_intent_retries_after_real_handle_closes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("generated-handle-veto.bin");
+        fs::write(&file, b"retained").unwrap();
+        let handle = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&file)
+            .unwrap();
+        let mut intent = IntentTracker::default();
+        let now = Instant::now();
+        let attempt = || {
+            fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&file)
+                .and_then(|mut f| f.write_all(b"completed"))
+                .map_err(|_| IntentFailure::GuardedOperation)
+        };
+        intent.drive((false, true), true, now, |_| attempt());
+        assert_eq!(fs::read(&file).unwrap(), b"retained");
+        drop(handle);
+        intent.drive((false, true), true, now + Duration::from_secs(2), |_| {
+            attempt()
+        });
+        assert_eq!(
+            fs::read(file).unwrap(),
+            b"completed",
+            "unchanged Shell intent was lost after the handle veto"
+        );
+    }
+    #[test]
+    fn pin_intent_retries_actual_engine_after_offline_recovery() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let cache = root.join("cache");
+        fs::create_dir(&cache).unwrap();
+        let source = EngineSource {
+            bridge: LocalFileBridge::generated_fixture(
+                Database::new(root.join("state.db")),
+                &cache,
+            )
+            .unwrap(),
+            gate: Mutex::default(),
+            offline: AtomicBool::new(true),
+            failed: Mutex::default(),
+            reading: Mutex::default(),
+        };
+        let mut intent = IntentTracker::default();
+        let now = Instant::now();
+        let completed = AtomicBool::new(false);
+        let attempt = || {
+            source
+                .read_range(b"generated-object-2", 0, 4096, &AtomicBool::new(false))
+                .map(|_| {
+                    completed.store(true, Ordering::SeqCst);
+                })
+                .map_err(|_| IntentFailure::Offline)
+        };
+        intent.drive((true, false), false, now, |_| attempt());
+        assert!(!completed.load(Ordering::SeqCst));
+        source.offline.store(false, Ordering::SeqCst);
+        intent.drive((true, false), false, now + Duration::from_secs(2), |_| {
+            attempt()
+        });
+        assert!(
+            completed.load(Ordering::SeqCst),
+            "offline pin intent did not retry after recovery"
+        );
+    }
+    struct StopOwner {
+        refused: bool,
+        file: PathBuf,
+    }
+    struct TickOwner(Arc<std::sync::atomic::AtomicUsize>);
+    impl FixtureOwner for TickOwner {
+        fn command(&mut self, _: &str, _: &str, _: bool) -> anyhow::Result<Value> {
+            Ok(json!({}))
+        }
+        fn tick(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    #[test]
+    fn status_traffic_does_not_starve_pending_intent_tick() {
+        let ticks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = ticks.clone();
+        let service = FixtureService::start_owner(move || Ok(TickOwner(ticks))).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(850);
+        while Instant::now() < deadline {
+            service.request("items", "", false).unwrap();
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            observed.load(Ordering::SeqCst) > 0,
+            "status traffic starved pending-intent tick"
+        );
+    }
+    impl FixtureOwner for StopOwner {
+        fn command(&mut self, op: &str, _: &str, _: bool) -> anyhow::Result<Value> {
+            match op {
+                "stop" if !self.refused => {
+                    self.refused = true;
+                    anyhow::bail!("retention gate refused");
+                }
+                "stop" => Ok(json!({"unregistered":true})),
+                "items" => Ok(json!({"running":true})),
+                "read" => Ok(json!({"bytes":fs::read(&self.file)?})),
+                "reconnect" => Ok(json!({"reconnected":true})),
+                _ => anyhow::bail!("unknown test command"),
+            }
+        }
+        fn tick(&mut self) {}
+    }
+    #[test]
+    fn rejected_stop_keeps_owner_for_status_read_and_reconnect() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("generated.bin");
+        fs::write(&file, b"retained").unwrap();
+        let service = FixtureService::start_owner(move || {
+            Ok(StopOwner {
+                refused: false,
+                file,
+            })
+        })
+        .unwrap();
+        assert!(service.request("stop", "", false).is_err());
+        assert!(service.active());
+        assert_eq!(
+            service.request("items", "", false).unwrap()["running"],
+            true
+        );
+        assert_eq!(
+            service.request("read", "", false).unwrap()["bytes"],
+            json!(b"retained".to_vec())
+        );
+        assert_eq!(
+            service.request("reconnect", "", false).unwrap()["reconnected"],
+            true
+        );
+        service.request("stop", "", false).unwrap();
+        assert!(!service.active());
+    }
+    struct TerminalOwner(bool);
+    impl FixtureOwner for TerminalOwner {
+        fn command(&mut self, op: &str, _: &str, _: bool) -> anyhow::Result<Value> {
+            if op == "stop" {
+                self.0 = false;
+                anyhow::bail!("partial teardown; retained for recovery");
+            }
+            if op == "items" {
+                return Ok(json!({"cleanup_confirmed":false}));
+            }
+            anyhow::bail!("native operations disabled")
+        }
+        fn tick(&mut self) {}
+        fn serving(&self) -> bool {
+            self.0
+        }
+    }
+    #[test]
+    fn terminal_teardown_disables_capabilities_and_drop_closes_owner_channel() {
+        let service = FixtureService::start_owner(|| Ok(TerminalOwner(true))).unwrap();
+        assert!(service.request("stop", "", false).is_err());
+        assert!(!service.active());
+        assert!(service.unavailable());
+        assert_eq!(
+            service.request("items", "", false).unwrap()["cleanup_confirmed"],
+            false
+        );
+        assert!(service.request("read", "", false).is_err());
+        drop(service);
+    }
     #[test]
     #[ignore = "requires its own explicitly approved NEW generated Shell root"]
     fn untouched_placeholders_survive_normal_exit() {
@@ -726,13 +1128,115 @@ mod tests {
         assert!(shell_text("unknown").contains("unverified"));
     }
     #[test]
+    fn intent_backoff_is_bounded_and_cancel_does_not_bypass_dirty_gate() {
+        let mut intent = IntentTracker::default();
+        let now = Instant::now();
+        let attempts = std::cell::Cell::new(0);
+        let fail = |_| {
+            attempts.set(attempts.get() + 1);
+            Err(IntentFailure::DirtyRecovery)
+        };
+        intent.drive((false, true), true, now, fail);
+        for _ in 0..100 {
+            intent.drive((false, true), true, now + Duration::from_secs(2), fail);
+        }
+        assert_eq!(attempts.get(), 1);
+        assert_eq!(intent.status()["pending"], true);
+        assert_eq!(intent.status()["failure"], "dirty_recovery_required");
+        intent.drive((false, true), true, now + Duration::from_secs(31), fail);
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(intent.status()["pending"], true);
+        intent.drive((false, false), true, now + Duration::from_secs(32), fail);
+        assert_eq!(intent.status()["pending"], false);
+        assert_eq!(attempts.get(), 2);
+    }
+    #[test]
     #[ignore = "requires an explicitly approved NEW CFAPI fixture root; never run automatically"]
     fn native_engine_end_to_end_requires_explicit_registration() {
         let root = PathBuf::from(
             std::env::var_os("TWODRIVE_APPROVED_NATIVE_FIXTURE_ROOT")
                 .expect("explicit approved fixture root required"),
         );
+        #[cfg(not(feature = "native-test-hooks"))]
         let service = FixtureService::start(root.clone()).unwrap();
+        #[cfg(feature = "native-test-hooks")]
+        let (service, concurrent_checked) = {
+            use native::TeardownStage;
+            let checked = Arc::new(AtomicBool::new(false));
+            let done = checked.clone();
+            let worker_root = root.clone();
+            let first = root.join(&objects()[0].name);
+            let (began_tx, began_rx) = mpsc::sync_channel(1);
+            let (release_tx, release_rx) = mpsc::sync_channel(1);
+            let (done_tx, done_rx) = mpsc::sync_channel(1);
+            let mut sender = Some((began_tx, release_rx, done_tx));
+            let mut writer = None;
+            let mut phase = 0;
+            let service = FixtureService::start_owner(move || {
+                let mut host = Host::start(&worker_root)?;
+                host.session.set_teardown_hook(move |stage| {
+                    if stage == TeardownStage::AllProtected && phase == 0 {
+                        let (began, release, finished) =
+                            sender.take().ok_or("writer already started")?;
+                        let path = first.clone();
+                        writer = Some(thread::spawn(move || {
+                            let _ = began.send(());
+                            let result = (|| -> std::io::Result<()> {
+                                let mut file = match fs::OpenOptions::new()
+                                    .write(true)
+                                    .truncate(true)
+                                    .open(&path)
+                                {
+                                    Ok(file) => file,
+                                    Err(_) => {
+                                        let _ = release.recv();
+                                        fs::OpenOptions::new()
+                                            .write(true)
+                                            .truncate(true)
+                                            .open(&path)?
+                                    }
+                                };
+                                let mut bytes = generated_bytes(0);
+                                let prefix = b"generated concurrent teardown edit";
+                                bytes[..prefix.len()].copy_from_slice(prefix);
+                                file.write_all(&bytes)?;
+                                file.sync_all()
+                            })();
+                            let _ = finished.send(result.map_err(|e| e.to_string()));
+                        }));
+                        began_rx
+                            .recv_timeout(Duration::from_secs(2))
+                            .map_err(|e| e.to_string())?;
+                        if done_rx.recv_timeout(Duration::from_millis(50)).is_ok() {
+                            return Err(
+                                "writer completed while every protected reference was held".into(),
+                            );
+                        }
+                        phase = 1;
+                    } else if stage == TeardownStage::AllReverted && phase == 1 {
+                        let _ = release_tx.send(());
+                        done_rx
+                            .recv_timeout(Duration::from_secs(5))
+                            .map_err(|e| e.to_string())??;
+                        if let Some(writer) = writer.take() {
+                            writer.join().map_err(|_| "writer panicked")?;
+                        }
+                        let mut expected = generated_bytes(0);
+                        let prefix = b"generated concurrent teardown edit";
+                        expected[..prefix.len()].copy_from_slice(prefix);
+                        if fs::read(&first).map_err(|e| e.to_string())? != expected {
+                            return Err("concurrent ordinary-file bytes differ".into());
+                        }
+                        done.store(true, Ordering::SeqCst);
+                        phase = 2;
+                    }
+                    Ok(())
+                });
+                Ok(host)
+            })
+            .unwrap();
+            (service, checked)
+        };
         let result = (|| -> anyhow::Result<Value> {
             let initial = service.request("items", "", false)?;
             ensure!(
@@ -763,8 +1267,23 @@ mod tests {
                     .is_err(),
                 "open file did not veto"
             );
+            #[cfg(feature = "native-test-hooks")]
+            {
+                native::test_release_intent(&first).map_err(anyhow::Error::msg)?;
+                let pending = wait_for_status(&service, |s| {
+                    s["items"][0]["local_intent"]["pending"] == true
+                })?;
+                ensure!(
+                    pending["items"][0]["downloaded"] == true,
+                    "open handle protection was bypassed"
+                );
+            }
             drop(open);
+            #[cfg(not(feature = "native-test-hooks"))]
             let released = service.request("dehydrate", "generated-object-0", false)?;
+            #[cfg(feature = "native-test-hooks")]
+            let released =
+                wait_for_status(&service, |s| s["items"][0]["residency"] == "online_only")?;
             ensure!(
                 released["items"][0]["residency"] == "online_only"
                     && released["items"][0]["cache_resident"] == true,
@@ -778,8 +1297,18 @@ mod tests {
                     .is_err(),
                 "unavailable source succeeded"
             );
+            #[cfg(feature = "native-test-hooks")]
+            {
+                native::pin(&root.join(&objects()[2].name), true).map_err(anyhow::Error::msg)?;
+                wait_for_status(&service, |s| {
+                    s["items"][2]["local_intent"]["pending"] == true
+                })?;
+            }
             service.request("offline", "", false)?;
+            #[cfg(not(feature = "native-test-hooks"))]
             service.request("read", "generated-object-2", false)?;
+            #[cfg(feature = "native-test-hooks")]
+            wait_for_status(&service, |s| s["items"][2]["downloaded"] == true)?;
             let reconnected = service.request("reconnect", "", false)?;
             ensure!(
                 reconnected["items"][2]["downloaded"] == true,
@@ -834,6 +1363,18 @@ mod tests {
         drop(service);
         native::verify_unregistered(&root).expect("new fixture root cleanup unconfirmed");
         assert_eq!(cleanup.unwrap()["unregistered"], true);
+        #[cfg(feature = "native-test-hooks")]
+        {
+            assert!(concurrent_checked.load(Ordering::SeqCst));
+            let mut expected = generated_bytes(0);
+            let prefix = b"generated concurrent teardown edit";
+            expected[..prefix.len()].copy_from_slice(prefix);
+            assert_eq!(
+                fs::read(root.join(&objects()[0].name)).unwrap(),
+                expected,
+                "concurrent bytes were lost during unregister"
+            );
+        }
         let report = result.unwrap();
         println!(
             "{}",

@@ -144,6 +144,7 @@ class _NativeLocalFilesCardState extends State<NativeLocalFilesCard> {
       'hydrating': '正在读取数据源',
     };
     final caps = widget.client.nativeItemCapabilities;
+    final localIntent = value['local_intent'];
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -151,11 +152,19 @@ class _NativeLocalFilesCardState extends State<NativeLocalFilesCard> {
         children: [
           Text(value['name'] as String),
           Text(
-            '${residence[value['residency']] ?? '未知驻留状态'} · ${value['pinned'] == true ? '固定保留' : '未固定'} · ${sync[value['sync']] ?? '未知同步状态'}',
+            '${residence[value['residency']] ?? '未知驻留状态'} · ${value['pin_state_known'] == false
+                ? '固定状态未知'
+                : value['pinned'] == true
+                ? '固定保留'
+                : '未固定'} · ${sync[value['sync']] ?? '未知同步状态'}',
           ),
           Text(
             '已下载：${value['downloaded'] == true ? '是' : '否'}；引擎缓存：${value['cache_resident'] == true ? '保留' : '无'}；世代 ${value['generation'] ?? '—'} / 已确认 ${value['acknowledged_generation'] ?? '—'}',
           ),
+          if (localIntent is Map && localIntent['pending'] == true)
+            Text(
+              '待完成的本机操作：${localIntent['kind']}；${localIntent['failure'] ?? '等待执行'}',
+            ),
           Wrap(
             spacing: 12,
             children: [
@@ -180,6 +189,7 @@ class _NativeLocalFilesCardState extends State<NativeLocalFilesCard> {
                         caps['native_copy_dehydrate'] != true ||
                         value['downloaded'] != true ||
                         value['pinned'] == true ||
+                        value['pin_state_known'] == false ||
                         value['sync'] != 'in_sync'
                     ? null
                     : () => run('local_dehydrate', value['id'] as String),

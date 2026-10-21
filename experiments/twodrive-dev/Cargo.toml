@@ -12,6 +12,7 @@ rust-version = "1.91"
 default = []
 mount = ["dep:twodrive-fs", "dep:fuser"]
 native-local-fixture = ["twodrive-local-files/native-local-fixture"]
+native-test-hooks = ["native-local-fixture", "twodrive-local-files/native-test-hooks"]
 
 [dependencies]
 twodrive-core = { path = "../../crates/twodrive-core" }

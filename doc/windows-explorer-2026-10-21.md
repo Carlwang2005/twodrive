@@ -22,8 +22,15 @@ an uploaded generation. Unknown state is explicit. The generated read-only
 Provider cannot produce a cloud write conflict; no synthetic conflict is shown.
 Root summary counts native resident files, private cache copies and pinned intent
 separately; the worst observed child sync condition is preserved.
+Pending/error messages are custom text properties. Native pending/error glyphs,
+custom icon handlers and physical Explorer refresh remain unaccepted.
 
-The owner observes only its bounded generated leaves every 500 ms. Native Shell
+The owner observes only its bounded generated leaves every 500 ms, using a deadline
+that is not reset by incoming status traffic. Failed intents remain pending with
+classified failures and capped retry backoff; closing a vetoing handle or restoring
+the generated source does not require toggling the intent again. Dirty recovery
+remains blocked. The OS pin state is durable; the retry ledger itself is in-process,
+and persistent root restart is still disabled. Native Shell
 pin/free-space attribute changes request the same existing engine-controlled
 read/dehydration operations. The OS cannot automatically dehydrate: the policy
 does not enable AutoDehydrationAllowed, and external dehydration notifications
@@ -44,10 +51,17 @@ placeholders**. The earlier unconditional shutdown was unsafe for an untouched
 fixture. Before explicit stop or normal owner destruction, this host retains its
 deterministic generated data, without using a real account or network. The native
 Session additionally refuses either Shell or CFAPI unregistration while a known
-placeholder is incomplete or has changed logical length. A dirty incomplete
+placeholder is incomplete or has changed logical length. It then holds exclusive
+protected references to all known generated files, rechecks the metadata, and
+reverts them to ordinary files before unregister. A concurrent later write is
+therefore an ordinary-file write, not an unhydrated placeholder deletion. The
+real-CFAPI concurrency regression is compiled but remains unrun. A dirty incomplete
 file is kept for recovery; shutdown reports incomplete cleanup instead of
 claiming that unregistration succeeded. Generated files, journal and cache remain.
 This fixture teardown policy is not a production sync-root uninstall policy.
+A refused stop before conversion keeps the owner serving; partial teardown disables
+native capabilities and reports cleanup and registration as unconfirmed. Drop
+closes the owner channel before joining. See incidents TD-20261021-08 through 10.
 
 ## Acceptance matrix
 
@@ -55,11 +69,13 @@ This fixture teardown policy is not a production sync-root uninstall policy.
 | --- | --- |
 | Engine generation/digest/identity/open-handle/dirty guards | Existing actual-source regressions retained; final results recorded in PR |
 | Failed read clears only after successful retry | Actual EngineSource regression |
+| Handle-close and offline recovery retries; continuous status traffic; refused stop owner | Old-loop failures reproduced; corrected non-registration regressions pass locally |
 | Error/pending/unknown folder aggregate vs separate residency/cache counts | Actual engine-source regression |
 | Flutter pin/offline/reconnect capability gates and late-client isolation | Widget/client tests; final results recorded in PR |
 | Shell registration/property metadata does not hydrate content | Explicit new-root ignored test; pending execution |
 | OS Chinese/long-path reads, pin/unpin, release, offline retry and live reconnect | Explicit new-root ignored test; pending execution |
 | Untouched placeholders survive normal exit | Separate explicit new-root ignored test; pending execution |
+| Concurrent writer during all-file protection, conversion and unregister | Opt-in test-only barriers compiled; real native test unrun pending approval |
 | Explorer cloud/check/pin/pending/error visuals and context-menu interaction | Unverified: native desktop control entry point unavailable in this session |
 | Actual GUI → IPC → native root interaction | Unverified pending current-binary desktop acceptance |
 | Explorer thumbnail/indexer/AV hydration behavior | Unverified; metadata-only API checks do not establish this |
