@@ -3766,6 +3766,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "twodrive-cfapi-probe"
+version = "0.1.7-alpha.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "twodrive-core",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "twodrive-core"
 version = "0.2.14"
 dependencies = [
@@ -3818,6 +3828,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "twodrive-backend",
+ "twodrive-cfapi-probe",
  "twodrive-core",
  "twodrive-fs",
  "url",

@@ -1,7 +1,9 @@
 //! Import planning only. No enumeration, hydration, copy, token or cache access.
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     OrdinaryDirectory,
     OtherClientSyncRoot,
@@ -10,7 +12,8 @@ pub enum SourceKind {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Disposition {
     FullFileNeedsApprovedPlan,
     PlaceholderNeedsOriginalClientExport,
@@ -48,6 +51,12 @@ pub fn classify(kind: SourceKind, attributes: u32, is_file: bool) -> Disposition
 #[cfg(windows)]
 pub fn preflight(path: &Path, kind: SourceKind) -> std::io::Result<Disposition> {
     use std::os::windows::fs::MetadataExt;
+    if matches!(
+        kind,
+        SourceKind::PrivateCache | SourceKind::VirtualMount | SourceKind::Unknown
+    ) {
+        return Ok(classify(kind, 0, false));
+    }
     let metadata = std::fs::symlink_metadata(path)?;
     Ok(classify(
         kind,

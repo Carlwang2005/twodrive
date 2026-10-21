@@ -10,6 +10,7 @@ import 'sharing_page.dart';
 import 'package:window_manager/window_manager.dart';
 import 'client.dart';
 import 'profile_dialog.dart';
+import 'local_file_preflight.dart';
 
 String bytes(num value) {
   if (value < 1024) {
@@ -1030,6 +1031,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                 : c.autostart,
           ),
         ),
+        if (c.canPreflightLocalFile) LocalFilePreflightCard(client: c),
         if (c.canMount)
           Card(
             color: Colors.white,

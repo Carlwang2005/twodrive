@@ -3,6 +3,38 @@
 Baseline: dev `507fef1` (PR #35). This is an **opt-in experiment**, not a
 production Windows sync release or an upgrade to the installed desktop.
 
+The [published 0.1.7-alpha.1 CFAPI ZIP](https://github.com/LumiaBlack51/twodrive/releases/tag/dev-v0.1.7-alpha.1-cfapi)
+is only the 122KiB native probe at `53991d5`, not a complete GUI feature. Its
+exact-commit Windows/Linux adapter/native, Debian policy and Debian package CI
+all passed. Subsequent work in PR #39 connects **metadata-only preflight** to
+the real `apps/dav` engine and Settings UI. That connection does not enable a
+native sync root, import, uploads, or Explorer status integration.
+
+## Desktop IPC and UI connection
+
+`desktop_local_files.rs` composes the same adapter classification through the
+existing private JSON-lines IPC. `status.local_files` advertises schema version
+1 and Windows `metadata_preflight`; `native_mount` and `import` remain false.
+`local_preflight` accepts `schema_version`, one absolute `source_path` and an
+explicit `source_kind`. Its response contains a decision and safety/result
+flags, never the path or account identity. Unknown schemas are rejected; older
+engines omit the capability and the UI hides the new card. Provider capabilities
+and the existing Linux FUSE mount contract are unchanged.
+
+Settings offers a single-file preflight form. Flutter only sends IPC and renders
+the engine decision. It does not read file bytes, inspect Windows attributes,
+register roots or implement a provider. A complete-file candidate is never
+presented as uploaded/synchronized. Unknown provenance, private cache and virtual
+mount classifications return without even opening the supplied path. No import
+button or native Windows mount button is enabled.
+
+Local checks for this connection: 9 Rust tests (including the actual desktop
+boundary via a lightweight harness), strict Clippy, Flutter analyzer and 35
+Flutter tests passed. Full desktop build/real-process IPC results are recorded
+after CI execution; the prototype release must not be cited as proof of those
+later changes. `scripts/test-local-file-preflight.py` exercises the actual engine
+in generated isolated state without accounts or sync-root registration.
+
 ## Current implementation and next steps
 
 The current `apps/dav` engine has Linux FUSE composition in

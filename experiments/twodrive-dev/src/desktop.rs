@@ -29,6 +29,8 @@ use twodrive_dev::{
 
 #[path = "desktop_backup.rs"]
 mod backup;
+#[path = "desktop_local_files.rs"]
+mod local_files;
 #[cfg(all(target_os = "linux", feature = "mount"))]
 #[path = "mount.rs"]
 mod mount;
@@ -426,7 +428,7 @@ impl App {
         let sharing = self.hosting.status(&self.state).unwrap_or_else(|_| json!({"supported":true,"running":false,"error":"共享配置无法读取，请检查私有状态目录"}));
         Ok(
             json!({"providers":providers::catalog(),"capabilities":self.capabilities(),"route_fallback":self.network.fallback(),"paused":self.state.dir.join("paused").exists(),"backup":backup,"backup_failed":backup_failed,"mount_activity":mount_activity,
-            "version":env!("CARGO_PKG_VERSION"),"sharing":sharing,
+              "version":env!("CARGO_PKG_VERSION"),"sharing":sharing,"local_files":local_files::capabilities(),
             "connected":self.backend.is_some(),"profile":self.connected.as_ref().map(|p|&p.id),
             "mounted":self.mounted.is_some(),"mount_failed":mount_dead,"gateway_failed":gateway_dead,
             "cache":cache,"network":network,
@@ -442,6 +444,7 @@ impl App {
     ) -> anyhow::Result<Value> {
         let a = &req.args;
         match req.op.as_str() {
+            "local_preflight" => local_files::preflight(a),
             "share_start" => self.hosting.start(&self.state, &self.args, a, &cancel),
             "share_stop" => {
                 self.hosting.stop();

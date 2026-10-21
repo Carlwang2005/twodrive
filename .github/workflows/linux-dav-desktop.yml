@@ -128,6 +128,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows IPC, file transfer, backups and autostart isolation
         run: |
+          python scripts/test-local-file-preflight.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-dav-desktop.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-desktop-queue.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe

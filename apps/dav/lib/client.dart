@@ -85,6 +85,28 @@ class StorageClient extends ChangeNotifier {
     await refreshStatus();
   });
   bool get canMount => status['capabilities']?['mount'] == true;
+  bool get canPreflightLocalFile =>
+      status['local_files']?['schema_version'] == 1 &&
+      status['local_files']?['metadata_preflight'] == true;
+  Future<Json> preflightLocalFile(String source, String kind) async {
+    if (!canPreflightLocalFile) {
+      throw StateError('当前引擎不支持本地文件预检');
+    }
+    final result = await request('local_preflight', {
+      'schema_version': 1,
+      'source_path': source,
+      'source_kind': kind,
+    });
+    if (result['schema_version'] != 1 ||
+        result['approval_required'] != true ||
+        result['content_read'] != false ||
+        result['hydration_requested'] != false ||
+        result['import_performed'] != false) {
+      throw StateError('本地预检响应不兼容，请更新引擎与界面');
+    }
+    return result;
+  }
+
   bool get mounted => status['mounted'] == true;
   Json? get profile => profiles.where((p) => p['id'] == selected).firstOrNull;
   bool capability(String key) =>
