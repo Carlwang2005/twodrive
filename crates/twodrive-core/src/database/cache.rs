@@ -280,9 +280,12 @@ impl Database {
             || !matches!(record.state, FileState::Cached)
             || record.cloud_remote_id.is_none()
             || cutoff.is_some_and(|cutoff| {
-                record
-                    .cache_accessed_unix
-                    .is_some_and(|accessed| accessed > cutoff)
+                // A file can move into the trash after the retention scan.
+                // Check its current path under the same lock as cache removal.
+                is_mount_trash_path(&record.metadata.path)
+                    || record
+                        .cache_accessed_unix
+                        .is_some_and(|accessed| accessed > cutoff)
             })
         {
             return Ok(false);
@@ -396,6 +399,7 @@ impl Database {
         Ok(released)
     }
 
+    /// Expire ordinary cache while leaving on-mount trash to explicit actions.
     pub fn prune_cache(&self, older_than_seconds: i64) -> anyhow::Result<usize> {
         let cutoff = now_unix().saturating_sub(older_than_seconds);
         let records = self
@@ -404,6 +408,7 @@ impl Database {
             .filter(|record| {
                 record.state == FileState::Cached
                     && !record.effective_pinned()
+                    && !is_mount_trash_path(&record.metadata.path)
                     && record
                         .cache_accessed_unix
                         .map(|accessed| accessed <= cutoff)
@@ -421,10 +426,156 @@ impl Database {
     }
 }
 
+fn is_mount_trash_path(path: &str) -> bool {
+    // freedesktop trash lives at the mount root, in .Trash-$uid or .Trash/$uid.
+    // Protect the whole subtree (info, payloads and temporary recovery files),
+    // without treating every .trashinfo file or similarly named folder as trash.
+    let Some(relative) = path.strip_prefix('/') else {
+        return false;
+    };
+    let mut components = relative.split('/');
+    let root = components.next().unwrap_or_default();
+    let uid = if root == ".Trash" {
+        components.next().unwrap_or_default()
+    } else if let Some(uid) = root.strip_prefix(".Trash-") {
+        uid
+    } else {
+        return false;
+    };
+    !uid.is_empty() && uid.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod retention_tests {
     use super::*;
     use crate::MetadataEntry;
+
+    #[test]
+    fn retention_keeps_trash_info_and_payloads_without_pinning() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::new(root.path().join("db"));
+        db.init().unwrap();
+        let paths = [
+            ("/.Trash-1000/info/report.trashinfo", true),
+            ("/.Trash-1000/info/report.trashinfo.ABC123", true),
+            ("/.Trash-1000/files/report", true),
+            ("/.Trash-1000/files/project/nested/file", true),
+            ("/.Trash/1001/info/report.trashinfo", true),
+            ("/.Trash/1001/files/project/nested/file", true),
+            ("/.Trash-0/expunged/report", true),
+            ("/.Trash-1000/directorysizes", true),
+            ("/Documents/report.trashinfo", false),
+            ("/Documents/.Trash-1000/files/report", false),
+            ("/.Trash-notes/files/report", false),
+            ("/.Trash-1000-backup/files/report", false),
+            ("/.Trash-/files/report", false),
+            ("/.Trash/notes/files/report", false),
+            ("/.Trash-backup/1000/files/report", false),
+            ("/.trash-1000/files/report", false),
+        ];
+        for (index, (path, _)) in paths.iter().enumerate() {
+            let id = format!("file-{index}");
+            let cache = root.path().join(&id);
+            fs::write(&cache, b"data").unwrap();
+            db.upsert_metadata(&MetadataEntry::new_file(&id, *path, 4, 1, "etag"))
+                .unwrap();
+            db.mark_cached(&id, &cache).unwrap();
+        }
+        db.upsert_metadata(&MetadataEntry::new_file(
+            "cloud-only",
+            "/.Trash-1000/files/never-downloaded",
+            4,
+            1,
+            "etag",
+        ))
+        .unwrap();
+        db.connect()
+            .unwrap()
+            .execute("UPDATE files SET cache_accessed_unix=1", [])
+            .unwrap();
+        db.connect()
+            .unwrap()
+            .execute(
+                "UPDATE files SET cache_accessed_unix=NULL WHERE remote_id='file-0'",
+                [],
+            )
+            .unwrap();
+        let restarted = Database::new(db.path());
+        restarted.init().unwrap();
+        assert_eq!(
+            restarted.prune_cache(30 * 24 * 60 * 60).unwrap(),
+            paths.iter().filter(|(_, keep)| !keep).count()
+        );
+        // An aggressive prune uses the same exemption without changing pin policy.
+        assert_eq!(restarted.prune_cache(0).unwrap(), 0);
+        for (index, (path, keep)) in paths.iter().enumerate() {
+            let record = restarted.get_by_path(path).unwrap().unwrap();
+            assert!(!record.effective_pinned(), "{path}");
+            assert_eq!(record.cache_path.is_some(), *keep, "{path}");
+            let cache = root.path().join(format!("file-{index}"));
+            assert_eq!(cache.exists(), *keep, "{path}");
+            if *keep {
+                assert_eq!(record.state, FileState::Cached, "{path}");
+                assert_eq!(fs::read(cache).unwrap(), b"data");
+            } else {
+                assert_eq!(record.state, FileState::OnlineOnly, "{path}");
+            }
+        }
+        let cloud_only = restarted.get_by_remote_id("cloud-only").unwrap().unwrap();
+        assert_eq!(cloud_only.state, FileState::OnlineOnly);
+        assert!(cloud_only.cache_path.is_none());
+    }
+
+    #[test]
+    fn retention_rechecks_trash_moves_before_releasing_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::new(root.path().join("db"));
+        db.init().unwrap();
+        let cache = root.path().join("cache");
+        fs::write(&cache, b"data").unwrap();
+        db.upsert_metadata(&MetadataEntry::new_file("file", "/report", 4, 1, "etag"))
+            .unwrap();
+        db.mark_cached("file", &cache).unwrap();
+        db.connect()
+            .unwrap()
+            .execute("UPDATE files SET cache_accessed_unix=1", [])
+            .unwrap();
+        let scanned = db.get_by_path("/report").unwrap().unwrap();
+        db.move_subtree_and_queue("file", "/.Trash-1000/files/report")
+            .unwrap();
+        assert!(
+            !db.release_cached_record(&scanned, Some(now_unix() - 60))
+                .unwrap()
+        );
+        assert_eq!(fs::read(&cache).unwrap(), b"data");
+        db.move_subtree_and_queue("file", "/restored-report")
+            .unwrap();
+        assert_eq!(db.prune_cache(60).unwrap(), 1);
+        assert!(!cache.exists());
+        assert_eq!(
+            db.get_by_path("/restored-report").unwrap().unwrap().state,
+            FileState::OnlineOnly
+        );
+    }
+
+    #[test]
+    fn explicit_release_can_still_free_trash_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::new(root.path().join("db"));
+        db.init().unwrap();
+        let cache = root.path().join("cache");
+        fs::write(&cache, b"data").unwrap();
+        let path = "/.Trash-1000/files/report";
+        db.upsert_metadata(&MetadataEntry::new_file("file", path, 4, 1, "etag"))
+            .unwrap();
+        db.mark_cached("file", &cache).unwrap();
+        assert_eq!(db.prune_cache(0).unwrap(), 0);
+        assert_eq!(db.release_path(path).unwrap(), 1);
+        assert!(!cache.exists());
+        let record = db.get_by_path(path).unwrap().unwrap();
+        assert_eq!(record.state, FileState::OnlineOnly);
+        assert!(record.cache_path.is_none());
+    }
 
     #[test]
     fn retention_rechecks_recent_access_and_durable_upload_claims() {
