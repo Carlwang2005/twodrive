@@ -179,6 +179,11 @@ impl Database {
         let Some(record) = current else {
             return Ok(false);
         };
+        // A native cache requires its durable generation/lease gate and an OS
+        // adapter oplock. The legacy FUSE/prune path owns neither of these.
+        if super::local_journal::has_journal_record(&tx, &record.metadata.remote_id)? {
+            return Ok(false);
+        }
         if record.metadata.is_dir
             || record.effective_pinned()
             || !matches!(record.state, FileState::Cached)

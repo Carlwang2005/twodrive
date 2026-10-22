@@ -135,6 +135,41 @@ impl Backend {
     }
 }
 
+impl Backend {
+    /// A journal claim owns an opaque object/version snapshot. Do not select a
+    /// potentially replaced object by path again at transfer time.
+    pub fn upload_snapshot(
+        &self,
+        path: &str,
+        source: &Path,
+        id: &str,
+        version: &str,
+        progress: Progress,
+    ) -> anyhow::Result<MetadataEntry> {
+        valid_path(path)?;
+        self.check_pause()?;
+        let caps = self.capabilities();
+        ensure!(
+            caps.upload && caps.conditional_upload && !id.is_empty() && !version.is_empty(),
+            "versioned conditional upload unavailable"
+        );
+        let paused = self.paused.clone();
+        self.inner.upload_controlled(
+            path,
+            source,
+            Some(id),
+            Some(version),
+            Arc::new(move |done, total| {
+                ensure!(
+                    !paused.as_ref().is_some_and(|path| path.exists()),
+                    "synchronization paused"
+                );
+                progress(done, total)
+            }),
+        )
+    }
+}
+
 pub fn valid_path(path: &str) -> anyhow::Result<()> {
     ensure!(
         path.starts_with('/')

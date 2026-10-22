@@ -1,6 +1,6 @@
 [package]
 name = "twodrive-dev"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "MIT"
 rust-version = "1.91"
@@ -11,10 +11,12 @@ rust-version = "1.91"
 [features]
 default = []
 mount = ["dep:twodrive-fs", "dep:fuser"]
+native-local-fixture = ["twodrive-local-files/fixture-probe"]
 
 [dependencies]
 twodrive-core = { path = "../../crates/twodrive-core" }
 twodrive-backend = { path = "../../crates/twodrive-backend" }
+twodrive-local-files = { package = "twodrive-cfapi-probe", path = "../windows-cfapi", default-features = false }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

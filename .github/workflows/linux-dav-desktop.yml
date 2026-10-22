@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/dav/**'
       - 'experiments/twodrive-dev/**'
+      - 'experiments/windows-cfapi/**'
       - 'crates/**'
       - 'scripts/*dav-desktop.py'
       - 'scripts/test-desktop-windows-ui.py'
@@ -118,16 +119,18 @@ jobs:
       - name: Portable desktop engine
         working-directory: experiments/twodrive-dev
         run: |
-          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --features native-local-fixture --all-targets -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-provider-old-paths.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked
+          cargo test --locked --features native-local-fixture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --locked --release --bins
+          cargo build --locked --release --features native-local-fixture --bins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows IPC, file transfer, backups and autostart isolation
         run: |
+          python scripts/test-local-file-preflight.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-dav-desktop.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test-desktop-queue.py --engine experiments/twodrive-dev/target/release/twodrive-dav-engine.exe --peer experiments/twodrive-dev/target/release/twodrive-dev.exe

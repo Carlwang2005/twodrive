@@ -46,6 +46,231 @@
 
 
 
+## TD-20261021-06: stale cache digest and rejected hydration metadata mutation
+
+- Date: 2026-10-21.
+- Status: reproduced on unmerged 33dc546; fixed and locally verified with generated files.
+- Scope: opt-in private journal/engine bridge, absent from published alpha.2. No real account or installed client was changed.
+- Related history: TD-20261021-05 covers ownership/lease persistence; these are additional consistency defects, not a claim of a released-client incident.
+
+### Symptoms, reproduction and evidence
+
+`reconciliation_must_rehash_inside_the_final_cache_lease` hashes an ambiguous-upload cache under an initial read lease, releases it, makes a same-length untracked edit, then reconciles. The old implementation accepted the stale digest and incorrectly acknowledged Cached. The regression failed at that assertion before the fix.
+
+`rejected_rehydration_must_preserve_owned_cache_metadata_and_journal` hydrates v1, changes the generated Provider to v2, and attempts hydration again. The old call correctly refused replacing the cache but had already changed files.etag/size to v2. The metadata-preservation assertion failed before the fix. Private local logs retain both expected exit-101 failures; no user names or file lists are published.
+
+### Mechanism and fix
+
+The engine previously dropped its hashing lease before core reconciliation reacquired a lock. Core now accepts a hashing callback, computes the digest inside its final file lease and SQLite transaction, and retains that lease through acknowledgement. Hydration now checks identity/path cache ownership before upsert and holds the journal gate through metadata claim, serializing against publication. Existing bytes and journal generation remain unchanged on rejected rehydration.
+
+Arbitrary-string bridge construction is test-only. A future real-provider constructor must use verified profile/provider session authority; no new arbitrary string API is treated as authenticated identity.
+
+### Validation, recovery and limits
+
+Both regressions fail on old source and pass after the changes. Strict Windows harness Clippy and 25 engine/journal tests pass. No data migration or repair of real files was performed. CFAPI integration, Explorer icon acceptance, live accounts and power-loss recovery remain outside this evidence. See [journal contract](windows-local-journal-2026-10-21.md). Changes are unmerged; the existing alpha.2 tag is unchanged.
+
+## TD-20261021-06: stale digest and failed hydration metadata mutation
+
+- Date: 2026-10-21.
+- Status: reproduced on unmerged 33dc546; fixed and locally verified using generated files.
+- Scope: opt-in journal/engine bridge, absent from released alpha.2. No real account or installed client changed.
+- Related history: TD-20261021-05 covers ownership persistence; these are two additional consistency defects.
+
+### Symptoms, reproduction and evidence
+
+`reconciliation_must_rehash_inside_the_final_cache_lease` hashes an ambiguous-upload cache, releases its read lease, makes a same-length edit and reconciles. Old source accepted the stale digest and incorrectly acknowledged Cached. `rejected_rehydration_must_preserve_owned_cache_metadata_and_journal` hydrates v1, changes the generated Provider to v2 and hydrates again. Old source refused replacing the cache but had already changed files.etag/size to v2. Both deterministic regressions failed at their intended assertions before the fix (private logs preserve exit 101).
+
+### Mechanism and fix
+
+Core now computes the engine digest callback inside the final file lease and SQLite transaction, retaining that lease through acknowledgement. Hydration checks identity/path cache ownership before upsert and holds the journal gate through the metadata claim, serializing with publication. A rejected second hydration preserves existing metadata, bytes and journal generations. Arbitrary-string bridge construction is test-only; real production construction requires verified profile/provider authority and is not exposed yet.
+
+### Validation, recovery and limits
+
+Strict Windows harness Clippy and all 25 engine/journal tests pass after the fixes. Old-source failures and fixed-source passes are recorded. No real-data recovery or migration occurred. CFAPI integration, physical Explorer acceptance, live accounts and power-loss recovery are not established by these tests. The existing alpha.2 tag is unchanged. See [journal contract](windows-local-journal-2026-10-21.md).
+
+### Build-boundary follow-up (same work branch)
+
+Full desktop CI on 36813fe caught an unused `Path` import in non-test builds after restricting construction to tests. The lightweight test harness had hidden that cfg mistake. The import is now gated for test/Windows fixture builds; a non-test example compiles the actual engine sources in adapter CI so this boundary is checked before full builds. Opt-in and default strict local Clippy pass. New full-head CI is required; previous failures are not reported as passes.
+
+## TD-20261021-05：Windows 原型状态不能替代持久 journal，旧释放路径必须隔离
+
+- 日期：2026-10-21（UTC）
+- 状态：共享持久层及正式引擎 mock 桥接已实现；当前提交的回归与 CI 结果见 PR，原生生产能力继续关闭。
+- 影响版本与环境：PR #39 后续开发；已发布 alpha.2 只读预检没有开放此写入/释放路径，没有真实数据丢失报告。
+- 相关历史资料：TD-20261021-02；Linux 缓存世代、写前记录、待处理父操作及上传确认的历史约束。
+
+### 症状与影响
+
+早期隔离探针只知道生成内容，其 pending/open 字段和 engine_state 不能证明生产文件已上传。进程退出、旧 Cached 标签、上传成功但响应丢失或父目录操作未完成时，若仅凭标签允许释放，会有丢失未确认数据的潜在风险。此风险此前通过能力关闭隔离，未在真实目录复现。
+
+### 触发条件与复现
+
+生成文件写入后注入旧 Cached；真实读句柄仍打开；上传持久 intent 已登记但未确认；子进程直接退出而不运行析构；条件上传已提交但 mock provider 丢弃回复。新回归逐字节断言本地内容保留，并检查旧世代、待删/父移动和已变化的 provider/cache 绑定拒绝释放。
+
+### 根因与证据
+
+原型没有生产 journal/owner/世代桥接。另一个相邻边界是旧 Database::release_record 只理解旧 FileState/文件锁；它没有新 journal 的所有权证据，必须拒绝 journal 管理的条目，避免未来 GUI 清缓存绕过原生守卫。并非声称已有生产 CFAPI 挂载发生此故障。
+
+### 解决办法与恢复操作
+
+在 twodrive-core 的现有 SQLite/files/FileState 上增加 opt-in CacheJournal：独占 owner、真实文件锁、读写租约计数、写前世代、条件上传快照 CAS、完整字节摘要与结果未知标记。新 owner 只能在 OS 所有权锁到手后恢复旧计数；遗留写入先保留并 fsync，未知上传下载远端完整内容且重验版本后再判断。旧释放/剪枝路径拒绝有 journal 的条目。引擎使用既有 Provider 条件写能力，不在 Flutter 或适配层复制协议。无真实用户数据恢复或迁移。
+
+补充身份边界：首个 journal 提交仍允许调用方逐次传入 Backend，且未持久核对 Provider 身份/私有缓存根。补上固定 Backend 所有权、现有身份 binding 的域分隔摘要和 canonical cache root；错误身份/根在 epoch 与恢复计数变化前拒绝。生成回归构造相同 opaque ID/版本但不同账户 binding，验证不能接管旧 journal，原脏数据保留。没有真实账户参与。
+
+### 验证结果与边界
+
+本机轻量 harness 编译实际 Windows model/provider/引擎桥接源码，生成文件完成下载→编辑/fsync→条件上传→同世代确认。真实子进程无析构退出验证写入与未知上传重开后的保留。35 项适配/IPC/journal/引擎 harness 与原有 40 项 core 回归、严格 Clippy 通过。受控地仅移除旧释放函数中的新所有权守卫后，生成文件回归在预期保护断言失败；finally 原样恢复源码后通过。exact-head CI 在 PR 记录。没有执行 Windows 重启、断电或真实账号验证；native_mount/import/cloud_writes 仍关闭。
+
+修订版独立 CFAPI 夹具已获另一次明确许可：八项检查通过，注销后查询 0x80070186，三个生成文件含整个脏文件完整保留。该结果只证明修订探针，不等于这里的持久桥接已接入 Explorer。详见 guarded evidence。
+
+### 防复发措施与回归
+
+actual_reader_and_owner_locks_block_competing_writes_and_release、legacy_release_cannot_bypass_native_journal_with_a_stale_cached_label、process_restart_preserves_unclosed_write_and_requires_recovery、process_restart_keeps_ambiguous_upload_and_rejects_blind_retry，以及正式引擎 lost-reply/offline/conflict/version-change 回归。原生 callback/oplock、稳定状态 IPC、重命名/删除/冲突恢复未完成前不开放生产能力。
+
+### 关联记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)；[持久桥接说明](windows-local-journal-2026-10-21.md)；[修订版原生证据](windows-cfapi-guarded-validation-2026-10-21.json)。已发布 alpha.2 的 tag/资产保持原样；后续源码与它的差异由 PR 新提交记录。
+
+## TD-20261021-04：修改预检路径后仍显示旧文件结果
+
+- 日期：2026-10-21（UTC）
+- 状态：已验证原代码失败、修复后通过的 widget 回归；实际物理 GUI 操作未验收。
+- 影响版本与环境：PR #39 尚未发布的 apps/dav 预检表单。
+- 关联历史故障：无；只读结果归属错误，没有导入或云端写入。
+
+### 症状与影响
+
+检查 A 后把路径改成 B，旧的 A 结果仍显示在 B 下。异步结果也需要防止覆盖新的输入或请求。
+
+### 触发条件与复现
+
+新增 widget 测试先完成 A 的预检，再编辑 B，断言旧结果消失。临时切回旧组件代码时，该测试失败于“Expected: no matching candidates”；finally 原样恢复修复代码。没有真实文件/账户操作。
+
+### 根因与证据
+
+表单只在来源类型切换时清空结果，没有路径 onChanged 失效；响应也未绑定输入/请求世代。
+
+### 解决办法与恢复操作
+
+路径或来源变化都递增世代并清空结果。回包与错误/结束状态必须同时匹配世代、捕获路径、来源与 client 实例；旧 A 完成不能清空或覆盖进行中的 B。无用户恢复操作。
+
+### 验证结果与边界
+
+修复后的 4 项预检测试与 analyzer 通过；包括完成后改路径、A 晚到而 B 仍等待、能力版本拒绝和不把完整文件候选称为同步完成。原代码确定性失败，新代码通过；测试不等同于 Explorer 或用户硬件点击验收。
+
+### 防复发措施与后续
+
+保留延迟 Completable 的 A/B 回归和完成结果失效测试，所有将来输入字段都必须参与结果归属。
+
+### 交付记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)。最终源 SHA 与 CI 结果见 PR/预发布报告。
+
+## TD-20261021-02：原型同步根路径检查可丢失 junction 证据，未知 CFAPI 错误误当未注册
+
+- 日期：2026-10-21（UTC）
+- 状态：已验证生成目录的原始 junction 拒绝、目录替换锁和错误分类；修订版注册场景尚未重新运行。
+- 影响版本与环境：未合并 PR #39 的 CFAPI 原型 0.1.7-alpha.1。正式桌面未开放原生挂载。
+- 关联历史故障：TD-20261021-01 是构建路径脱敏，本条为注册前隔离约束，机制不同。
+
+### 症状与影响
+
+评审发现先 canonicalize 再检查祖先会隐藏原路径中的 junction；CfGetSyncRootInfoByPath 的所有失败都被当成“不在同步根”，无法区分权限/参数/平台错误。没有对用户真实目录执行注册，已批准的旧夹具没有 junction 且成功注销。
+
+### 触发条件与复现
+
+只在生成目录中创建 junction，向其子路径请求新测试根。新增锁回归还发现仅 FILE_READ_ATTRIBUTES 的句柄并不能阻止本机 fs::rename；该受控测试首次失败，改为目录枚举访问后的相同测试通过。
+
+### 根因与证据
+
+规范化路径不是原路径链的审计证据；错误 HRESULT 不是不存在证明。Windows 属性专用句柄不足以建立所需共享锁约束。测试直接观察到锁存活时目录替换成功，未以假定 Win32 语义填充结论。
+
+### 解决办法与恢复操作
+
+检查原始路径链并保留不共享 DELETE、具备目录枚举访问的句柄；原子 NtCreateFile FILE_CREATE 相对锁定父目录创建新叶，保留叶句柄，阻止检查/注册期间替换。只接受明确的 ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT；其他结果失败关闭。原型注册/释放编译于 fixture-probe 非默认特性，正式桌面依赖不启用，不能用原型的 pending/open 假值允许生产释放。无真实同步根恢复操作。
+
+### 验证结果与边界
+
+本机生成目录测试确认：原 junction 被拒且目标下未创建叶；已存在叶不被采用；锁存活时叶/祖先 rename 被拒，释放锁后允许；未知/权限 HRESULT 被拒。旧属性句柄锁回归失败，新实现通过。未复用已结束的一次注册授权；修订版的完整 CFAPI 注册/读取/释放需另一明确授权后验证。 Windows CI 的目录锁测试曾因同步根查询返回 0x80070001 失败，该环境返回值的更深原因未确认。现将纯文件锁/原子建目录测试与 CFAPI 查询分层；生产 Session 仍必须先通过真实查询再创建叶，未知错误白名单没有放宽。脏文件场景改为逐字节验证整个修改后文件，不只前缀，尚未重新执行该场景。
+
+### 防复发措施与后续
+
+保留真实 junction/目录替换/错误分类回归。正式 writable 桥接仍需持久 item lock、generation、pending journal 与打开句柄、排队上传、过时 Cached/版本变化测试；当前只读预检不提供导入/释放接口。
+
+### 交付记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)。已发布 alpha.1 只记录原生检查点，后续修订不据此声称已验证注册；后续构建和验证以新 Release 报告为准。
+
+## TD-20261021-03：桌面变异回归未复制新增本地适配层依赖
+
+- 日期：2026-10-21（UTC）
+- 状态：已修复待完整 CI 验证。
+- 影响版本与环境：PR #39 的 d5d5823，TwoDrive desktop Linux/Windows CI。
+- 关联历史故障：无；不是 path-as-ID 行为回归。
+
+### 症状与影响
+
+Rust Clippy 成功后，历史 path-as-ID 变异回归因临时源码副本缺少 experiments/windows-cfapi/Cargo.toml 而失败，尚未执行预期行为断言。没有用户数据操作或运行时错误证据。
+
+### 触发条件与复现
+
+新增路径依赖后，test-provider-old-paths.py 仍只复制 crates 与 twodrive-dev。CI 日志明确为 dependency manifest not found，不能记成旧行为成功复现。
+
+### 根因与证据
+
+变异 fixture 没有包含新的本地依赖闭包；真实工作区 Clippy 已通过，缺失只发生于生成的临时副本。
+
+### 解决办法与恢复操作
+
+复制新增适配层源码但排除 target/cache；显式使用 UTF-8/LF 编辑临时源码。保留原先“必须编译并失败于指定行为断言”的要求，不放宽断言或把任意编译失败当通过。无用户恢复操作。
+
+### 验证结果与边界
+
+d5d5823 的两平台失败日志已确认上述原因；修订后完整回归结果待 CI，不预填成功。正式 Provider/传输实现未修改。
+
+### 防复发措施与后续
+
+新增路径依赖时同步维护临时源码 fixture 闭包。原始 source tree 始终不被变异。
+
+### 交付记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)，失败 workflow 39551831290；最终结果见 PR exact-head 检查。
+
+## TD-20261021-01：新 CFAPI 探针的默认 Rust 构建保留本机源码路径
+
+- 日期：2026-10-21（UTC）
+- 状态：已验证仅候选构建的路径重映射及二进制检查；原候选从未上传。
+- 影响版本与环境：本次未发布 CFAPI 0.1.7-alpha.1 实验探针，Windows 11 x64；不影响已安装客户端。
+- 关联历史故障：无。本条记录新探针发行前发现的隐私边界问题。
+
+### 症状与影响
+
+默认 release/strip 构建仍有两处当前用户目录前缀，可能来自 Rust 运行时诊断位置；strip 不能作为路径脱敏证明。未上传包含这些路径的二进制，未读取用户文件或凭据。
+
+### 触发条件与复现
+
+在原生 Windows checkout 执行普通 cargo build --release，然后只统计可执行文件中的已知私人目录前缀，不输出其内容。原候选计数为 2。
+
+### 根因与证据
+
+Rust 的诊断位置字符串不完全属于可被 strip 移除的调试符号。当前证据确认前缀存在，不将所有匹配归因于某一个具体 panic 或源文件。
+
+### 解决办法与恢复操作
+
+新增 build-cfapi-probe.ps1：单任务离线可选构建、只对子进程临时设置路径重映射，恢复原环境；输出前检查 UTF-8/UTF-16 中的仓库/用户前缀并执行只读 capabilities 查询。生成的包不含 PDB、用户数据或缓存。无用户客户端/系统恢复操作。
+
+### 验证结果与边界
+
+原候选 2 处匹配；最终重映射原生可执行文件 0 处。重映射版本实际通过新生成同步根的 CFAPI 8 项场景；该测试根已注销，二次只读查询确认不再注册，所有夹具保留。详见 windows-cfapi-validation-2026-10-21.json。检查不是对任意第三方二进制的完整敏感信息审计；本次只分发探针、许可证和脱敏证据。
+
+### 防复发措施与后续
+
+Windows 适配层 CI 使用相同打包脚本，既有输出目录会被拒绝，路径检查失败时不会生成包。Explorer 外观、缩略图和整进程重启均未验收，不以测试成功扩大声明。
+
+### 交付记录
+
+[PR #39](https://github.com/LumiaBlack51/twodrive/pull/39)。发行源 SHA、包哈希与 CI 结果在预发布 verification.json 中记录；本条不预填尚未产生的提交。
+
 ## TD-20261016-03：MSIX 新回归继承 PowerShell 7 模块路径导致 5.1 校验失败
 
 - 日期：2026-10-16（Asia/Shanghai）

@@ -24,17 +24,20 @@ with tempfile.TemporaryDirectory(prefix='td-provider-old-') as directory:
     shutil.copytree(repository / 'crates', root / 'crates')
     project = root / 'experiments/twodrive-dev'
     shutil.copytree(experiment, project, ignore=shutil.ignore_patterns('target', '__pycache__'))
+    # Preserve the new local adapter dependency in the disposable source graph.
+    shutil.copytree(repository / 'experiments/windows-cfapi', root / 'experiments/windows-cfapi',
+                    ignore=shutil.ignore_patterns('target', '__pycache__'))
     env = dict(os.environ, CARGO_TARGET_DIR=str(experiment / 'target'))
     for filename, fixed, old, test in checks:
         path = project / 'src' / filename
-        original = path.read_text()
+        original = path.read_text(encoding='utf-8')
         assert original.count(fixed) == 1, f'Expected exactly one production expression in {filename}'
         try:
-            path.write_text(original.replace(fixed, old))
+            path.write_text(original.replace(fixed, old), encoding='utf-8', newline='\n')
             result = subprocess.run(['cargo', 'test', '--locked', '--bin', 'twodrive-dav-engine',
                 test, '--', '--exact'], cwd=project, env=env, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             assert result.returncode != 0 and 'a path was incorrectly used as a remote ID' in result.stdout, result.stdout[-6000:]
             print(f'Confirmed historical {filename} path-as-ID behavior fails {test}')
         finally:
-            path.write_text(original)
+            path.write_text(original, encoding='utf-8', newline='\n')

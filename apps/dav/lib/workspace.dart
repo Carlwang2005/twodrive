@@ -10,6 +10,9 @@ import 'sharing_page.dart';
 import 'package:window_manager/window_manager.dart';
 import 'client.dart';
 import 'profile_dialog.dart';
+import 'local_file_preflight.dart';
+import 'native_local_files.dart';
+import 'file_manager.dart';
 
 String bytes(num value) {
   if (value < 1024) {
@@ -158,7 +161,10 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
   Future<void> show() => showManagement(page);
   Future<void> openMount() async {
     if (c.mounted) {
-      await Process.run('xdg-open', [c.profile!['mount_path'] as String]);
+      await c.action(
+        '打开本地目录',
+        () => openLocalDirectory(c.profile!['mount_path'] as String),
+      );
     }
   }
 
@@ -1030,6 +1036,8 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                 : c.autostart,
           ),
         ),
+        if (c.canPreflightLocalFile) LocalFilePreflightCard(client: c),
+        if (c.canInspectNativeItems) NativeLocalFilesCard(client: c),
         if (c.canMount)
           Card(
             color: Colors.white,
