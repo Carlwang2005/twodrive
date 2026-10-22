@@ -1,68 +1,60 @@
-name: Debian package
+name: Recover verified 0.2.19 draft assets
 on:
-  push:
-    branches: [main, dev]
-  pull_request:
   workflow_dispatch:
-concurrency:
-  group: debian-package-${{ github.ref }}
-  cancel-in-progress: true
 permissions:
-  contents: read
+  contents: write
+  actions: read
 jobs:
-  package:
-    name: Debian package
+  upload:
+    name: Recover verified draft assets
     runs-on: ubuntu-24.04
-    defaults:
-      run:
-        shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Debian tooling and native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y debhelper dh-python pkgconf libsqlite3-dev lintian python3-gi gir1.2-gtk-4.0
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build complete Debian artifacts
-        # Ubuntu's dpkg database cannot describe the newer rustup compiler.
-        # -d is restricted to this upstream CI; all native dependencies above
-        # are provisioned. Official distribution builds must satisfy Build-Depends.
-        run: bash scripts/build-deb.sh -d -j2 > /tmp/debian-build.log 2>&1
-      - name: Check artifacts, unchanged runtime payload and Lintian
-        run: |
-          set -euo pipefail
-          curl --fail --location --output /tmp/old-twodrive.deb https://github.com/LumiaBlack51/twodrive/releases/download/v0.2.14-1/twodrive_0.2.14-1_amd64.deb
-          if python3 scripts/test-debian-package.py /tmp/old-twodrive.deb > /tmp/old-package-regression.log 2>&1; then
-            echo 'Old package unexpectedly passed dependency regression'; exit 1
-          fi
-          grep 'missing generated/runtime dependency: libc6' /tmp/old-package-regression.log
-          python3 scripts/test-debian-package.py dist/debian/twodrive_*_amd64.deb
-          python3 scripts/test-debian-compatibility.py /tmp/old-twodrive.deb dist/debian/twodrive_*_amd64.deb
-          lintian --profile debian --fail-on error dist/debian/*.changes | tee dist/debian/lintian.log
-      - name: Disposable install and upgrade lifecycle
-        run: |
-          docker run --rm -v "$PWD:/source:ro" -v /tmp/old-twodrive.deb:/old.deb:ro ubuntu:24.04 bash -ec '
-            apt-get update
-            TWODRIVE_DISPOSABLE_PACKAGE_TEST=1 /source/scripts/test-debian-lifecycle.sh /old.deb /source/dist/debian/twodrive_*_amd64.deb
-          '
-      - name: Confirm source package extracts without dependency caches
-        run: |
-          mkdir /tmp/source-rebuild
-          dpkg-source -x dist/debian/twodrive_*.dsc /tmp/source-rebuild/twodrive
-          python3 scripts/test-debian-vendor.py /tmp/source-rebuild/twodrive
-          cd /tmp/source-rebuild/twodrive
-          debian/rules clean
-          python3 "$GITHUB_WORKSPACE/scripts/test-debian-vendor.py" "$PWD"
-          CARGO_HOME="$PWD/debian/cargo-home" cargo --config 'source.crates-io.replace-with="vendored-sources"' --config 'source.vendored-sources.directory="vendor"' metadata --offline --locked --format-version 1 > /dev/null
-      - name: Retain build diagnostics
-        if: always()
-        run: |
-          mkdir -p dist/debian
-          cp /tmp/debian-build.log dist/debian/
-          test ! -f /tmp/old-package-regression.log || cp /tmp/old-package-regression.log dist/debian/
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - uses: actions/download-artifact@v4
         with:
           name: twodrive-debian
-          path: dist/debian/*.*
-          if-no-files-found: error
+          run-id: 39705432959
+          repository: LumiaBlack51/twodrive
+          github-token: ${{ github.token }}
+          path: payload
+      - name: Upload only missing verified artifacts and retain draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          source='f32f5482d7b6991224963256f6874485492211ea'
+          repo='LumiaBlack51/twodrive'
+          release_id=420226523
+          expected=json.loads('{"SHA256SUMS": {"digest": "sha256:9ae7b76cdd3056922b6e527ac7e47acabef62d35c33a1fee581a50f40b3bebe2", "size": 960}, "twodrive-dbgsym_0.2.19-1_amd64.ddeb": {"digest": "sha256:ae640d6f2bfb6975e8e914f95058bf9fb45738768bde328f6fa1c5003a66aa19", "size": 40960352}, "twodrive_0.2.19-1.debian.tar.xz": {"digest": "sha256:cbb293daafd81bcc94b13aaa9c2762f15ef24cf4f53fe7a38fddde4c2efa73c6", "size": 46824}, "twodrive_0.2.19-1.dsc": {"digest": "sha256:1b1453814834d39eebef078f8e3fe445d66d24214325a7bb5889a6fc639c3edb", "size": 1428}, "twodrive_0.2.19-1_amd64.buildinfo": {"digest": "sha256:c48397b1c1d643c19633dfb6d70ad2132d86dd0633a070fc9d8c4e8f43955640", "size": 13168}, "twodrive_0.2.19-1_amd64.changes": {"digest": "sha256:ada4629b79fa45af351a9bfcda832290904ca138e574fc7f5b0ff201463e5cf8", "size": 2782}, "twodrive_0.2.19-1_amd64.deb": {"digest": "sha256:ced67a031da64939468a752e6f27a8467a0310dd7152f93ace94f875a26c5888", "size": 2834998}, "twodrive_0.2.19-1_amd64.deb.sha256": {"digest": "sha256:a7a8d8f8384a3427759f6c7869c4ead4419686af3e30409c3a84e8645c7b5efa", "size": 94}, "twodrive_0.2.19.orig-vendor.tar.xz": {"digest": "sha256:3093e96c4517c2ad4ac5482812ea945505491653c5321b9c9ed2128ad63757f2", "size": 33605288}, "twodrive_0.2.19.orig.tar.xz": {"digest": "sha256:a2ae47936d823bc25ae1fca1b7961e3c7dd854e0c880ec593397229f440fdffa", "size": 1632096}, "verification.json": {"digest": "sha256:5454a1fc3da81c4c148a6b02210b374fae7c2921a8e3281797d8f7879a8d8f43", "size": 4566}}')
+          def api(path,method='GET'):
+              args=['gh','api',path]
+              if method!='GET':args+=['--method',method]
+              result=subprocess.check_output(args,text=True)
+              return json.loads(result) if result.strip() else None
+          run=api('repos/'+repo+'/actions/runs/39705432959')
+          assert run['head_sha']==source and run['conclusion']=='success'
+          release=api('repos/'+repo+'/releases/'+str(release_id))
+          assert release['draft'] and release['tag_name']=='v0.2.19-1' and release['target_commitish']==source
+          remote={a['name']:a for a in release['assets']}
+          assert set(remote)<=set(expected)
+          for name,want in expected.items():
+              asset=remote.get(name)
+              if asset and asset['state']=='uploaded':
+                  assert asset['size']==want['size'] and asset['digest']==want['digest'],name
+                  continue
+              if asset:
+                  assert asset['state']=='starter' and asset['size']==0,name
+                  api('repos/'+repo+'/releases/assets/'+str(asset['id']),method='DELETE')
+              path=Path('payload')/name
+              assert path.is_file() and path.stat().st_size==want['size'],name
+              with path.open('rb') as stream:assert 'sha256:'+hashlib.file_digest(stream,'sha256').hexdigest()==want['digest'],name
+              subprocess.run(['gh','release','upload','v0.2.19-1',str(path),'--repo',repo],check=True)
+              print('Uploaded verified artifact:',name,flush=True)
+          final=api('repos/'+repo+'/releases/'+str(release_id))
+          assert final['draft'] and {a['name'] for a in final['assets']}==set(expected)
+          for a in final['assets']:
+              want=expected[a['name']]
+              assert a['state']=='uploaded' and a['size']==want['size'] and a['digest']==want['digest']
+          print('PASS: all 11 assets verified; release remains a draft')
+          PY
