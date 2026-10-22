@@ -215,9 +215,17 @@
       {
         "kind": "obsolete 0.2.17 rollback twodrive-daemon",
         "allocated_bytes": 5853184
+      },
+      {
+        "kind": "generated Python bytecode in scripts",
+        "allocated_bytes": 73728
+      },
+      {
+        "kind": "generated Python bytecode in packaging/nautilus",
+        "allocated_bytes": 94208
       }
     ],
-    "total_allocated_bytes": 4385423360,
+    "total_allocated_bytes": 4385591296,
     "retained_rollback_version": "0.2.18",
     "scope": "Allocated blocks of task-owned deleted paths, not a full-disk free-space delta"
   },
