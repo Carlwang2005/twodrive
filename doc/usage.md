@@ -60,6 +60,8 @@ Pruning uses `cache.retain_for` (default `30d`) and preserves protected/in-progr
 
 The daemon applies this policy on startup and in its background maintenance loop (60 seconds between passes). Superseded saves and clean invalidated remote versions are reclaimed once no durable reference or open file lock needs their bytes. Unknown pre-existing cache files and explicit recovery directories are preserved.
 
+Linux trash at the mount root (`/.Trash-<numeric UID>` or `/.Trash/<numeric UID>`) is exempt from automatic cache retention. Both background maintenance and `cache prune` preserve existing caches for `.trashinfo` recovery metadata and trashed files/directories. This does not change pin policies or download cloud-only content. Emptying the trash or deleting an entry still propagates deletion; restoring an item outside the trash restores ordinary cache retention. An explicit **Release space** can still release these caches; restoring uncached content still requires a connection. Ordinary 30-day cache expiration only releases local bytes and does not empty either Linux or OneDrive trash.
+
 ## Tray and Settings
 
 The homepage's [real screenshot](../README.md) shows the tray **at idle**, not during a transfer. With activity present, the implementation lists the active count and up to five uploading/downloading filenames, with byte progress when available. `Sync: idle` is an activity snapshot, not proof that all queued operations succeeded.

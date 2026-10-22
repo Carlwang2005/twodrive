@@ -1,3 +1,13 @@
+twodrive (0.2.19-1) unstable; urgency=medium
+
+  * Preserve cached Linux trash metadata and payloads beyond cache retention.
+  * Recheck current trash paths before automatic eviction to cover moves.
+  * Keep explicit release, restore and trash removal behavior intact.
+  * Cover root trash layouts, cache boundaries and isolated daemon retention.
+  * Retain offline dpkg-buildpackage/debhelper source and binary builds.
+
+ -- Bai Lujia <198035981+LumiaBlack51@users.noreply.github.com>  Thu, 22 Oct 2026 09:22:34 +0800
+
 twodrive (0.2.18-1) unstable; urgency=medium
 
   * Reclaim superseded save caches after durable references and open users finish.
