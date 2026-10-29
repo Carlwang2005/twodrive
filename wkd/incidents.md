@@ -88,4 +88,3 @@ finally 恢复原 ProxyEnable=1 并启动原 VPN 程序；中断后检查 UI/cor
 ### 交付记录
 
 [矩阵、复现入口与验证边界](validation/udp-2026-10-25/README.zh-CN.md)。本次未确认生产机制修复；未合并或发布。
-
