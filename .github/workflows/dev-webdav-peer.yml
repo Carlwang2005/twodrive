@@ -6,6 +6,7 @@ on:
     paths:
       - 'experiments/twodrive-dev/**'
       - 'crates/**'
+      - 'wkd/**'
       - '.github/workflows/dev-webdav-peer.yml'
   workflow_dispatch:
     inputs:
@@ -52,7 +53,7 @@ jobs:
       - name: Reject a response belonging to another signed command
         run: python scripts/test-control-response.py
       - name: Reject false success and unbounded HTTP trickle in acceptance runner
-        run: python scripts/test-reliability.py
+        run: python ../../wkd/scripts/test-reliability.py
       - name: Confirm the DNS regression rejects the old selection
         run: python scripts/test-dns-old-selection.py
       - run: cargo test --locked ${{ matrix.args }}

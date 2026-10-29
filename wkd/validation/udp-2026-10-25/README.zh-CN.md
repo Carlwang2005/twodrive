@@ -68,16 +68,16 @@
 使用临时可丢弃目录，程序自动生成新状态、随机共享子目录；报告采用允许字段，不保存邀请、身份、凭据、IP、网卡 GUID 或原始 CLI 日志。
 
 ```powershell
-python experiments/twodrive-dev/scripts/test-reliability.py
-python experiments/twodrive-dev/scripts/reliability.py --binary <twodrive-dev.exe> --network lan --attempts 5 --small-count 0 --report <private-output>/lan.json
-python experiments/twodrive-dev/scripts/reliability.py --binary <twodrive-dev.exe> --network relay-only --attempts 5 --small-count 0 --report <private-output>/relay.json
-python experiments/twodrive-dev/scripts/reliability.py --binary <twodrive-dev.exe> --attempts 1 --small-count 1000 --full --faults --timeout 120 --report <private-output>/files.json
+python wkd/scripts/test-reliability.py
+python wkd/scripts/reliability.py --binary <twodrive-dev.exe> --network lan --attempts 5 --small-count 0 --report <private-output>/lan.json
+python wkd/scripts/reliability.py --binary <twodrive-dev.exe> --network relay-only --attempts 5 --small-count 0 --report <private-output>/relay.json
+python wkd/scripts/reliability.py --binary <twodrive-dev.exe> --attempts 1 --small-count 1000 --full --faults --timeout 120 --report <private-output>/files.json
 ```
 
 真实双机先使用 README 的 serve/connect 建立独立状态和可信配对，再运行已配对回环网关模式：
 
 ```powershell
-python experiments/twodrive-dev/scripts/reliability.py --gateway-port <local-port> --credentials <private-client-state>/credentials.json --attempts 1 --full --report <private-output>/device-A-to-B.json
+python wkd/scripts/reliability.py --gateway-port <local-port> --credentials <private-client-state>/credentials.json --attempts 1 --full --report <private-output>/device-A-to-B.json
 ```
 
 在另一端交换 serve/connect 角色后再运行。网关模式**不会**重新配对五次，也不会自动建立独立 NAT 证据或采集远端资源；须另行记录两端拓扑、出口、每次建连与路径时间序列。

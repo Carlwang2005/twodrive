@@ -12,7 +12,7 @@
 git -c core.longpaths=true clone --depth 1 --single-branch --branch codex/windows-two-device-handoff-20261028 https://github.com/Carlwang2005/twodrive.git C:\TwoDriveLab\repo
 ```
 
-进入仓库后阅读 AGENTS.md，并严格按 `doc/windows-two-device-handoff.zh-CN.md` 操作；先报告当前提交、环境和准备情况。源码基于上游 dev，实验后端为 experiments/twodrive-dev，桌面为 apps/dav。不要使用旧 Full/Lite 测试流程。
+进入仓库后阅读 AGENTS.md，并严格按 `wkd/docs/windows-two-device-handoff.zh-CN.md` 操作；先报告当前提交、环境和准备情况。源码基于上游 dev，实验后端为 experiments/twodrive-dev，桌面为 apps/dav。不要使用旧 Full/Lite 测试流程。
 
 所有工具链、依赖、源码和构建下载都放在 B 的家庭网络上完成。先构建 CLI 并跑独立回归；通过 U 盘把同一 exe 和必要脚本交给 A，双方核对 SHA-256。邀请和私钥不得上传 Git、公开聊天或 PR。
 

@@ -40,7 +40,7 @@ git remote -v
 ```
 
 仓库入口是 [个人 fork](https://github.com/Carlwang2005/twodrive)，交接分支为 `codex/windows-two-device-handoff-20261028`。
-传输基线来自上游 dev `0fc9e1203433144fcd8a69ce0580123880b50d1d`；测试工具提交为 `4a7b77f3027e3dfd85d3089c2b1adc16bdeb5f7e`，交接分支后续仅添加本文档。
+传输基线来自上游 dev `0fc9e1203433144fcd8a69ce0580123880b50d1d`；测试工具提交为 `4a7b77f3027e3dfd85d3089c2b1adc16bdeb5f7e`，交接分支后续仅添加文档、整理 wkd 路径及相应 CI 引用；未修改生产传输。
 记录当前实际 HEAD，后续两端使用同一 exe；不要自动更新到其他分支。浅克隆不一定包含父提交，不能以 `git show 4a7b77f` 不可用判断源码不对。
 
 首先阅读：
@@ -48,7 +48,7 @@ git remote -v
 1. 根目录 `AGENTS.md`、`CONTRIBUTING.md`。
 2. `experiments/twodrive-dev/README.zh-CN.md`，CLI 与配对说明。
 3. `doc/provider-boundaries-2026-10-13.md`，前后端与适配器边界。
-4. `doc/validation/udp-2026-10-25/README.zh-CN.md` 与 `doc/incidents.md`。
+4. `wkd/validation/udp-2026-10-25/README.zh-CN.md` 与 `doc/incidents.md`。
 5. `doc/peer-windows-egress-2026-10-12.json`，了解历史真机记录的验证边界。
 
 不使用 OneDrive Full/Lite，不启动真实账户或原有 TwoDrive 服务。
@@ -66,13 +66,13 @@ cargo --version
 $env:RUSTFLAGS = '-C target-feature=+crt-static'
 cargo build --manifest-path experiments/twodrive-dev/Cargo.toml --release --locked --bin twodrive-dev
 if ($LASTEXITCODE -ne 0) { throw '构建失败，先排查，不开始热点实验' }
-python experiments/twodrive-dev/scripts/test-reliability.py
+python wkd/scripts/test-reliability.py
 if ($LASTEXITCODE -ne 0) { throw '测试工具回归失败' }
 Get-FileHash experiments/twodrive-dev/target/release/twodrive-dev.exe -Algorithm SHA256
 ```
 
 这与仓库 Windows CI 的静态 CRT 构建参数相同。不要添加 Linux 的 `--features mount`。
-把该 exe 和 `scripts/reliability.py`、`scripts/test-reliability.py`、本文档通过 U 盘复制到两端的 `%LOCALAPPDATA%\TwoDriveLab\bin`。
+把该 exe 和 `wkd/scripts/reliability.py`、`wkd/scripts/test-reliability.py`、本文档通过 U 盘复制到两端的 `%LOCALAPPDATA%\TwoDriveLab\bin`。
 脚本存入其中的 `scripts` 子目录。两端各执行 `Get-FileHash`，SHA-256 必须完全相同；B 本地构建的散列不必等于过去 CI 的散列，但必须明确记录来源。
 本机旧 CI exe 的 SHA-256 为 `b1185b615eb63b266cc30baf3cfb7dbf8c5b1746e68117dcece92b1af034de17`，不要一端用旧 CI、另一端用新构建。
 
